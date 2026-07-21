@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { safeRedirectPath } from "@/lib/domain/safe-redirect";
 
 /**
  * Supabase auth code-exchange callback. Supabase's signup-confirmation email and any future
@@ -13,7 +14,9 @@ import { createClient } from "@/lib/supabase/server";
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/";
+  // Validated against open-redirect: only a same-origin relative path is honored, never an
+  // attacker-controlled off-origin target (see lib/domain/safe-redirect.ts).
+  const next = safeRedirectPath(searchParams.get("next"));
 
   if (code) {
     const supabase = await createClient();

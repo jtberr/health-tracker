@@ -76,12 +76,13 @@
    starts. qa-reviewer's independent acceptance suite (`e2e/phase1-acceptance.spec.ts`, 12 tests —
    auth gating, persistent login across reload/new context, unconfirmed-user login correctly
    blocked, auth-callback failure path) plus the developer's `e2e/auth.spec.ts` (6 tests) are both
-   green: 18/18 e2e, 36/36 unit, lint/typecheck/build all clean, run for real against a local
+   green: 18/18 e2e, 47/47 unit, lint/typecheck/build all clean, run for real against a local
    Supabase instance. Absolute Rules adversarial check came back clean (service-role key confirmed
-   absent from client bundles; auth gate uses non-spoofable `getUser()`). One non-blocking
-   hardening note for whenever it's convenient: `src/app/auth/callback/route.ts`'s `next` redirect
-   param isn't validated against open-redirect yet (not exploitable today, but should get a
-   `next.startsWith("/")` check before it carries real values).
+   absent from client bundles; auth gate uses non-spoofable `getUser()`). qa-reviewer's one
+   non-blocking hardening note — the auth callback's `next` redirect param wasn't validated against
+   open-redirect — is now fixed: `src/lib/domain/safe-redirect.ts` (`safeRedirectPath`) rejects
+   protocol-relative bypasses like `//evil.com` (not just a naive `startsWith("/")`, which that
+   string would still pass) and absolute URLs, with 11 unit tests covering it.
 2. **Manual setup Jeff needs — minimal, and already done as of this checkpoint:** Docker Desktop +
    `supabase start` running locally, `.env.local` populated, `git init` + push to a GitHub remote —
    all confirmed done. No GitHub Actions secrets are needed for CI (ephemeral local Supabase stack
