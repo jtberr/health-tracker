@@ -1,0 +1,5 @@
+-- Local dev / test seed data.
+--
+-- Empty for Phase 1 (no tables exist yet — see docs/architecture/food-weight-tracker.md §8,
+-- Phase 2 "Data model + RLS"). Phase 2 adds the schema migration; this file gains the two-user
+-- seed/fixtures referenced in that phase's scope once the tables exist.

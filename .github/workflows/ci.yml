@@ -1,0 +1,64 @@
+# Default: single-app repo, everything runs from the repo root.
+#
+# Adapting this for a monorepo (multiple apps in one repo, e.g. app/ + www/):
+#   1. Add `paths: ['<app-folder>/**']` under both `on.pull_request` and `on.push`
+#      so this workflow only runs when that app's files actually change.
+#   2. Add `defaults.run.working-directory: <app-folder>` at the job level so
+#      every `run:` step below executes inside the app folder instead of repo root.
+#   3. Copy this file once per app (e.g. ci-tools.yml, ci-www.yml) rather than
+#      trying to build every app in one workflow — each app gets its own
+#      independent pass/fail gate, matching independent deploys (e.g. Vercel's
+#      per-app root-directory setting).
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+    # paths: ['<app-folder>/**']   # uncomment + fill in for monorepo use
+  push:
+    branches: [main]
+    # paths: ['<app-folder>/**']   # uncomment + fill in for monorepo use
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    # defaults:
+    #   run:
+    #     working-directory: <app-folder>   # uncomment + fill in for monorepo use
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+
+      - name: Integration/acceptance tests
+        run: npm run test:e2e
+
+  gate:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Require all tests passed
+        run: echo "Merge only reaches here if build-and-test succeeded"
