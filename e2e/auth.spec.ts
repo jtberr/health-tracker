@@ -47,7 +47,10 @@ test.describe("login / logout / persistent session", () => {
     await page.getByRole("button", { name: "Log in" }).click();
 
     await expect(page).toHaveURL("/");
-    await expect(page.getByText(user.email)).toBeVisible();
+    // The email renders both in the nav and the dashboard body, so getByText(user.email) is
+    // ambiguous (Playwright strict mode). The "Log out" control is unique and just as clear a
+    // signal that login succeeded and the dashboard rendered.
+    await expect(page.getByRole("button", { name: "Log out" })).toBeVisible();
   });
 
   test("an invalid password shows an error and does not grant access", async ({ page }) => {
@@ -70,7 +73,8 @@ test.describe("login / logout / persistent session", () => {
     await page.reload();
 
     await expect(page).toHaveURL("/");
-    await expect(page.getByText(user.email)).toBeVisible();
+    // See note above: scope to "Log out" rather than the ambiguous email text.
+    await expect(page.getByRole("button", { name: "Log out" })).toBeVisible();
   });
 
   test("logging out clears the session and re-gates protected routes", async ({ page }) => {

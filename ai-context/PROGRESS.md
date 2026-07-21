@@ -5,7 +5,7 @@
 
 ---
 
-## Current Status: Phase 1 (Foundation) implemented by developer; awaiting qa-reviewer's independent acceptance-test pass and Jeff's approval before Phase 2 (Data model + RLS) starts. CI now provisions its own ephemeral Supabase, so `test:e2e` can go green with no secrets and no hosted project.
+## Current Status: Phase 1 (Foundation) checkpoint complete and green — qa-reviewer verdict was "ready to approve on the merits"; the two trivial test-harness bugs it found are now fixed. Awaiting Jeff's approval of the checkpoint before Phase 2 (Data model + RLS) starts.
 
 ---
 
@@ -72,30 +72,25 @@
   in `ai-context/DECISIONS.md` ("CI runs an ephemeral local Supabase instance …").
 
 ## Up Next
-1. **qa-reviewer** runs the Phase 1 checkpoint: independent acceptance tests from the spec for
-   auth gating + persistent login (§6/§8 Phase 1 scope), adversarial review of the code above. This
-   now runs two ways: (a) on any PR to `main`, CI itself provisions Supabase and runs `test:e2e`; or
-   (b) locally, which still needs Docker Desktop available to run `supabase start`.
-2. Jeff reviews and approves the Phase 1 checkpoint.
-3. **Manual setup Jeff needs — now minimal (CI no longer blocks on any of it):**
-   - `git init` this repo and push it to a GitHub remote so Actions actually run (still not a git
-     repo — create-next-app would have initialized one, but scaffolding was copied in from a scratch
-     dir specifically to avoid an unrequested `git init`). This is the only step required before CI
-     can go green.
-   - **No GitHub Actions secrets are needed for CI** — the workflow uses the ephemeral local Supabase
-     stack's fixed non-secret keys. `SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY` do
-     **not** need to be added as repo secrets. `USDA_FDC_API_KEY` is also not required (mocked in CI;
-     even in Phase 6 CI mocks the provider — a real key is only for hitting the live USDA API).
-   - **A hosted Supabase project is only needed eventually for the real Vercel production deploy**,
-     not for CI: at that point create the project, run the migrations against it, and set
-     `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY` (and any server-only keys) in the
-     **Vercel** environment (not GitHub secrets). For local dev, `supabase start` + a `.env.local`
-     from `.env.example` remains the path.
-4. **Phase 2 (Data model + RLS)** starts once Phase 1 is approved — the highest-priority test
+1. **Jeff reviews and approves the Phase 1 checkpoint** — the only remaining gate before Phase 2
+   starts. qa-reviewer's independent acceptance suite (`e2e/phase1-acceptance.spec.ts`, 12 tests —
+   auth gating, persistent login across reload/new context, unconfirmed-user login correctly
+   blocked, auth-callback failure path) plus the developer's `e2e/auth.spec.ts` (6 tests) are both
+   green: 18/18 e2e, 36/36 unit, lint/typecheck/build all clean, run for real against a local
+   Supabase instance. Absolute Rules adversarial check came back clean (service-role key confirmed
+   absent from client bundles; auth gate uses non-spoofable `getUser()`). One non-blocking
+   hardening note for whenever it's convenient: `src/app/auth/callback/route.ts`'s `next` redirect
+   param isn't validated against open-redirect yet (not exploitable today, but should get a
+   `next.startsWith("/")` check before it carries real values).
+2. **Manual setup Jeff needs — minimal, and already done as of this checkpoint:** Docker Desktop +
+   `supabase start` running locally, `.env.local` populated, `git init` + push to a GitHub remote —
+   all confirmed done. No GitHub Actions secrets are needed for CI (ephemeral local Supabase stack
+   per job); a hosted Supabase project is only needed later, for the real Vercel production deploy.
+3. **Phase 2 (Data model + RLS)** starts once Phase 1 is approved — the highest-priority test
    surface (cross-user isolation on a greenfield multi-user app), deliberately isolated before any
-   feature UI is built on top of it. (Phase 2's migrations will now actually run in CI via the
-   ephemeral Supabase step, so RLS/constraint acceptance tests execute on every PR.)
-5. Phases 3–9 follow per §8's dependency order (only 1→2→3 and 6→7 are hard dependencies; 4–8
+   feature UI is built on top of it. Phase 2's migrations will run in CI via the ephemeral Supabase
+   step, so RLS/constraint acceptance tests execute on every PR.
+4. Phases 3–9 follow per §8's dependency order (only 1→2→3 and 6→7 are hard dependencies; 4–8
    can be resequenced by priority later if wanted).
 
 ## Notes / Things Discovered
