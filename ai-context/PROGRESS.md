@@ -5,7 +5,7 @@
 
 ---
 
-## Current Status: Phase 1 (Foundation) implemented by developer; awaiting qa-reviewer's independent acceptance-test pass and Jeff's approval before Phase 2 (Data model + RLS) starts.
+## Current Status: Phase 1 (Foundation) implemented by developer; awaiting qa-reviewer's independent acceptance-test pass and Jeff's approval before Phase 2 (Data model + RLS) starts. CI now provisions its own ephemeral Supabase, so `test:e2e` can go green with no secrets and no hosted project.
 
 ---
 
@@ -59,26 +59,42 @@
   Playwright auth spec (`e2e/auth.spec.ts`) are established per the doc's Phase 1 §6 scope, for
   qa-reviewer to run and extend — **not executed by the developer** (no Docker in the dev sandbox,
   so no local Supabase instance to run against; see Notes below for full verification status).
+- [x] **CI/Supabase gap resolved** (architect owns `.github/workflows/ci.yml`). CI now stands up an
+  **ephemeral local Supabase stack inside the job** (`supabase/setup-cli` + `supabase start` against
+  the committed `supabase/config.toml`) and captures its fixed local API URL / anon key /
+  service-role key at runtime via `supabase status -o env --override-name …` → `$GITHUB_ENV` as
+  `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`. The
+  `build`, the Playwright-launched Next server, and `test:e2e` (incl. the service-role
+  `e2e/helpers/admin-client.ts` helper) now all have a working backend. Playwright browser install
+  added. `USDA_FDC_API_KEY` no longer referenced as a hard requirement — a `'ci-dummy-usda-key'`
+  fallback keeps it defined (CI mocks lookup providers). Net effect: **no GitHub Actions secrets are
+  required for CI to go green, and no hosted Supabase project is needed for CI.** Decision recorded
+  in `ai-context/DECISIONS.md` ("CI runs an ephemeral local Supabase instance …").
 
 ## Up Next
 1. **qa-reviewer** runs the Phase 1 checkpoint: independent acceptance tests from the spec for
-   auth gating + persistent login (§6/§8 Phase 1 scope), adversarial review of the code above.
-   This requires `npx supabase start` (Docker) actually running, which the developer's sandbox
-   did not have — qa-reviewer's environment needs Docker Desktop available.
+   auth gating + persistent login (§6/§8 Phase 1 scope), adversarial review of the code above. This
+   now runs two ways: (a) on any PR to `main`, CI itself provisions Supabase and runs `test:e2e`; or
+   (b) locally, which still needs Docker Desktop available to run `supabase start`.
 2. Jeff reviews and approves the Phase 1 checkpoint.
-3. Manual setup Jeff needs to do before Phase 1 can run against anything real (none of this is
-   possible from an AI sandbox): create a real Supabase project (or just use `supabase start`
-   locally) and fill in `.env.local` from `.env.example`; `git init` this repo (still not a git
-   repo — create-next-app would have initialized one automatically, but scaffolding was done in a
-   scratch directory and copied in specifically to avoid that without being asked); once a remote
-   exists, add the `SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY` GitHub Actions
-   secrets `.github/workflows/ci.yml` expects (`USDA_FDC_API_KEY` can wait for Phase 6); decide
-   with the architect whether `.github/workflows/ci.yml` needs a Supabase-in-CI step (e.g.
-   `supabase/setup-cli` + `supabase start`) for `test:e2e` to run in CI at all — out of scope for
-   the developer role, which doesn't own that file.
+3. **Manual setup Jeff needs — now minimal (CI no longer blocks on any of it):**
+   - `git init` this repo and push it to a GitHub remote so Actions actually run (still not a git
+     repo — create-next-app would have initialized one, but scaffolding was copied in from a scratch
+     dir specifically to avoid an unrequested `git init`). This is the only step required before CI
+     can go green.
+   - **No GitHub Actions secrets are needed for CI** — the workflow uses the ephemeral local Supabase
+     stack's fixed non-secret keys. `SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY` do
+     **not** need to be added as repo secrets. `USDA_FDC_API_KEY` is also not required (mocked in CI;
+     even in Phase 6 CI mocks the provider — a real key is only for hitting the live USDA API).
+   - **A hosted Supabase project is only needed eventually for the real Vercel production deploy**,
+     not for CI: at that point create the project, run the migrations against it, and set
+     `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY` (and any server-only keys) in the
+     **Vercel** environment (not GitHub secrets). For local dev, `supabase start` + a `.env.local`
+     from `.env.example` remains the path.
 4. **Phase 2 (Data model + RLS)** starts once Phase 1 is approved — the highest-priority test
    surface (cross-user isolation on a greenfield multi-user app), deliberately isolated before any
-   feature UI is built on top of it.
+   feature UI is built on top of it. (Phase 2's migrations will now actually run in CI via the
+   ephemeral Supabase step, so RLS/constraint acceptance tests execute on every PR.)
 5. Phases 3–9 follow per §8's dependency order (only 1→2→3 and 6→7 are hard dependencies; 4–8
    can be resequenced by priority later if wanted).
 
@@ -120,5 +136,16 @@
   chose Vitest (`npm test`, unit tests, jsdom environment) and Playwright (`npm run test:e2e`,
   acceptance/integration) as the conventional current choices for a Next.js/TypeScript stack —
   flagging as a new implicit decision for the record (see DECISIONS.md).
+- 2026-07-20: **CI/Supabase gap (was Up Next item 3) resolved by the architect** — `ci.yml` now runs
+  an ephemeral local Supabase instance in-job rather than expecting a hosted project + GitHub
+  secrets. Chose the ephemeral approach over a hosted CI-dedicated project because it needs zero
+  secrets, zero pre-flight setup from Jeff, and mirrors local dev exactly (Supabase's documented CI
+  pattern); full reasoning + the rejected hosted alternative are in `ai-context/DECISIONS.md`. Two
+  implementation notes for whoever runs it first: (a) the workflow relies on
+  `supabase status -o env --override-name api.url=… auth.anon_key=… auth.service_role_key=…`, which
+  is the current CLI syntax — if a future CLI renames those keys the override-names must follow; and
+  (b) `test:e2e` assumes Playwright's `webServer` inherits the exported `$GITHUB_ENV` values (it runs
+  in the same job, so it does) — the developer's `playwright.config.ts` webServer should not hardcode
+  a different Supabase URL.
 
 ---

@@ -289,4 +289,28 @@ was never actually run here — the config is believed correct (matches document
 the design doc's decisions) but unverified until someone with Docker runs it, which is now the
 first item on the Phase 1 qa-reviewer checklist.
 
+### CI runs an ephemeral local Supabase instance — no hosted "CI project", no GitHub Actions secrets
+**Date**: 2026-07-20
+**Decision**: `.github/workflows/ci.yml` spins up an **ephemeral local Supabase stack inside the CI
+job** (Docker, via `supabase/setup-cli` + `supabase start` against the committed
+`supabase/config.toml`) — the same stack local dev runs — rather than pointing CI at a hosted
+CI-dedicated Supabase project. The running stack's fixed local API URL / anon key / service-role key
+are captured at runtime with `supabase status -o env --override-name …` and appended to `$GITHUB_ENV`
+as `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`, so the
+`build`, the Playwright-launched Next server, and `test:e2e` (including the service-role
+`e2e/helpers/admin-client.ts` test-user helper) all work. Result: **zero GitHub Actions secrets are
+required for CI to go green, and no hosted project is needed for CI at all.** `USDA_FDC_API_KEY` is
+also not required (CI mocks the lookup providers) — the workflow uses a `'ci-dummy-usda-key'`
+fallback, so it never blocks Phase 1's CI.
+**Why**: (recommendation evaluated and adopted) This mirrors local dev exactly, is Supabase's
+documented CI pattern, and removes every pre-flight setup step that would otherwise block CI —
+nothing for Jeff to provision or configure before Phase 1 turns green. The local demo keys are
+well-known non-secret values; capturing them via `supabase status -o env` (instead of hardcoding the
+JWTs) is resilient to CLI/key changes. Rejected the hosted-CI-project-plus-secrets alternative
+(which would be "closer to production") because it adds a project to provision and maintain, real
+secrets to store/rotate (`SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY`), and a gate
+that blocks CI until configured — disproportionate for a solo v1 whose migrations and RLS run
+identically on the local stack. A hosted Supabase project is still needed **eventually, only for the
+real Vercel production deploy** (with its own env vars set in Vercel, not GitHub) — not for CI.
+
 ---
