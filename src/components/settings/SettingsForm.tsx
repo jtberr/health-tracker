@@ -113,27 +113,27 @@ function SettingsFields({
       <fieldset className="flex flex-col gap-2">
         <legend className={labelClass}>Weight unit</legend>
         <div className="inline-flex w-fit rounded-lg border border-zinc-200 bg-zinc-50 p-1">
-          <label className="cursor-pointer">
+          <label className="relative cursor-pointer">
             <input
               type="radio"
               name="weightUnit"
               value="kg"
               checked={weightUnit === "kg"}
               onChange={() => setWeightUnit("kg")}
-              className="peer sr-only"
+              className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
             />
             <span className="block rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 transition-colors peer-checked:bg-white peer-checked:text-indigo-700 peer-checked:shadow-sm">
               Kilograms (kg)
             </span>
           </label>
-          <label className="cursor-pointer">
+          <label className="relative cursor-pointer">
             <input
               type="radio"
               name="weightUnit"
               value="lb"
               checked={weightUnit === "lb"}
               onChange={() => setWeightUnit("lb")}
-              className="peer sr-only"
+              className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
             />
             <span className="block rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 transition-colors peer-checked:bg-white peer-checked:text-indigo-700 peer-checked:shadow-sm">
               Pounds (lb)

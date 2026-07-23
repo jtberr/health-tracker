@@ -5,7 +5,6 @@ import { proteinCaloriePct } from "@/lib/domain/nutrition";
 import { sumEntries } from "@/lib/domain/totals";
 import { utcToLocalTime } from "@/lib/domain/datetime";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
 import type { FoodEntry } from "@/lib/types";
 
 /**
@@ -42,7 +41,10 @@ export function FoodEntryList({
         const groupPct = proteinCaloriePct(groupTotals.proteinG, groupTotals.calories);
 
         return (
-          <Card key={group.consumedAt} className="overflow-hidden">
+          <section
+            key={group.consumedAt}
+            className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm"
+          >
             <header className="flex items-center justify-between border-b border-zinc-100 bg-zinc-50 px-4 py-2.5">
               <span className="text-sm font-semibold text-zinc-700">{time}</span>
               <span className="text-sm text-zinc-500">
@@ -81,7 +83,7 @@ export function FoodEntryList({
                 );
               })}
             </ul>
-          </Card>
+          </section>
         );
       })}
     </div>
