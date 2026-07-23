@@ -313,4 +313,84 @@ that blocks CI until configured — disproportionate for a solo v1 whose migrati
 identically on the local stack. A hosted Supabase project is still needed **eventually, only for the
 real Vercel production deploy** (with its own env vars set in Vercel, not GitHub) — not for CI.
 
+### `food_entries.logged_from_meal_id` stays a plain FK (RLS + app-layer write invariant), NOT a composite ownership FK like `meal_items.meal_id`
+**Date**: 2026-07-21
+**Decision**: Keep `food_entries.logged_from_meal_id` as a **plain single-column `FK → meals(id) ON DELETE
+SET NULL`** — it does not carry or check the meal owner's `user_id`, and deliberately does *not* mirror the
+composite `(meal_id, user_id) → meals(id, user_id)` FK that `meal_items` uses. Same-owner-ness of this column
+is instead guaranteed on the **write path**: `logMealForDay` (Phase 7) may set `logged_from_meal_id` only to a
+meal it read as the acting user's own through the RLS-scoped server client, never the service-role client.
+The design doc's §3.2 and §8 Phase 7 were updated to state this app-layer invariant explicitly (it was
+previously implicit — which is how qa-reviewer's flag came to be raised), plus a Phase 7 qa-reviewer test
+(`logMealForDay` with another user's `mealId` fails and writes no rows). Raised by qa-reviewer at the Phase 2
+checkpoint as non-blocking; evaluated and closed as "keep as-is, document the invariant."
+**Why**: The composite FK on `meal_items` is load-bearing for a specific reason that does **not** transfer to
+`food_entries`. `meal_items.user_id` is a *denormalized copy of the owner that RLS itself trusts* (RLS keys
+off that column, not off a join to `meals`), and a meal item is a composition of its parent meal
+(`ON DELETE CASCADE`, no independent existence) — so its owner column must be kept in lockstep with
+`meals.user_id`, which is exactly what the composite FK enforces; without it the denormalized owner could
+drift or be spoofed and RLS would be trusting a lie. `food_entries` has none of that: a food entry is an
+independent aggregate root, and `logged_from_meal_id` is a *weak informational back-reference*, **not** an RLS
+discriminator — `food_entries` RLS keys purely off `food_entries.user_id`. So a stray cross-user
+`logged_from_meal_id` corrupts no trust boundary: any read that joins it back to `meals` goes through the
+RLS-scoped client and a foreign reference resolves to **null/invisible** (RLS filters `meals` to the caller's
+own rows), never to another user's data — the same already-accepted "points to a since-invisible/deleted
+concept" state `ON DELETE SET NULL` already embraces. No planned Phase 3+ query breaks or leaks on it: copy/
+repeat (Phase 8) *drops* `logged_from_meal_id` outright, and `FoodEntryList` labeling just shows no "from
+meal" label for an unresolved reference (cosmetic, self-inflicted, no leak). A composite FK would also fight
+the required delete semantics: a plain composite `ON DELETE SET NULL` nulls **all** referencing columns —
+including the row's own NOT NULL `user_id` — breaking the row when a meal is deleted; avoiding that needs the
+less-common Postgres-15 `ON DELETE SET NULL (logged_from_meal_id)` column-list variant, i.e. real added
+complexity purely to defend an invariant RLS already makes non-load-bearing. Net: RLS-on-read fully contains
+any exposure, the natural `ON DELETE SET NULL` (delete a meal, keep the logged history — a core decision) is
+cleaner as a plain FK, and the one genuine gap (nothing stopped a *direct* authenticated insert from writing a
+foreign meal id) is closed where it actually matters — the server action — and now stated explicitly rather
+than left implicit. No migration change required.
+
+### `user_goals` ensure-row reads its result from the same `upsert(...).select()` call, never a separate re-`select`
+**Date**: 2026-07-22
+**Decision**: `getGoals()`'s first-visit "create the default row" path is one call —
+`.upsert({ user_id }, { onConflict: 'user_id' }).select().single()` — not an insert (or
+ignore-duplicates upsert) followed by a second, separately issued `select` to read the row back.
+**Why**: A separate re-`select` was tried first and intermittently returned an empty result even
+though the insert had already committed (confirmed via direct debug logging: the insert returned
+`201 Created`, an unfiltered `select *` right after saw the new row, but a *differently-shaped-only-
+by-coincidence-of-being-identical-to-an-earlier-call* filtered re-select did not). Root cause: the
+re-select had the exact same table/filter shape as an earlier "does a row already exist" check
+earlier in the same Server Component render, and Next.js App Router's fetch **Request
+Memoization** deduped the two, serving the first (pre-insert, empty) call's cached result instead
+of re-querying Postgres. Reading the row back from the mutating call's own response sidesteps this
+by construction — there is no second identically-shaped request to collide with. This is not
+`goals.ts`-specific: **any Server Component that reads, writes, then re-reads within one render**
+can hit this, so any future get-or-create-style logic (a Phase 5+ read-modify-read flow) should
+prefer "read the mutation's own response" over "mutate, then issue a plain re-select" whenever
+the two reads could end up shaped identically. Logged in more detail in
+`ai-context/PROGRESS.md`'s Notes for 2026-07-22.
+
+### `SettingsForm`'s fields remount (keyed on `updated_at`) after every successful save, rather than staying one long-lived controlled component
+**Date**: 2026-07-22
+**Decision**: `SettingsForm` is split into an outer component (owns `useActionState`/`formAction`)
+and an inner `SettingsFields` component keyed on the latest known-good `user_goals` row's
+`updated_at` (the just-saved row on success, otherwise the initial server-fetched row). A
+successful save therefore remounts `SettingsFields` with fresh local state, rather than the same
+instance's controlled state persisting across the submit.
+**Why**: Caught only by manually driving the app in a real browser, not by the automated
+suite — `e2e/phase4-acceptance.spec.ts` asserts the *stored* value via a direct DB read after
+reload, which was always correct, so it never exercised the *immediate* post-save DOM. In the
+browser, right after a successful save the "Weight unit" radio visibly snapped back to its
+pre-save selection (e.g. back to kg after saving lb) even though the save itself was correct.
+Root cause: React resets the underlying native `<form>` once a form Action settles, and that
+reset directly mutates the DOM `checked` property outside of React's own reconciliation; since
+the component's `weightUnit` state hadn't changed (the user's selection was never undone, only
+the native DOM), React had no reason to re-assert the correct `checked` value on its next render,
+so the mismatch stuck until something else (like a reload, which re-derives fully from the
+server-fetched row) forced a fresh render. Remounting via a key that changes on every successful
+save sidesteps this by construction — the new instance's DOM is created fresh from the
+already-correct saved data, so there's nothing for the native reset to desync. This is the same
+"reset state via key" pattern `MetricForm` already uses when switching days, applied to the
+"successful save" transition instead. **General implication for future phases**: any form using
+`useActionState` with a *controlled* checkbox/radio (not just text inputs) should be checked for
+this exact symptom by hand in a browser — it will not surface from automated tests that only
+assert the persisted DB value or a post-reload render.
+
 ---

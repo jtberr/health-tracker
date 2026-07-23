@@ -1,11 +1,11 @@
 # Progress
 # Health Tracker
 
-**Last updated**: 2026-07-20
+**Last updated**: 2026-07-22
 
 ---
 
-## Current Status: Phase 1 (Foundation) checkpoint complete and green — qa-reviewer verdict was "ready to approve on the merits"; the two trivial test-harness bugs it found are now fixed. Awaiting Jeff's approval of the checkpoint before Phase 2 (Data model + RLS) starts.
+## Current Status: Phase 4 (weight/body-fat logging + goals/settings) qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Phase 5 (trend charts) starting next.
 
 ---
 
@@ -70,29 +70,180 @@
   fallback keeps it defined (CI mocks lookup providers). Net effect: **no GitHub Actions secrets are
   required for CI to go green, and no hosted Supabase project is needed for CI.** Decision recorded
   in `ai-context/DECISIONS.md` ("CI runs an ephemeral local Supabase instance …").
+- [x] **Phase 2 (Data model + RLS) implemented** (developer), DB-only per scope (no UI/actions).
+  One FK-ordered migration (`supabase/migrations/20260721000000_food_weight_tracker_schema.sql`):
+  all five tables (`meals`, `meal_items`, `food_entries`, `daily_metrics`, `user_goals`) +
+  `daily_food_totals` view (`security_invoker = true`); four-policy RLS (`user_id = (select
+  auth.uid())`) on every table; `set_consumed_local_date` + `updated_at` triggers; STORED generated
+  `calories`/`protein_g` columns; `food_entries_not_future_day` / `daily_metrics_not_future_day`
+  CHECK constraints; composite `(meal_id, user_id)` FK on `meal_items` for cross-user integrity;
+  `weight_unit` enum CHECK; explicit `GRANT`s to `authenticated`/`service_role` (needed because
+  `auto_expose_new_tables` is off). `supabase/seed.sql` replaced with two real confirmed users
+  (alice/bob) and fixtures across all five tables. Developer added `e2e/db-schema.spec.ts` (29
+  tests) + `e2e/helpers/user-client.ts`. Three deviations from the literal doc text, all reviewed
+  and accepted by qa-reviewer: `meal_items.sort_order` added early (Phase 7 needs it), RLS policies
+  wrap `auth.uid()` as `(select auth.uid())` (Postgres perf pattern, `db advisors`-flagged), and
+  "the unit enum" in the Phase 2 scope text resolved as `user_goals.weight_unit` (not
+  `food_entries.unit`, which stays free-text per §3.2). Docker/Supabase CLI were available in this
+  sandbox (unlike Phase 1) — migration + seed were actually run via `supabase db reset`, not just
+  believed correct.
+- [x] **Phase 2 qa-reviewed** (qa-reviewer). Independent acceptance suite written from the design
+  doc's spec (not from the developer's test file), `e2e/phase2-acceptance.spec.ts`, 23 tests —
+  green. Full suite from a clean `supabase db reset`: unit 47/47, e2e 70/70 (23 new + developer's
+  29 + 18 Phase 1), typecheck/lint/build clean, `supabase db lint`/`db advisors --local` clean.
+  Verified directly (not trusted from the migration source): RLS actually enabled
+  (`relrowsecurity = true`) on all five tables with exactly four correctly-keyed policies each;
+  `anon` role has no SELECT/INSERT/UPDATE/DELETE grants (Data API can't reach the tables
+  unauthenticated); generated columns are truly STORED and un-settable; cross-user `meal_item`
+  forgery rejected on both the FK path and the RLS `WITH CHECK` path; `consumed_local_date` trigger
+  correct near-midnight and across travelling timezones; service-role key confirmed absent from
+  `src/` and from the built `.next` output. **Verdict: ready to gate to production, no blocking
+  findings.** One informational (non-blocking) finding for later: `food_entries.logged_from_meal_id`
+  is a plain FK to `meals(id)` with no per-user ownership constraint (matches the design doc exactly
+  — only `meal_items` gets the composite `(meal_id, user_id)` FK — and RLS still prevents any actual
+  data leak), but Phase 7's `logMealForDay` must only ever populate it from the acting user's own
+  meals; the architect may want to consider a composite ownership FK for defense-in-depth when
+  Phase 7 is designed.
+- [x] **`logged_from_meal_id` FK question resolved** (architect, at Jeff's request). Verdict: keep
+  the plain single-column `FK → meals(id) ON DELETE SET NULL` as-is — **no migration change**. RLS
+  on `food_entries` keys only off `food_entries.user_id` (never off `logged_from_meal_id`), so a
+  stray cross-user reference just resolves to null/inaccessible on read, never to another user's
+  data — the same acceptable state as any `ON DELETE SET NULL` reference. `meal_items`' composite
+  `(meal_id, user_id)` FK doesn't transfer: that column is a *denormalized owner RLS itself trusts*
+  on a *compositional* child row (`ON DELETE CASCADE`), which must stay in lockstep with the parent;
+  `logged_from_meal_id` is an independent aggregate's weak back-reference, and forcing a composite FK
+  there would fight the required "delete a meal, keep the logged history" semantics (Postgres'
+  default composite `ON DELETE SET NULL` would null the row's own NOT NULL `user_id` too, requiring
+  the less-common column-list SET NULL variant just to defend an invariant RLS already makes
+  non-load-bearing). The one real gap — nothing at the DB level stops a *direct* insert from writing
+  a foreign meal id — is closed at the correct layer instead: design doc §8 Phase 7 now explicitly
+  requires `logMealForDay` to populate `logged_from_meal_id` only from meals read via the RLS-scoped
+  client (so a foreign id is structurally unreachable on the write path), plus a qa-reviewer test for
+  it when Phase 7 is built. Full reasoning in `ai-context/DECISIONS.md`
+  ("`logged_from_meal_id` stays a plain FK...", 2026-07-21); doc changes in
+  `docs/architecture/food-weight-tracker.md` §3.2 ("Deliberate FK asymmetry") and §8 Phase 7.
+- [x] **Phase 3 (Core food logging loop) implemented** (developer), against the approved Phase 2
+  schema. Domain modules in `src/lib/domain/` (`nutrition`, `entry-grouping`, `quantity`, `totals`,
+  `datetime` incl. `floorToQuarterHour`/`defaultConsumedAtForNextEntry`/tz-conversion helpers,
+  `validation`), each with unit tests; server actions `src/lib/actions/food.ts`
+  (`addFoodEntry`/`updateFoodEntry`/`deleteFoodEntry`, future-day guarded, `user_id` server-session-
+  only); components `FoodEntryForm`/`FoodEntryList`/`DailyTotals`/`FoodDayView`/`TodaySummary`;
+  `src/app/(app)/food/page.tsx`; dashboard today-summary + nav link. `e2e/food-logging.spec.ts` (11
+  tests). Docker/Supabase available — run for real, not just believed correct: 116/116 unit,
+  81/81 e2e, lint/typecheck/build clean. Four deviations, all reviewed and accepted by qa-reviewer:
+  (1) `/food`/dashboard reads go through the RLS-scoped **browser** client rather than a Server
+  Component fetch — "today" is a browser-timezone question and day-switching is client state anyway;
+  confirmed still genuinely RLS-scoped, service-role key absent from client bundles; (2) one
+  `react-hooks/set-state-in-effect` lint suppression for a standard fetch-on-dependency-change
+  pattern; (3) edit mode always shows full quantity/unit detail rather than staying progressively
+  disclosed (progressive disclosure is a new-entry speed aid; editing needs real values visible);
+  (4) editing an entry preserves its originally-captured `consumed_tz` rather than recomputing from
+  the current browser tz, so an unrelated edit can't silently shift `consumed_local_date` or split a
+  travelling user's meal group — qa-reviewer built a Tokyo-entry/New-York-browser scenario and
+  confirmed this holds.
+- [x] **Phase 3 qa-reviewed** (qa-reviewer). Independent acceptance suite from the design doc's spec
+  (not from the developer's test file), `e2e/phase3-acceptance.spec.ts`, 11 tests — green, targeting
+  edges the developer's suite didn't: one-minute-apart entries NOT grouping (proves exact-match, not
+  a window); an extreme 160%/2.2% ratio-of-sums case proving the naive average (81%) is never shown,
+  only the calorie-weighted figure (18%); future-day rejection verified by a direct DB query
+  confirming zero rows written (not just a UI-level check); off-grid `12:07` rejected **server-side**
+  after bypassing the native time-input grid; cross-user read/update/delete isolation through the
+  action surface (not just RLS in the abstract). Full suite from a clean `supabase db reset`: e2e
+  92/92 (11 new + developer's 11 + 70 prior), lint/typecheck/build clean. Adversarial code review of
+  `src/lib/actions/food.ts` confirmed: `user_id` never client-supplied (always from `getUser()`,
+  update/delete additionally `.eq("user_id", user.id)` on top of RLS); future-day cap enforced
+  server-side on both add and edit (not just client `max`); "today" derivation never uses server
+  clock/naive UTC truncation, only the trigger-derived `consumed_local_date` and per-entry `tz`;
+  `calories`/`protein_g` are only ever the DB's generated columns, never computed/duplicated in app
+  code; service-role key confirmed absent from `.next/static` bundles. **Verdict: ready to gate to
+  production, no blocking findings.** Two non-blocking notes: (a) `FoodDayView.tsx`'s day-switch
+  fetch has no stale-response guard (unlike `TodaySummary.tsx`, which correctly uses one) — rapid
+  day-switching could briefly render the wrong day's entries, self-corrects on next fetch, no data
+  risk; (b) `quantity.ts`'s `lineTotal` helper is unused by app code (only its own unit test), noting
+  for awareness, not a defect. **Environment caveat (pre-existing, not a Phase 3 issue):** `npm test`
+  fails to start under Node 24 (`@vitejs/plugin-react@6`/`vite@8`/`vitest@4` throw at load) — CI pins
+  Node 20 where it's fine, and all 116 unit assertions were confirmed passing once the plugin issue
+  was bypassed, but the repo has no `engines`/`.nvmrc` pin, so a contributor on Node 22+/24 gets a
+  false-red `npm test` locally. Recommend a trivial follow-up (Node version pin or toolchain bump).
+- [x] **Node version pin added** (trivial, no design surface — done directly, no subagent needed).
+  `.nvmrc` (`20`) and `"engines": { "node": "20.x" }` in `package.json`, matching CI's
+  `actions/setup-node` pin exactly. Advisory only (no `engine-strict`), so it steers nvm/fnm/Volta
+  and warns on mismatch without hard-blocking `npm install` on another Node version. Note: could not
+  reproduce qa-reviewer's reported crash on this sandbox (Windows, Node 24.18.0) — `npm test` passed
+  116/116 cleanly with the currently-installed `vite@8.1.5`/`vitest@4.1.10`/`@vitejs/plugin-react@6.0.3`
+  before this change too, so the failure may be platform- or exact-patch-version-specific (qa's
+  sandbox was likely Linux). The pin is still the correct standard fix regardless.
+- [x] **Phase 4 (Weight/body-fat logging + goals/settings) implemented** (developer), against the
+  approved Phase 2 schema. New pure domain module `src/lib/domain/units.ts` (kg↔lb conversion,
+  storage/display edge functions `weightToKg`/`weightForDisplay`, `formatWeight`; storage stays
+  canonical kg regardless of preference, per the existing decision) with unit tests focused on
+  round-trip correctness; `validateDailyMetricInput`/`validateGoalsInput` added to
+  `src/lib/domain/validation.ts`. Server actions `src/lib/actions/metrics.ts`
+  (`upsertDailyMetric`/`deleteDailyMetric`, `metricTz`-based future-day rejection) and
+  `src/lib/actions/goals.ts` (`getGoals` ensure-row, `updateGoals`). Components
+  `src/components/metrics/MetricForm.tsx` (day-picker + weight/body-fat entry, no time field) and
+  `src/components/settings/SettingsForm.tsx` (goal targets + kg/lb toggle); `metrics/page.tsx` and
+  `settings/page.tsx`; nav links added. 151/151 unit tests, lint/typecheck/build clean at handoff
+  (Docker/Supabase not available in the developer's sandbox this round, so the DB-backed action
+  paths were unexercised until qa-reviewer's run — see below).
+- [x] **Phase 4 qa-reviewed** (qa-reviewer), then two follow-up fixes applied directly (trivial,
+  no design surface). Independent acceptance suite from the design doc's spec,
+  `e2e/phase4-acceptance.spec.ts`, 10 tests — metrics upsert (one row/day, weight-only leaves body
+  fat null, re-save overwrites not duplicates), unit-preference end-to-end (lb stored as kg,
+  survives a unit-toggle switch unchanged), goals CRUD (ensure-row default, round-trip, still one
+  row after repeated saves), no-future metric date (tomorrow rejected server-side with zero rows
+  written even though the loose DB CHECK would allow it; a legitimate UTC+14 "today" NOT falsely
+  rejected), and cross-user isolation on both `daily_metrics` and `user_goals`. **Verdict: ready to
+  gate to production, no blocking findings** — two non-blocking notes were raised and then actually
+  fixed rather than just logged:
+  1. `getGoals()`'s original select-then-insert ensure-row was non-atomic and could surface a
+     transient "couldn't load settings" error under concurrent first-visit requests (two tabs,
+     route prefetch racing a real navigation). Fixed by switching to a single `upsert(...).select().single()`
+     call — idempotent on conflict, and returns the row directly from the same call.
+  2. That fix's first attempt (upsert, then a *separate* re-`select` to read the row back) still
+     intermittently failed — traced to **Next.js App Router's fetch Request Memoization**: the
+     re-select had the exact same query shape as the earlier "does a row exist yet" check earlier in
+     the same Server Component render, so Next.js deduped it and served the stale pre-insert (empty)
+     result instead of re-hitting Postgres. Fixed for real by reading the row back from the upsert's
+     own `.select()` response instead of issuing a second identical query — see the new Notes entry
+     below, this is a repo-wide gotcha, not just a `goals.ts` bug.
+  3. `MetricForm.tsx`'s date/tz were computed from `browserTimeZone()` during render, which SSRs
+     under the server's tz (UTC) and can hydration-mismatch against the client's real tz whenever
+     they disagree (routinely near a user's local midnight, always for far-UTC-offset users). Fixed
+     by resolving tz/today in a mount-only Effect and rendering an identical "Loading..." placeholder
+     on both the server pass and the client's first pass until then.
+  Full suite re-verified after both fixes on a clean `supabase db reset`: unit 151/151, e2e 102/102
+  (10 new + 92 prior), lint/typecheck/build clean.
+- [x] **Phase 4 manually driven in a real browser** (Playwright script against the live dev server +
+  local Supabase, not just the automated suite) — logged in, logged a weight+body-fat entry on
+  `/metrics`, set calorie/protein targets and toggled kg→lb on `/settings`, confirmed `/metrics` then
+  displayed the same weight correctly converted to lb, zero browser console errors throughout. This
+  caught a **real bug the test suite didn't**: right after a successful Settings save, the "Weight
+  unit" radio visibly snapped back to its pre-save selection (kg) even though the save itself was
+  correct (a reload showed lb correctly) — because React's form Actions reset the native `<form>`
+  once the action settles, desyncing the *controlled* radio's visible `checked` state from React's
+  own state. Fixed in `SettingsForm.tsx` by splitting into an outer component (owns `useActionState`)
+  and an inner `SettingsFields` keyed on the latest known-good row's `updated_at`, so a successful
+  save remounts the fields fresh from the just-saved data instead of fighting the native reset — the
+  same "reset state via key" pattern `MetricForm` already used for day-switching. Re-verified with a
+  targeted before/after/reload Playwright script (`kg checked`/`lb checked` at each step) and the
+  full suite again after the fix: unit 151/151, e2e 102/102 (one unrelated Phase 3 test —
+  floor-of-now clock-boundary timing — flaked once in the full run and passed clean in isolation, a
+  pre-existing flake unrelated to this change) still green.
 
 ## Up Next
-1. **Jeff reviews and approves the Phase 1 checkpoint** — the only remaining gate before Phase 2
-   starts. qa-reviewer's independent acceptance suite (`e2e/phase1-acceptance.spec.ts`, 12 tests —
-   auth gating, persistent login across reload/new context, unconfirmed-user login correctly
-   blocked, auth-callback failure path) plus the developer's `e2e/auth.spec.ts` (6 tests) are both
-   green: 18/18 e2e, 47/47 unit, lint/typecheck/build all clean, run for real against a local
-   Supabase instance. Absolute Rules adversarial check came back clean (service-role key confirmed
-   absent from client bundles; auth gate uses non-spoofable `getUser()`). qa-reviewer's one
-   non-blocking hardening note — the auth callback's `next` redirect param wasn't validated against
-   open-redirect — is now fixed: `src/lib/domain/safe-redirect.ts` (`safeRedirectPath`) rejects
-   protocol-relative bypasses like `//evil.com` (not just a naive `startsWith("/")`, which that
-   string would still pass) and absolute URLs, with 11 unit tests covering it.
-2. **Manual setup Jeff needs — minimal, and already done as of this checkpoint:** Docker Desktop +
-   `supabase start` running locally, `.env.local` populated, `git init` + push to a GitHub remote —
-   all confirmed done. No GitHub Actions secrets are needed for CI (ephemeral local Supabase stack
-   per job); a hosted Supabase project is only needed later, for the real Vercel production deploy.
-3. **Phase 2 (Data model + RLS)** starts once Phase 1 is approved — the highest-priority test
-   surface (cross-user isolation on a greenfield multi-user app), deliberately isolated before any
-   feature UI is built on top of it. Phase 2's migrations will run in CI via the ephemeral Supabase
-   step, so RLS/constraint acceptance tests execute on every PR.
-4. Phases 3–9 follow per §8's dependency order (only 1→2→3 and 6→7 are hard dependencies; 4–8
-   can be resequenced by priority later if wanted).
+1. **Phase 5 (Trend charts)** — per design doc §8 Phase 5. Goes to the developer next;
+   qa-reviewer gates it afterward per the usual per-phase loop.
+2. Phases 6–9 follow per §8's dependency order (only 1→2→3 and 6→7 are hard dependencies; 4–8
+   can be resequenced by priority if wanted — 4 is now done).
+3. **Follow-up (not scoped to any phase, low priority): no client-fetch timeout/fallback on
+   `/food` or `/metrics`.** If a browser-side Supabase read (`FoodDayView`, `MetricForm`) ever
+   genuinely hangs — a stuck keep-alive connection, a Docker/network hiccup — the page just shows
+   "Loading..." forever with no timeout, no error, and no "this is taking a while, try refreshing"
+   fallback. Found while investigating a real Jeff-reported case of `/food` stuck on "Loading..."
+   with a save that appeared to do nothing (2026-07-22) — see the Notes entry below for what was
+   ruled out. Not urgent (the underlying cause in that case was environmental, not a code bug),
+   but worth a small UX hardening pass whenever a phase touches these components again.
 
 ## Notes / Things Discovered
 - 2026-07-19: `AGENTS.md`, `ai-context/PROGRESS.md`, and `ai-context/DECISIONS.md` were still
@@ -143,5 +294,41 @@
   (b) `test:e2e` assumes Playwright's `webServer` inherits the exported `$GITHUB_ENV` values (it runs
   in the same job, so it does) — the developer's `playwright.config.ts` webServer should not hardcode
   a different Supabase URL.
+- 2026-07-22: **Next.js fetch Request Memoization can silently serve a stale Supabase read inside a
+  single Server Component render.** Discovered fixing `getGoals()`'s ensure-row race (Phase 4): a
+  `select` issued *before* an insert, and a second, differently-motivated `select` with the exact
+  same table/filter shape issued *after* the insert in the same render, got deduped by Next's
+  App Router fetch patch — the second call returned the first call's (pre-insert, empty) cached
+  result rather than re-querying Postgres, even though the insert had already committed
+  (confirmed via direct debug logging: the insert returned `201 Created`, an unfiltered `select *`
+  right after saw the new row, but the identically-shaped filtered re-select did not). This is a
+  general trap for **any Server Component (not just Server Actions/Route Handlers) that reads,
+  writes, then re-reads within one render** — the fix is to read the row back from the mutating
+  call's own response (e.g. Supabase's `.upsert(...).select().single()`) rather than issuing a
+  second, separately-shaped `select`. Worth checking for this pattern if a future phase's
+  ensure-row/read-modify-read logic (e.g. any Phase 5+ "get-or-create" flow) behaves inconsistently
+  only in Server Components and not in direct script/API testing.
+- 2026-07-22: **Jeff hit `/food` stuck permanently on "Loading...", with saves appearing to do
+  nothing** — investigated live rather than left unexplained. Console showed only a benign
+  `webpack-hmr` WebSocket failure (harmless — only affects hot-reload, not data requests); Network
+  tab showed the request to `127.0.0.1:54321` stuck as **pending forever**, never erroring. A
+  scripted repro of the same flow (fresh user, fresh browser) against the same dev server worked
+  correctly end-to-end, so the app's save path itself was not broken. Jeff's own fix was opening a
+  new tab and logging in fresh, which immediately worked — raising the question of whether the old
+  tab's session had gone stale/logged-out without the app detecting it. Tested that directly with
+  two scripted reproductions and **ruled it out**: (a) patching a session's access token to already-
+  expired and forcing the refresh network call to hang forever still loaded `/food` correctly,
+  because `middleware.ts` transparently refreshes the session **server-side on every navigation**,
+  before any client-side code runs — the client-side browser Supabase client never needed its own
+  refresh in this flow; (b) deleting the session's user server-side (Supabase admin API) while the
+  browser still held its cookie, then navigating to `/food`, correctly **redirected to `/login`**,
+  no hang. So neither realistic version of "session went stale" reproduces a hang — the app already
+  handles both gracefully. The likely actual cause was environmental: a stale/wedged low-level
+  browser connection to the local Docker container in that one long-open tab, plausibly related to
+  how many times Supabase/the dev server were restarted during the same testing session — not an
+  application bug. The one real, generally-applicable gap surfaced by this investigation (not fixed,
+  logged as a follow-up in Up Next above): **no client-fetch timeout or "taking a while" fallback**
+  anywhere a browser-side Supabase read is used (`FoodDayView`, `MetricForm`) — if a request ever
+  does genuinely hang for any reason, the user has zero feedback beyond an indefinite "Loading...".
 
 ---

@@ -189,8 +189,8 @@ persistent login and the manifest are config/metadata. The five tables are uncha
 (UTC, user-editable), `consumed_tz` (IANA, not null), `consumed_local_date` (trigger-derived grouping key,
 not-future), `name`, `quantity` (numeric >0, default 1), `unit` (nullable free text), `calories_per_unit` /
 `protein_g_per_unit` (numeric ≥0), `calories` INT and `protein_g` NUMERIC(6,2) as **STORED generated
-columns** = `round(quantity × per-unit)`, nullable `logged_from_meal_id` (FK → `meals`, on delete set null),
-audit timestamps. Trigger `set_consumed_local_date` (BEFORE insert/update) + CHECK
+columns** = `round(quantity × per-unit)`, nullable `logged_from_meal_id` (**plain** single-column
+`FK → meals(id)`, `on delete set null`), audit timestamps. Trigger `set_consumed_local_date` (BEFORE insert/update) + CHECK
 `consumed_local_date <= (now() at time zone consumed_tz)::date`. Indexes on
 `(user_id, consumed_local_date, consumed_at)` and partial `(logged_from_meal_id)`.
 
@@ -213,6 +213,29 @@ view unchanged (groups on `consumed_local_date`, sums generated `calories`/`prot
 on`); the day-level protein % is derived from its `total_calories`/`total_protein_g` in `nutrition.ts`, not
 added as a view column. RLS: identical four-policy `user_id = auth.uid()` shape on all five tables.
 Migration: single greenfield file, FK-ordered, constraints/triggers/view/policies; no backfill.
+
+**Deliberate FK asymmetry — `meal_items.meal_id` is composite-owner-checked, `food_entries.logged_from_meal_id`
+is not (and must not be).** `meal_items.user_id` is a *denormalized copy of the owner that RLS itself trusts*
+(RLS on `meal_items` keys off that column, not off a join to `meals`), and a meal item has no independent
+existence from its parent meal — it is a composition (`ON DELETE CASCADE`). So its owner column **must** be
+kept in lockstep with `meals.user_id`, which is exactly what the composite `(meal_id, user_id) → meals(id,
+user_id)` FK guarantees at the DB level: without it the denormalized owner could drift or be spoofed, and RLS
+(which trusts it) would then be operating on a lie. **None of that transfers to `food_entries`.** A food entry
+is an independent aggregate root that exists in its own right whether or not it came from a meal;
+`logged_from_meal_id` is a *weak, informational back-reference* ("this row was logged from meal X"), **not** an
+RLS discriminator — `food_entries` RLS keys purely off `food_entries.user_id`, never off the referenced meal.
+A stray cross-user `logged_from_meal_id` therefore corrupts no trust boundary: any read that joins it back to
+`meals` goes through the RLS-scoped client, so a foreign reference resolves to *nothing/null* (RLS filters
+`meals` to the caller's own rows) — never to another user's data — exactly the already-accepted "points to a
+since-invisible/deleted concept" state that `ON DELETE SET NULL` embraces. A composite FK here would also fight
+the required delete semantics: a plain composite `ON DELETE SET NULL` would null **both** referencing columns
+(including the row's own NOT NULL `user_id`) when a meal is deleted, breaking the row; avoiding that needs the
+less-common Postgres-15 `ON DELETE SET NULL (logged_from_meal_id)` column-list variant — real added complexity
+to defend an invariant RLS already makes non-load-bearing. The same-owner guarantee for this column is instead
+an **app-layer write invariant** (see §3.3 / §8 Phase 7): `logMealForDay` may only ever set
+`logged_from_meal_id` to a meal it read as the acting user's own through the RLS-scoped server client (never
+the service-role client), so a foreign meal id is structurally unreachable on the write path — and the DB does
+**not** enforce this, so the server action is the enforcement point.
 
 ### 3.3 API / interface surface
 
@@ -535,6 +558,16 @@ focus of that phase's review.
   reorder item); `logMealForDay` (batch insert, one shared `consumed_at`/tz, `logged_from_meal_id`,
   future-day cap); `meals/page` (`MealList`, `MealForm`, `MealItemForm` with always-visible fields + reused
   `FoodLookupPanel`); `LogMealDialog` on `food/page`.
+  - **App-layer ownership invariant on `logged_from_meal_id` (required — the DB does not enforce it).**
+    `food_entries.logged_from_meal_id` is a plain FK with no owner check (see §3.2 "Deliberate FK asymmetry"),
+    so `logMealForDay` **must** be the enforcement point: it may set `logged_from_meal_id` only to a meal it
+    first **read as the acting user's own through the RLS-scoped server client** (never the service-role
+    client, which bypasses RLS). Concretely: resolve/verify the meal (and its items) via the RLS-scoped client
+    before inserting; if the meal id doesn't resolve to one of the caller's own meals, return an error rather
+    than inserting entries that back-reference a foreign meal. This keeps every `logged_from_meal_id` value
+    same-owner by construction. qa-reviewer test for this phase: `logMealForDay` with a **another user's**
+    `mealId` fails (no rows written), and every row it does write has `logged_from_meal_id` = the caller's own
+    meal.
 - **Out:** copy mechanisms.
 - **§6 scope for qa-reviewer:** *saved-meals CRUD* (meal total = item sum; rename; add/edit/remove/reorder;
   delete cascades items); *logging* (`logMealForDay` → exactly N rows sharing one `consumed_at`/tz/
