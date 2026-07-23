@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, useTransition } from "react"
 import { createClient } from "@/lib/supabase/client";
 import { browserTimeZone, localDateInTz } from "@/lib/domain/datetime";
 import { deleteFoodEntry } from "@/lib/actions/food";
+import { inputClass, labelClass } from "@/components/ui/styles";
 import { DailyTotals } from "./DailyTotals";
 import { FoodEntryForm } from "./FoodEntryForm";
 import { FoodEntryList } from "./FoodEntryList";
@@ -91,7 +92,7 @@ export function FoodDayView() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center gap-3">
-        <label htmlFor="food-day" className="text-sm font-medium text-zinc-700">
+        <label htmlFor="food-day" className={labelClass}>
           Day
         </label>
         <input
@@ -100,7 +101,7 @@ export function FoodDayView() {
           max={today}
           value={selectedDate}
           onChange={(e) => handleDayChange(e.target.value)}
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+          className={inputClass}
         />
       </div>
 
@@ -116,7 +117,7 @@ export function FoodDayView() {
       />
 
       {loading ? (
-        <p className="text-sm text-zinc-500">Loading...</p>
+        <p className="text-sm text-zinc-500">Loading…</p>
       ) : (
         <FoodEntryList entries={entries} onEdit={setEditingEntry} onDelete={handleDelete} />
       )}

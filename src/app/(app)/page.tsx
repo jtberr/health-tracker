@@ -16,11 +16,11 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <h1 className="text-xl font-semibold text-zinc-900">Welcome back</h1>
-        <p className="text-sm text-zinc-600">
-          You&apos;re logged in as <span className="font-medium">{user?.email}</span>.
+    <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-1.5">
+        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">Welcome back</h1>
+        <p className="text-sm text-zinc-500">
+          You&apos;re logged in as <span className="font-medium text-zinc-700">{user?.email}</span>.
         </p>
       </div>
       <TodaySummary />

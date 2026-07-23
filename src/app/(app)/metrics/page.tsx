@@ -16,8 +16,8 @@ export default async function MetricsPage() {
   const weightUnit = goals?.weight_unit ?? "kg";
 
   return (
-    <div className="flex flex-col gap-4">
-      <h1 className="text-xl font-semibold text-zinc-900">Weight &amp; body fat</h1>
+    <div className="flex flex-col gap-5">
+      <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">Weight &amp; body fat</h1>
       <MetricForm weightUnit={weightUnit} />
     </div>
   );

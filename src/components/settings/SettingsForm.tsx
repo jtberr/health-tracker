@@ -3,6 +3,8 @@
 import { useActionState, useId, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { updateGoals, type GoalsActionState } from "@/lib/actions/goals";
+import { Button } from "@/components/ui/Button";
+import { errorTextClass, inputClass, labelClass } from "@/components/ui/styles";
 import type { UserGoals, WeightUnit } from "@/lib/types";
 
 /**
@@ -18,13 +20,9 @@ const initialActionState: GoalsActionState = { ok: false, error: null };
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
-    >
+    <Button type="submit" disabled={pending}>
       {pending ? "Saving..." : "Save settings"}
-    </button>
+    </Button>
   );
 }
 
@@ -68,10 +66,14 @@ function SettingsFields({
   const [weightUnit, setWeightUnit] = useState<WeightUnit>(goals.weight_unit);
 
   return (
-    <form action={formAction} className="flex flex-col gap-4 rounded-md border border-zinc-200 p-4" noValidate>
+    <form
+      action={formAction}
+      className="flex flex-col gap-5 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5"
+      noValidate
+    >
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1">
-          <label htmlFor={`${idPrefix}-calories`} className="text-sm font-medium text-zinc-700">
+          <label htmlFor={`${idPrefix}-calories`} className={labelClass}>
             Daily calorie target (optional)
           </label>
           <input
@@ -82,14 +84,14 @@ function SettingsFields({
             min={0}
             value={dailyCalorieTarget}
             onChange={(e) => setDailyCalorieTarget(e.target.value)}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            className={inputClass}
           />
           {state.fieldErrors?.dailyCalorieTarget && (
-            <p className="text-sm text-red-600">{state.fieldErrors.dailyCalorieTarget}</p>
+            <p className={errorTextClass}>{state.fieldErrors.dailyCalorieTarget}</p>
           )}
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor={`${idPrefix}-protein`} className="text-sm font-medium text-zinc-700">
+          <label htmlFor={`${idPrefix}-protein`} className={labelClass}>
             Daily protein target, g (optional)
           </label>
           <input
@@ -100,45 +102,55 @@ function SettingsFields({
             min={0}
             value={dailyProteinTargetG}
             onChange={(e) => setDailyProteinTargetG(e.target.value)}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            className={inputClass}
           />
           {state.fieldErrors?.dailyProteinTargetG && (
-            <p className="text-sm text-red-600">{state.fieldErrors.dailyProteinTargetG}</p>
+            <p className={errorTextClass}>{state.fieldErrors.dailyProteinTargetG}</p>
           )}
         </div>
       </div>
 
-      <fieldset className="flex flex-col gap-1">
-        <legend className="text-sm font-medium text-zinc-700">Weight unit</legend>
-        <label className="flex items-center gap-2 text-sm text-zinc-700">
-          <input
-            type="radio"
-            name="weightUnit"
-            value="kg"
-            checked={weightUnit === "kg"}
-            onChange={() => setWeightUnit("kg")}
-            className="h-4 w-4"
-          />
-          Kilograms (kg)
-        </label>
-        <label className="flex items-center gap-2 text-sm text-zinc-700">
-          <input
-            type="radio"
-            name="weightUnit"
-            value="lb"
-            checked={weightUnit === "lb"}
-            onChange={() => setWeightUnit("lb")}
-            className="h-4 w-4"
-          />
-          Pounds (lb)
-        </label>
+      <fieldset className="flex flex-col gap-2">
+        <legend className={labelClass}>Weight unit</legend>
+        <div className="inline-flex w-fit rounded-lg border border-zinc-200 bg-zinc-50 p-1">
+          <label className="cursor-pointer">
+            <input
+              type="radio"
+              name="weightUnit"
+              value="kg"
+              checked={weightUnit === "kg"}
+              onChange={() => setWeightUnit("kg")}
+              className="peer sr-only"
+            />
+            <span className="block rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 transition-colors peer-checked:bg-white peer-checked:text-indigo-700 peer-checked:shadow-sm">
+              Kilograms (kg)
+            </span>
+          </label>
+          <label className="cursor-pointer">
+            <input
+              type="radio"
+              name="weightUnit"
+              value="lb"
+              checked={weightUnit === "lb"}
+              onChange={() => setWeightUnit("lb")}
+              className="peer sr-only"
+            />
+            <span className="block rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 transition-colors peer-checked:bg-white peer-checked:text-indigo-700 peer-checked:shadow-sm">
+              Pounds (lb)
+            </span>
+          </label>
+        </div>
         <p className="text-xs text-zinc-500">
           Weight is always stored in kilograms — this only changes how it&apos;s entered/displayed.
         </p>
       </fieldset>
 
-      {state.error && <p className="text-sm text-red-600">{state.error}</p>}
-      {state.ok && <p className="text-sm text-green-700">Settings saved.</p>}
+      {state.error && <p className={errorTextClass}>{state.error}</p>}
+      {state.ok && (
+        <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+          Settings saved.
+        </p>
+      )}
 
       <div>
         <SubmitButton />

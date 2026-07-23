@@ -15,8 +15,8 @@ export default async function SettingsPage() {
   const goals = await getGoals();
 
   return (
-    <div className="flex flex-col gap-4">
-      <h1 className="text-xl font-semibold text-zinc-900">Settings</h1>
+    <div className="flex flex-col gap-5">
+      <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">Settings</h1>
       {goals ? (
         <SettingsForm initialGoals={goals} />
       ) : (

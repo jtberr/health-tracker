@@ -39,12 +39,12 @@ export function TodaySummary() {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <h2 className="text-sm font-medium text-zinc-700">Today so far</h2>
-        <Link href="/food" className="text-sm font-medium text-zinc-900 underline">
-          Log food
+        <h2 className="text-sm font-semibold text-zinc-700">Today so far</h2>
+        <Link href="/food" className="text-sm font-medium text-indigo-600 hover:text-indigo-500">
+          Log food →
         </Link>
       </div>
-      {loading ? <p className="text-sm text-zinc-500">Loading...</p> : <DailyTotals totals={totals} />}
+      {loading ? <p className="text-sm text-zinc-500">Loading…</p> : <DailyTotals totals={totals} />}
     </div>
   );
 }

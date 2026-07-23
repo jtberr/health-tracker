@@ -4,6 +4,8 @@ import { groupByConsumedAt } from "@/lib/domain/entry-grouping";
 import { proteinCaloriePct } from "@/lib/domain/nutrition";
 import { sumEntries } from "@/lib/domain/totals";
 import { utcToLocalTime } from "@/lib/domain/datetime";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import type { FoodEntry } from "@/lib/types";
 
 /**
@@ -24,7 +26,11 @@ export function FoodEntryList({
   const groups = groupByConsumedAt(entries);
 
   if (groups.length === 0) {
-    return <p className="text-sm text-zinc-500">No entries logged for this day yet.</p>;
+    return (
+      <div className="rounded-xl border border-dashed border-zinc-300 px-4 py-8 text-center text-sm text-zinc-500">
+        No entries logged for this day yet.
+      </div>
+    );
   }
 
   return (
@@ -36,9 +42,9 @@ export function FoodEntryList({
         const groupPct = proteinCaloriePct(groupTotals.proteinG, groupTotals.calories);
 
         return (
-          <section key={group.consumedAt} className="rounded-md border border-zinc-200">
-            <header className="flex items-center justify-between border-b border-zinc-100 bg-zinc-50 px-4 py-2">
-              <span className="text-sm font-medium text-zinc-700">{time}</span>
+          <Card key={group.consumedAt} className="overflow-hidden">
+            <header className="flex items-center justify-between border-b border-zinc-100 bg-zinc-50 px-4 py-2.5">
+              <span className="text-sm font-semibold text-zinc-700">{time}</span>
               <span className="text-sm text-zinc-500">
                 {groupTotals.calories} kcal · {groupTotals.proteinG}g protein
                 {groupPct !== null && ` · ${groupPct}% from protein`}
@@ -48,7 +54,10 @@ export function FoodEntryList({
               {group.entries.map((entry) => {
                 const entryPct = proteinCaloriePct(entry.protein_g, entry.calories);
                 return (
-                  <li key={entry.id} className="flex items-center justify-between px-4 py-3">
+                  <li
+                    key={entry.id}
+                    className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-zinc-50/70"
+                  >
                     <div>
                       <p className="text-sm font-medium text-zinc-900">
                         {entry.quantity !== 1 || entry.unit
@@ -61,26 +70,18 @@ export function FoodEntryList({
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => onEdit(entry)}
-                        className="rounded-md border border-zinc-300 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
-                      >
+                      <Button type="button" variant="secondary" size="sm" onClick={() => onEdit(entry)}>
                         Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onDelete(entry)}
-                        className="rounded-md border border-red-300 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
-                      >
+                      </Button>
+                      <Button type="button" variant="danger" size="sm" onClick={() => onDelete(entry)}>
                         Delete
-                      </button>
+                      </Button>
                     </div>
                   </li>
                 );
               })}
             </ul>
-          </section>
+          </Card>
         );
       })}
     </div>

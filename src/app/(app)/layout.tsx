@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { signOut } from "@/lib/actions/auth";
+import { Button } from "@/components/ui/Button";
+import { NavLink } from "@/components/ui/NavLink";
 
 /**
  * Single auth gate for every authenticated route (per the design doc §3.1: "layout.tsx ←
@@ -24,29 +26,22 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="flex min-h-full flex-1 flex-col">
-      <header className="border-b border-zinc-200 bg-white">
+      <header className="border-b border-zinc-200 bg-white/80 backdrop-blur-sm">
         <nav className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
-          <Link href="/" className="font-semibold text-zinc-900">
+          <Link href="/" className="text-base font-semibold tracking-tight text-zinc-900">
             Health Tracker
           </Link>
-          <div className="flex items-center gap-4 text-sm text-zinc-600">
-            <Link href="/food" className="font-medium text-zinc-700 hover:text-zinc-900">
-              Food
-            </Link>
-            <Link href="/metrics" className="font-medium text-zinc-700 hover:text-zinc-900">
-              Weight
-            </Link>
-            <Link href="/settings" className="font-medium text-zinc-700 hover:text-zinc-900">
-              Settings
-            </Link>
+          <div className="flex items-center gap-1 text-sm sm:gap-2">
+            <NavLink href="/food">Food</NavLink>
+            <NavLink href="/metrics">Weight</NavLink>
+            <NavLink href="/settings">Settings</NavLink>
+          </div>
+          <div className="flex items-center gap-3 text-sm text-zinc-500">
             <span className="hidden sm:inline">{user.email}</span>
             <form action={signOut}>
-              <button
-                type="submit"
-                className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-              >
+              <Button type="submit" variant="secondary" size="sm">
                 Log out
-              </button>
+              </Button>
             </form>
           </div>
         </nav>

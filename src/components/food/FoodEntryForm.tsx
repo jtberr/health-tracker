@@ -9,6 +9,8 @@ import {
   localDateInTz,
   utcToLocalTime,
 } from "@/lib/domain/datetime";
+import { Button } from "@/components/ui/Button";
+import { errorTextClass, inputClass, labelClass } from "@/components/ui/styles";
 import type { FoodCandidatePrefill, FoodEntry } from "@/lib/types";
 
 /**
@@ -45,13 +47,9 @@ export type FoodEntryFormProps = {
 function SubmitButton({ label, pendingLabel }: { label: string; pendingLabel: string }) {
   const { pending } = useFormStatus();
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
-    >
+    <Button type="submit" disabled={pending}>
       {pending ? pendingLabel : label}
-    </button>
+    </Button>
   );
 }
 
@@ -128,7 +126,11 @@ export function FoodEntryForm({
   const proteinLabel = mode === "perUnit" ? "Protein per unit (g)" : "Total protein (g)";
 
   return (
-    <form action={formAction} className="flex flex-col gap-3 rounded-md border border-zinc-200 p-4" noValidate>
+    <form
+      action={formAction}
+      className="flex flex-col gap-4 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5"
+      noValidate
+    >
       {isEditing && <input type="hidden" name="id" value={editingEntry!.id} />}
       <input type="hidden" name="consumedTz" value={tz} />
       <input type="hidden" name="mode" value={mode} />
@@ -140,7 +142,7 @@ export function FoodEntryForm({
       )}
 
       <div className="flex flex-col gap-1">
-        <label htmlFor={`${idPrefix}-name`} className="text-sm font-medium text-zinc-700">
+        <label htmlFor={`${idPrefix}-name`} className={labelClass}>
           Name
         </label>
         <input
@@ -150,14 +152,14 @@ export function FoodEntryForm({
           required
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+          className={inputClass}
         />
-        {state.fieldErrors?.name && <p className="text-sm text-red-600">{state.fieldErrors.name}</p>}
+        {state.fieldErrors?.name && <p className={errorTextClass}>{state.fieldErrors.name}</p>}
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1">
-          <label htmlFor={`${idPrefix}-calories`} className="text-sm font-medium text-zinc-700">
+          <label htmlFor={`${idPrefix}-calories`} className={labelClass}>
             {caloriesLabel}
           </label>
           <input
@@ -169,14 +171,14 @@ export function FoodEntryForm({
             required
             value={calories}
             onChange={(e) => setCalories(e.target.value)}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            className={inputClass}
           />
           {state.fieldErrors?.caloriesPerUnit && (
-            <p className="text-sm text-red-600">{state.fieldErrors.caloriesPerUnit}</p>
+            <p className={errorTextClass}>{state.fieldErrors.caloriesPerUnit}</p>
           )}
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor={`${idPrefix}-protein`} className="text-sm font-medium text-zinc-700">
+          <label htmlFor={`${idPrefix}-protein`} className={labelClass}>
             {proteinLabel}
           </label>
           <input
@@ -188,17 +190,17 @@ export function FoodEntryForm({
             required
             value={protein}
             onChange={(e) => setProtein(e.target.value)}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            className={inputClass}
           />
           {state.fieldErrors?.proteinGPerUnit && (
-            <p className="text-sm text-red-600">{state.fieldErrors.proteinGPerUnit}</p>
+            <p className={errorTextClass}>{state.fieldErrors.proteinGPerUnit}</p>
           )}
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1">
-          <label htmlFor={`${idPrefix}-date`} className="text-sm font-medium text-zinc-700">
+          <label htmlFor={`${idPrefix}-date`} className={labelClass}>
             Date
           </label>
           <input
@@ -209,14 +211,14 @@ export function FoodEntryForm({
             required
             value={consumedDate}
             onChange={(e) => setConsumedDate(e.target.value)}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            className={inputClass}
           />
           {state.fieldErrors?.consumedDate && (
-            <p className="text-sm text-red-600">{state.fieldErrors.consumedDate}</p>
+            <p className={errorTextClass}>{state.fieldErrors.consumedDate}</p>
           )}
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor={`${idPrefix}-time`} className="text-sm font-medium text-zinc-700">
+          <label htmlFor={`${idPrefix}-time`} className={labelClass}>
             Time
           </label>
           <input
@@ -227,10 +229,10 @@ export function FoodEntryForm({
             required
             value={consumedTime}
             onChange={(e) => setConsumedTime(e.target.value)}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            className={inputClass}
           />
           {state.fieldErrors?.consumedTime && (
-            <p className="text-sm text-red-600">{state.fieldErrors.consumedTime}</p>
+            <p className={errorTextClass}>{state.fieldErrors.consumedTime}</p>
           )}
         </div>
       </div>
@@ -239,17 +241,17 @@ export function FoodEntryForm({
         <button
           type="button"
           onClick={() => setExpanded(true)}
-          className="self-start text-sm font-medium text-zinc-600 underline"
+          className="self-start text-sm font-medium text-indigo-600 hover:text-indigo-500"
         >
-          Add detail (quantity, unit)
+          + Add detail (quantity, unit)
         </button>
       )}
 
       {expanded && (
-        <div className="flex flex-col gap-3 rounded-md bg-zinc-50 p-3">
+        <div className="flex flex-col gap-3 rounded-lg bg-zinc-50 p-3.5">
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
-              <label htmlFor={`${idPrefix}-quantity`} className="text-sm font-medium text-zinc-700">
+              <label htmlFor={`${idPrefix}-quantity`} className={labelClass}>
                 Quantity
               </label>
               <input
@@ -261,14 +263,14 @@ export function FoodEntryForm({
                 required
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
-                className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                className={inputClass}
               />
               {state.fieldErrors?.quantity && (
-                <p className="text-sm text-red-600">{state.fieldErrors.quantity}</p>
+                <p className={errorTextClass}>{state.fieldErrors.quantity}</p>
               )}
             </div>
             <div className="flex flex-col gap-1">
-              <label htmlFor={`${idPrefix}-unit`} className="text-sm font-medium text-zinc-700">
+              <label htmlFor={`${idPrefix}-unit`} className={labelClass}>
                 Unit (optional)
               </label>
               <input
@@ -278,13 +280,13 @@ export function FoodEntryForm({
                 placeholder="eggs, cup, serving..."
                 value={unit}
                 onChange={(e) => setUnit(e.target.value)}
-                className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+                className={inputClass}
               />
             </div>
           </div>
 
-          <fieldset className="flex flex-col gap-1">
-            <legend className="text-sm font-medium text-zinc-700">
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className={labelClass}>
               Are the calories/protein above per unit, or a total for this quantity?
             </legend>
             <label className="flex items-center gap-2 text-sm text-zinc-700">
@@ -292,7 +294,7 @@ export function FoodEntryForm({
                 type="radio"
                 checked={mode === "total"}
                 onChange={() => setMode("total")}
-                className="h-4 w-4"
+                className="h-4 w-4 accent-indigo-600"
               />
               Total for the whole quantity
             </label>
@@ -301,7 +303,7 @@ export function FoodEntryForm({
                 type="radio"
                 checked={mode === "perUnit"}
                 onChange={() => setMode("perUnit")}
-                className="h-4 w-4"
+                className="h-4 w-4 accent-indigo-600"
               />
               Per unit
             </label>
@@ -311,7 +313,7 @@ export function FoodEntryForm({
             <button
               type="button"
               onClick={() => setExpanded(false)}
-              className="self-start text-sm font-medium text-zinc-600 underline"
+              className="self-start text-sm font-medium text-indigo-600 hover:text-indigo-500"
             >
               Hide detail
             </button>
@@ -320,27 +322,23 @@ export function FoodEntryForm({
       )}
 
       {state.error && state.error !== "future_date" && (
-        <p className="text-sm text-red-600">{state.error}</p>
+        <p className={errorTextClass}>{state.error}</p>
       )}
       {state.error === "future_date" && (
-        <p className="text-sm text-red-600">
+        <p className={errorTextClass}>
           You can&apos;t log an entry dated later than today. Pick today or an earlier date.
         </p>
       )}
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 pt-1">
         <SubmitButton
           label={isEditing ? "Save changes" : "Add entry"}
           pendingLabel={isEditing ? "Saving..." : "Adding..."}
         />
         {isEditing && (
-          <button
-            type="button"
-            onClick={onCancelEdit}
-            className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
-          >
+          <Button type="button" variant="secondary" onClick={onCancelEdit}>
             Cancel
-          </button>
+          </Button>
         )}
       </div>
     </form>

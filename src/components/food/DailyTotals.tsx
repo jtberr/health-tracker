@@ -1,4 +1,5 @@
 import { proteinCaloriePct } from "@/lib/domain/nutrition";
+import { Card } from "@/components/ui/Card";
 import type { DailyFoodTotals } from "@/lib/types";
 
 /**
@@ -12,19 +13,21 @@ export function DailyTotals({ totals }: { totals: DailyFoodTotals | null }) {
   const pct = proteinCaloriePct(proteinG, calories);
 
   return (
-    <div className="flex items-center gap-6 rounded-md border border-zinc-200 bg-white p-4">
-      <div>
+    <Card className="grid grid-cols-3 divide-x divide-zinc-100 p-4 sm:p-5">
+      <div className="flex flex-col gap-0.5 pr-4">
         <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Calories</p>
-        <p className="text-2xl font-semibold text-zinc-900">{calories}</p>
+        <p className="text-2xl font-semibold tracking-tight text-zinc-900">{calories}</p>
       </div>
-      <div>
+      <div className="flex flex-col gap-0.5 px-4">
         <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Protein</p>
-        <p className="text-2xl font-semibold text-zinc-900">{proteinG}g</p>
+        <p className="text-2xl font-semibold tracking-tight text-zinc-900">{proteinG}g</p>
       </div>
-      <div>
+      <div className="flex flex-col gap-0.5 pl-4">
         <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">% from protein</p>
-        <p className="text-2xl font-semibold text-zinc-900">{pct === null ? "—" : `${pct}%`}</p>
+        <p className="text-2xl font-semibold tracking-tight text-indigo-600">
+          {pct === null ? "—" : `${pct}%`}
+        </p>
       </div>
-    </div>
+    </Card>
   );
 }

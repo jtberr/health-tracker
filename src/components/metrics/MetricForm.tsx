@@ -6,6 +6,8 @@ import { createClient } from "@/lib/supabase/client";
 import { deleteDailyMetric, upsertDailyMetric, type DailyMetricActionState } from "@/lib/actions/metrics";
 import { browserTimeZone, localDateInTz } from "@/lib/domain/datetime";
 import { weightForDisplay } from "@/lib/domain/units";
+import { Button } from "@/components/ui/Button";
+import { errorTextClass, inputClass, labelClass } from "@/components/ui/styles";
 import type { DailyMetric, WeightUnit } from "@/lib/types";
 
 /**
@@ -35,13 +37,9 @@ const initialActionState: DailyMetricActionState = { ok: false, error: null };
 function SubmitButton({ label, pendingLabel }: { label: string; pendingLabel: string }) {
   const { pending } = useFormStatus();
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
-    >
+    <Button type="submit" disabled={pending}>
       {pending ? pendingLabel : label}
-    </button>
+    </Button>
   );
 }
 
@@ -112,13 +110,13 @@ export function MetricForm({ weightUnit }: MetricFormProps) {
   // Same placeholder on the server pass and the client's first pass (both have tz === null),
   // which is what keeps hydration in sync — see the module doc comment.
   if (tz === null || today === null || selectedDate === null) {
-    return <p className="text-sm text-zinc-500">Loading...</p>;
+    return <p className="text-sm text-zinc-500">Loading…</p>;
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       <div className="flex items-center gap-3">
-        <label htmlFor="metric-day" className="text-sm font-medium text-zinc-700">
+        <label htmlFor="metric-day" className={labelClass}>
           Day
         </label>
         <input
@@ -127,12 +125,12 @@ export function MetricForm({ weightUnit }: MetricFormProps) {
           max={today}
           value={selectedDate}
           onChange={(e) => setSelectedDate(e.target.value)}
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+          className={inputClass}
         />
       </div>
 
       {loading ? (
-        <p className="text-sm text-zinc-500">Loading...</p>
+        <p className="text-sm text-zinc-500">Loading…</p>
       ) : (
         <MetricEntryForm
           key={selectedDate}
@@ -199,14 +197,24 @@ function MetricEntryForm({
   }
 
   return (
-    <form action={formAction} className="flex flex-col gap-3 rounded-md border border-zinc-200 p-4" noValidate>
+    <form
+      action={formAction}
+      className="flex flex-col gap-4 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5"
+      noValidate
+    >
       <input type="hidden" name="metricDate" value={selectedDate} />
       <input type="hidden" name="metricTz" value={tz} />
       <input type="hidden" name="weightUnit" value={weightUnit} />
 
+      {existing && (
+        <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
+          Already logged for {selectedDate === today ? "today" : "this day"} — saving overwrites it.
+        </p>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1">
-          <label htmlFor={`${idPrefix}-weight`} className="text-sm font-medium text-zinc-700">
+          <label htmlFor={`${idPrefix}-weight`} className={labelClass}>
             Weight ({weightUnit})
           </label>
           <input
@@ -218,12 +226,12 @@ function MetricEntryForm({
             required
             value={weight}
             onChange={(e) => setWeight(e.target.value)}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            className={inputClass}
           />
-          {state.fieldErrors?.weight && <p className="text-sm text-red-600">{state.fieldErrors.weight}</p>}
+          {state.fieldErrors?.weight && <p className={errorTextClass}>{state.fieldErrors.weight}</p>}
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor={`${idPrefix}-bodyfat`} className="text-sm font-medium text-zinc-700">
+          <label htmlFor={`${idPrefix}-bodyfat`} className={labelClass}>
             Body fat % (optional)
           </label>
           <input
@@ -235,40 +243,29 @@ function MetricEntryForm({
             max={100}
             value={bodyFatPct}
             onChange={(e) => setBodyFatPct(e.target.value)}
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+            className={inputClass}
           />
           {state.fieldErrors?.bodyFatPct && (
-            <p className="text-sm text-red-600">{state.fieldErrors.bodyFatPct}</p>
+            <p className={errorTextClass}>{state.fieldErrors.bodyFatPct}</p>
           )}
         </div>
       </div>
 
       {state.error && state.error !== "future_date" && (
-        <p className="text-sm text-red-600">{state.error}</p>
+        <p className={errorTextClass}>{state.error}</p>
       )}
       {state.error === "future_date" && (
-        <p className="text-sm text-red-600">
+        <p className={errorTextClass}>
           You can&apos;t log a metric dated later than today. Pick today or an earlier date.
         </p>
       )}
 
-      {existing && (
-        <p className="text-xs text-zinc-500">
-          Already logged for {selectedDate === today ? "today" : "this day"} — saving overwrites it.
-        </p>
-      )}
-
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 pt-1">
         <SubmitButton label={existing ? "Save changes" : "Log entry"} pendingLabel="Saving..." />
         {existing && (
-          <button
-            type="button"
-            onClick={handleDelete}
-            disabled={isDeleting}
-            className="rounded-md border border-red-300 px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-          >
+          <Button type="button" variant="danger" onClick={handleDelete} disabled={isDeleting}>
             {isDeleting ? "Deleting..." : "Delete this day's entry"}
-          </button>
+          </Button>
         )}
       </div>
     </form>
