@@ -30,6 +30,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
             Health Tracker
           </Link>
           <div className="flex items-center gap-4 text-sm text-zinc-600">
+            <Link href="/food" className="font-medium text-zinc-700 hover:text-zinc-900">
+              Food
+            </Link>
             <span className="hidden sm:inline">{user.email}</span>
             <form action={signOut}>
               <button
