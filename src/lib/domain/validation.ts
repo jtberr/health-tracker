@@ -67,3 +67,76 @@ export function validateFoodEntryInput(input: FoodEntryInput): FoodEntryValidati
 
   return errors.length > 0 ? { ok: false, errors } : { ok: true };
 }
+
+/**
+ * Validates a `daily_metrics` upsert (Phase 4 — "Weight/body-fat logging + goals/settings").
+ * `weight` is the raw number the user typed, **in whichever display unit they're using** — a
+ * "greater than 0" check is unit-agnostic (kg and lb are both positive scalings of the same
+ * quantity), so this stays framework-free and doesn't need to import `units.ts`'s conversion.
+ * Deliberately does NOT check the no-future-day cap here — that's tz-aware
+ * (`datetime.localDateNotAfterToday`) and applied separately by the caller (server action), same
+ * as `validateFoodEntryInput`.
+ */
+export type DailyMetricField = "metricDate" | "weight" | "bodyFatPct";
+export type DailyMetricFieldError = { field: DailyMetricField; message: string };
+export type DailyMetricValidationResult = { ok: true } | { ok: false; errors: DailyMetricFieldError[] };
+
+export type DailyMetricInput = {
+  metricDate: string;
+  /** Raw user-entered weight, in the user's current display unit (kg or lb) — see doc comment above. */
+  weight: number;
+  bodyFatPct: number | null;
+};
+
+export function validateDailyMetricInput(input: DailyMetricInput): DailyMetricValidationResult {
+  const errors: DailyMetricFieldError[] = [];
+
+  if (!DATE_PATTERN.test(input.metricDate)) {
+    errors.push({ field: "metricDate", message: "Enter a valid date." });
+  }
+
+  if (!Number.isFinite(input.weight) || input.weight <= 0) {
+    errors.push({ field: "weight", message: "Weight must be greater than 0." });
+  }
+
+  if (input.bodyFatPct !== null) {
+    if (!Number.isFinite(input.bodyFatPct) || input.bodyFatPct < 0 || input.bodyFatPct > 100) {
+      errors.push({ field: "bodyFatPct", message: "Body fat % must be between 0 and 100." });
+    }
+  }
+
+  return errors.length > 0 ? { ok: false, errors } : { ok: true };
+}
+
+/**
+ * Validates a `user_goals` update (Phase 4). Both targets are optional (nullable columns) — a
+ * blank field means "no goal set", not zero.
+ */
+export type GoalsField = "dailyCalorieTarget" | "dailyProteinTargetG";
+export type GoalsFieldError = { field: GoalsField; message: string };
+export type GoalsValidationResult = { ok: true } | { ok: false; errors: GoalsFieldError[] };
+
+export type GoalsInput = {
+  dailyCalorieTarget: number | null;
+  dailyProteinTargetG: number | null;
+};
+
+export function validateGoalsInput(input: GoalsInput): GoalsValidationResult {
+  const errors: GoalsFieldError[] = [];
+
+  if (input.dailyCalorieTarget !== null) {
+    if (!Number.isFinite(input.dailyCalorieTarget) || input.dailyCalorieTarget < 0) {
+      errors.push({ field: "dailyCalorieTarget", message: "Calorie target must be zero or greater." });
+    } else if (!Number.isInteger(input.dailyCalorieTarget)) {
+      errors.push({ field: "dailyCalorieTarget", message: "Calorie target must be a whole number." });
+    }
+  }
+
+  if (input.dailyProteinTargetG !== null) {
+    if (!Number.isFinite(input.dailyProteinTargetG) || input.dailyProteinTargetG < 0) {
+      errors.push({ field: "dailyProteinTargetG", message: "Protein target must be zero or greater." });
+    }
+  }
+
+  return errors.length > 0 ? { ok: false, errors } : { ok: true };
+}

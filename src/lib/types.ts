@@ -6,6 +6,11 @@
  * is needed at the client boundary.
  */
 
+import type { WeightUnit } from "@/lib/domain/units";
+// Re-exported so callers can import the DB-row-adjacent `WeightUnit` type from `lib/types`
+// alongside `UserGoals`/`DailyMetric`, without needing to know it's actually defined in `units.ts`.
+export type { WeightUnit };
+
 /** One row of `public.food_entries`. */
 export type FoodEntry = {
   id: string;
@@ -52,4 +57,33 @@ export type FoodCandidatePrefill = {
   unit: string | null;
   caloriesPerUnit: number;
   proteinGPerUnit: number;
+};
+
+/**
+ * One row of `public.daily_metrics` (Phase 4). Exactly one row per `(user_id, metric_date)` —
+ * an upsert overwrites rather than inserting a new row. `weight_kg` is always canonical kg,
+ * regardless of the user's `weight_unit` display preference (see `lib/domain/units.ts`).
+ */
+export type DailyMetric = {
+  id: string;
+  user_id: string;
+  metric_date: string;
+  weight_kg: number;
+  body_fat_pct: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * One row of `public.user_goals` (Phase 4). One row per user (`user_id` is the PK) — the
+ * "ensure-row" access pattern (`lib/actions/goals.ts`'s `getGoals`) creates a default row on
+ * first access rather than treating "no row yet" as an error.
+ */
+export type UserGoals = {
+  user_id: string;
+  daily_calorie_target: number | null;
+  daily_protein_target_g: number | null;
+  weight_unit: WeightUnit;
+  created_at: string;
+  updated_at: string;
 };

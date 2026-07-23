@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { validateFoodEntryInput, type FoodEntryInput } from "./validation";
+import {
+  validateDailyMetricInput,
+  validateFoodEntryInput,
+  validateGoalsInput,
+  type DailyMetricInput,
+  type FoodEntryInput,
+  type GoalsInput,
+} from "./validation";
 
 const base: FoodEntryInput = {
   name: "Eggs",
@@ -121,5 +128,103 @@ describe("validateFoodEntryInput", () => {
         ].sort(),
       );
     }
+  });
+});
+
+const baseMetric: DailyMetricInput = {
+  metricDate: "2026-07-15",
+  weight: 68.2,
+  bodyFatPct: 22.5,
+};
+
+describe("validateDailyMetricInput", () => {
+  it("accepts fully valid input", () => {
+    expect(validateDailyMetricInput(baseMetric).ok).toBe(true);
+  });
+
+  it("accepts a null body fat % (weight-only day)", () => {
+    expect(validateDailyMetricInput({ ...baseMetric, bodyFatPct: null }).ok).toBe(true);
+  });
+
+  it("rejects a malformed date", () => {
+    const result = validateDailyMetricInput({ ...baseMetric, metricDate: "07/15/2026" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "metricDate")).toBe(true);
+  });
+
+  it("rejects a zero weight", () => {
+    const result = validateDailyMetricInput({ ...baseMetric, weight: 0 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "weight")).toBe(true);
+  });
+
+  it("rejects a negative weight", () => {
+    const result = validateDailyMetricInput({ ...baseMetric, weight: -5 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "weight")).toBe(true);
+  });
+
+  it("rejects a non-finite weight (NaN from an empty numeric input)", () => {
+    const result = validateDailyMetricInput({ ...baseMetric, weight: NaN });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "weight")).toBe(true);
+  });
+
+  it("rejects a negative body fat %", () => {
+    const result = validateDailyMetricInput({ ...baseMetric, bodyFatPct: -1 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "bodyFatPct")).toBe(true);
+  });
+
+  it("rejects a body fat % over 100", () => {
+    const result = validateDailyMetricInput({ ...baseMetric, bodyFatPct: 100.1 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "bodyFatPct")).toBe(true);
+  });
+
+  it("accepts the boundary values 0 and 100 for body fat %", () => {
+    expect(validateDailyMetricInput({ ...baseMetric, bodyFatPct: 0 }).ok).toBe(true);
+    expect(validateDailyMetricInput({ ...baseMetric, bodyFatPct: 100 }).ok).toBe(true);
+  });
+});
+
+const baseGoals: GoalsInput = {
+  dailyCalorieTarget: 2000,
+  dailyProteinTargetG: 150,
+};
+
+describe("validateGoalsInput", () => {
+  it("accepts fully valid input", () => {
+    expect(validateGoalsInput(baseGoals).ok).toBe(true);
+  });
+
+  it("accepts both targets being null (no goal set)", () => {
+    expect(validateGoalsInput({ dailyCalorieTarget: null, dailyProteinTargetG: null }).ok).toBe(true);
+  });
+
+  it("accepts a zero calorie target", () => {
+    expect(validateGoalsInput({ ...baseGoals, dailyCalorieTarget: 0 }).ok).toBe(true);
+  });
+
+  it("rejects a negative calorie target", () => {
+    const result = validateGoalsInput({ ...baseGoals, dailyCalorieTarget: -1 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "dailyCalorieTarget")).toBe(true);
+  });
+
+  it("rejects a non-integer calorie target", () => {
+    const result = validateGoalsInput({ ...baseGoals, dailyCalorieTarget: 2000.5 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "dailyCalorieTarget")).toBe(true);
+  });
+
+  it("rejects a negative protein target", () => {
+    const result = validateGoalsInput({ ...baseGoals, dailyProteinTargetG: -1 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "dailyProteinTargetG")).toBe(true);
+  });
+
+  it("accepts a fractional protein target (numeric(6,2) column)", () => {
+    expect(validateGoalsInput({ ...baseGoals, dailyProteinTargetG: 150.5 }).ok).toBe(true);
   });
 });
