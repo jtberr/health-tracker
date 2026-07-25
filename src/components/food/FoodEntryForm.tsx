@@ -6,7 +6,9 @@ import { addFoodEntry, updateFoodEntry, type FoodEntryActionState } from "@/lib/
 import {
   browserTimeZone,
   defaultConsumedAtForNextEntry,
+  formatTimeLabel,
   localDateInTz,
+  quarterHourOptions,
   utcToLocalTime,
 } from "@/lib/domain/datetime";
 import { Button } from "@/components/ui/Button";
@@ -28,6 +30,9 @@ import type { FoodCandidatePrefill, FoodEntry } from "@/lib/types";
  */
 
 const initialActionState: FoodEntryActionState = { ok: false, error: null };
+
+/** Static — the same 96 buckets regardless of date/tz — so it's built once at module scope. */
+const TIME_OPTIONS = quarterHourOptions();
 
 type InputMode = "perUnit" | "total";
 
@@ -125,10 +130,21 @@ export function FoodEntryForm({
   const caloriesLabel = mode === "perUnit" ? "Calories per unit" : "Total calories";
   const proteinLabel = mode === "perUnit" ? "Protein per unit (g)" : "Total protein (g)";
 
+  // Edit invariant (§3.4/§4): a <select> can only display a value present in its own <option>
+  // list. If an entry's stored time is off-grid (shouldn't normally happen given server-side
+  // validation, but must be handled defensively — e.g. legacy data), the fixed 96-value list alone
+  // would cause the select to silently fall back to its first option, silently rewriting the time
+  // on save. Inject the current value as an extra option whenever it isn't already one of the 96.
+  const timeOptions = TIME_OPTIONS.some((option) => option.value === consumedTime)
+    ? TIME_OPTIONS
+    : [...TIME_OPTIONS, { value: consumedTime, label: formatTimeLabel(consumedTime) }].sort(
+        (a, b) => a.value.localeCompare(b.value),
+      );
+
   return (
     <form
       action={formAction}
-      className="flex flex-col gap-4 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5"
+      className="flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5"
       noValidate
     >
       {isEditing && <input type="hidden" name="id" value={editingEntry!.id} />}
@@ -221,16 +237,20 @@ export function FoodEntryForm({
           <label htmlFor={`${idPrefix}-time`} className={labelClass}>
             Time
           </label>
-          <input
+          <select
             id={`${idPrefix}-time`}
             name="consumedTime"
-            type="time"
-            step={900}
             required
             value={consumedTime}
             onChange={(e) => setConsumedTime(e.target.value)}
             className={inputClass}
-          />
+          >
+            {timeOptions.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
           {state.fieldErrors?.consumedTime && (
             <p className={errorTextClass}>{state.fieldErrors.consumedTime}</p>
           )}
@@ -241,14 +261,14 @@ export function FoodEntryForm({
         <button
           type="button"
           onClick={() => setExpanded(true)}
-          className="self-start text-sm font-medium text-indigo-600 hover:text-indigo-500"
+          className="self-start text-sm font-medium text-sage-deep hover:text-sage-deep/80"
         >
           + Add detail (quantity, unit)
         </button>
       )}
 
       {expanded && (
-        <div className="flex flex-col gap-3 rounded-lg bg-zinc-50 p-3.5">
+        <div className="flex flex-col gap-3 rounded-lg bg-stone-50 p-3.5">
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
               <label htmlFor={`${idPrefix}-quantity`} className={labelClass}>
@@ -289,21 +309,21 @@ export function FoodEntryForm({
             <legend className={labelClass}>
               Are the calories/protein above per unit, or a total for this quantity?
             </legend>
-            <label className="flex items-center gap-2 text-sm text-zinc-700">
+            <label className="flex items-center gap-2 text-sm text-stone-700">
               <input
                 type="radio"
                 checked={mode === "total"}
                 onChange={() => setMode("total")}
-                className="h-4 w-4 accent-indigo-600"
+                className="h-4 w-4 accent-sage-deep"
               />
               Total for the whole quantity
             </label>
-            <label className="flex items-center gap-2 text-sm text-zinc-700">
+            <label className="flex items-center gap-2 text-sm text-stone-700">
               <input
                 type="radio"
                 checked={mode === "perUnit"}
                 onChange={() => setMode("perUnit")}
-                className="h-4 w-4 accent-indigo-600"
+                className="h-4 w-4 accent-sage-deep"
               />
               Per unit
             </label>
@@ -313,7 +333,7 @@ export function FoodEntryForm({
             <button
               type="button"
               onClick={() => setExpanded(false)}
-              className="self-start text-sm font-medium text-indigo-600 hover:text-indigo-500"
+              className="self-start text-sm font-medium text-sage-deep hover:text-sage-deep/80"
             >
               Hide detail
             </button>

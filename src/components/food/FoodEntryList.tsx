@@ -26,7 +26,7 @@ export function FoodEntryList({
 
   if (groups.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-zinc-300 px-4 py-8 text-center text-sm text-zinc-500">
+      <div className="rounded-2xl border border-dashed border-stone-300 px-4 py-8 text-center text-sm text-stone-500">
         No entries logged for this day yet.
       </div>
     );
@@ -43,30 +43,30 @@ export function FoodEntryList({
         return (
           <section
             key={group.consumedAt}
-            className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm"
+            className="overflow-hidden rounded-2xl border border-stone-200 bg-white shadow-sm"
           >
-            <header className="flex items-center justify-between border-b border-zinc-100 bg-zinc-50 px-4 py-2.5">
-              <span className="text-sm font-semibold text-zinc-700">{time}</span>
-              <span className="text-sm text-zinc-500">
+            <header className="flex items-center justify-between border-b border-stone-100 bg-stone-50 px-4 py-2.5">
+              <span className="text-sm font-semibold text-stone-700">{time}</span>
+              <span className="text-sm text-stone-500">
                 {groupTotals.calories} kcal · {groupTotals.proteinG}g protein
                 {groupPct !== null && ` · ${groupPct}% from protein`}
               </span>
             </header>
-            <ul className="divide-y divide-zinc-100">
+            <ul className="divide-y divide-stone-100">
               {group.entries.map((entry) => {
                 const entryPct = proteinCaloriePct(entry.protein_g, entry.calories);
                 return (
                   <li
                     key={entry.id}
-                    className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-zinc-50/70"
+                    className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-stone-50/70"
                   >
                     <div>
-                      <p className="text-sm font-medium text-zinc-900">
+                      <p className="text-sm font-medium text-ink">
                         {entry.quantity !== 1 || entry.unit
                           ? `${entry.quantity}${entry.unit ? ` ${entry.unit}` : "x"} — ${entry.name}`
                           : entry.name}
                       </p>
-                      <p className="text-sm text-zinc-500">
+                      <p className="text-sm text-stone-500">
                         {entry.calories} kcal · {entry.protein_g}g protein
                         {entryPct !== null ? ` · ${entryPct}%` : " · —"}
                       </p>

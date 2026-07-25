@@ -1,11 +1,11 @@
 # Progress
 # Health Tracker
 
-**Last updated**: 2026-07-22
+**Last updated**: 2026-07-25
 
 ---
 
-## Current Status: Phase 4 (weight/body-fat logging + goals/settings) qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Phase 5 (trend charts) starting next.
+## Current Status: Phase 4 qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Food time-of-day control switched from `<input type="time">` to a native `<select>` (2026-07-25, developer, per architect revision) — now with qa-reviewer. Visual identity rollout (Pass A + Pass B, warm-paper/sage/clay palette) implemented (2026-07-25, developer) — now with qa-reviewer. Phase 5 (trend charts) starting next.
 
 ---
 
@@ -230,20 +230,166 @@
   full suite again after the fix: unit 151/151, e2e 102/102 (one unrelated Phase 3 test —
   floor-of-now clock-boundary timing — flaked once in the full run and passed clean in isolation, a
   pre-existing flake unrelated to this change) still green.
+- [x] **Local email-confirmation redirect bug fixed; missing client-fetch error handling
+  added (partial fix for the "no client-fetch timeout" follow-up — see qa-reviewer caveat below)**
+  (2026-07-25, done directly — trivial, no design surface). Jeff reported `/food`
+  hanging on "Today so far" → "Loading…" forever after clicking a signup confirmation email, which
+  had landed him on `http://127.0.0.1:3000` instead of `http://localhost:3000`. Root-caused to two
+  compounding bugs, both fixed: (1) `supabase/config.toml`'s `[auth] site_url` was
+  `http://127.0.0.1:3000` (with only `https://127.0.0.1:3000` in `additional_redirect_urls`), while
+  `signUp()` (`src/lib/actions/auth.ts`) requests `emailRedirectTo` built from
+  `NEXT_PUBLIC_SITE_URL=http://localhost:3000` — since `localhost:3000` wasn't on GoTrue's redirect
+  allow-list, it silently fell back to the configured `site_url` default, always sending
+  confirmation links to `127.0.0.1` regardless of what the app asked for. Fixed by aligning
+  `site_url`/`additional_redirect_urls` to `localhost:3000` so the whole auth flow stays on one
+  consistent origin (requires `supabase stop && supabase start` to take effect — done and
+  reverified). (2) This is exactly the "no client-fetch timeout/fallback" gap already flagged
+  below in Up Next (2026-07-22) — surfacing now as a real blocker rather than a hypothetical:
+  `TodaySummary.tsx`, `MetricForm.tsx`, and `FoodDayView.tsx` all had `useEffect` Supabase reads
+  with no error handling, so any rejected/errored query left `loading` stuck `true` forever with
+  zero feedback. Fixed all three with proper try/catch (async/await, not `.then().catch()` —
+  Supabase-js's query builder is `PromiseLike`, not a real `Promise`, so `.catch` isn't typed on it
+  directly) plus a visible error state with a "Retry" action. Verified end-to-end with a scripted
+  signup → Mailpit confirmation-link fetch → follow-link → dashboard-load run: lands on
+  `localhost:3000`, "Today so far" resolves immediately with real data, no hang. Lint/typecheck
+  clean, 151/151 unit tests still passing. **Environment note for whoever next runs this
+  locally on Windows**: Turbopack (`next dev`'s default) repeatedly crashed with an internal IPC
+  panic (`TurbopackInternalError`, "connection was forcibly closed", os error 10054) in this
+  sandbox — root cause not fully isolated, but `next dev --webpack` runs cleanly and is the
+  workaround; not a code issue, no application fix applied or needed.
+  **qa-reviewer caveat (2026-07-25) — important, do not treat the original bug as fully closed:**
+  the try/catch only fires when a query *settles* with an error (HTTP 500, RLS rejection, etc.).
+  qa-reviewer tested a true **network-level failure** (aborted request, closest analog to Jeff's
+  original "stuck pending forever, never erroring" report) and confirmed the page still hangs on
+  "Loading…" indefinitely in that case — this fix closes the HTTP-error gap but does **not**
+  resolve the network-hang scenario that originally motivated the follow-up. That item (a real
+  fetch timeout/abort, e.g. `AbortController` + a time limit) stays open — see Up Next. qa-reviewer
+  also found `TodaySummary.tsx` was missing the "Retry" action the other two components got;
+  fixed directly after review (adds a `retryCount` state bump to re-run the effect).
+- [x] **Food time-of-day control changed from `<input type="time" step="900">` to a native
+  `<select>` of the 96 quarter-hour values** (developer, per the architect's 2026-07-25 revision —
+  see `ai-context/DECISIONS.md`). New pure function `quarterHourOptions()` in
+  `src/lib/domain/datetime.ts` (plus a small `formatTimeLabel(value)` helper it's built from, also
+  exported for reuse) generates the 96 `{ value: "HH:MM", label: "h:mm AM/PM" }` pairs — unit
+  tested for count, ordering, uniqueness, the 15-minute-grid pattern, and both AM/PM boundaries
+  (noon and midnight). `FoodEntryForm.tsx` now renders a `<select name="consumedTime">` built from
+  a module-level `TIME_OPTIONS` constant; `name`/`id`/`required`/label/error-rendering are
+  unchanged, and the `HH:MM` value contract into validation/`localInputToUtcInTz`/grouping/the
+  future-day cap is untouched (presentation-only change, exactly per the design doc). **Edit
+  invariant implemented**: when the entry being edited holds an off-grid stored time (legacy/
+  defensive case), the component injects it as an extra `{ value, label }` option (sorted into
+  place) so the select can never silently fall back to its first option and rewrite the time on an
+  unrelated save — verified by hand (direct DB insert of an off-grid `09:07`, confirmed the edit
+  form pre-selects "9:07 AM" correctly, and that submitting unchanged still correctly hits the
+  pre-existing server-side 15-minute-interval rejection rather than silently saving — that
+  rejection is expected/unchanged behavior, not a regression). `MealItemForm`/`LogMealDialog` were
+  confirmed out of scope for this pass (`LogMealDialog` doesn't exist yet — Phase 7 — and will pick
+  up the same `quarterHourOptions()` helper when built; `MealItemForm` has no time field at all).
+  Updated `e2e/food-logging.spec.ts` (`step="900"` assertion replaced with option-count/label
+  assertions plus a new select-and-submit test) and `e2e/phase3-acceptance.spec.ts` (the off-grid-
+  bypass test now injects a rogue `<option>` into the DOM and selects it, rather than setting
+  `.value` on an `<input type="time">`, to keep proving the *server* — not just the removed client
+  constraint — rejects an off-grid time; a manual-override test switched from `.fill()` to
+  `.selectOption()`). Full verification: unit 166/166 (151 prior + 15 new for
+  `quarterHourOptions`/`formatTimeLabel`), lint/typecheck clean, and
+  `e2e/food-logging.spec.ts` + `e2e/phase3-acceptance.spec.ts` run against a live local Supabase —
+  every test touching the time control passed; **9 pre-existing failures unrelated to this change**
+  were also observed and are called out in the Notes below (not fixed here — out of this task's
+  scope, and confirmed via `git stash` to already fail identically on the last commit before this
+  change).
+- [x] **Visual identity rollout implemented (developer), both passes in one session, per
+  `ai-context/DECISIONS.md`'s "Visual identity: warm-paper + sage/clay palette…" and
+  "Visual-identity tokens live in `globals.css`…" and design doc §8 "Visual identity rollout".**
+  Presentation-only — no data model/actions/RLS touched.
+  **Pass A (tokens + primitives + auth pages):** `src/app/globals.css` gained the six custom
+  properties (`--paper #FBF8F1`, `--ink #23211C`, `--sage #A9BE8C`, `--sage-deep #5C7444`,
+  `--sage-pale #E3EAD6`, `--clay #C97452`) on `:root`, exposed via `@theme inline` as
+  `--color-paper`/`--color-ink`/`--color-sage`/`--color-sage-deep`/`--color-sage-pale`/`--color-clay`
+  (real `bg-*`/`text-*`/`ring-*` utilities), with `--background`/`--foreground` repointed to
+  `--paper`/`--ink`; the dead `@media (prefers-color-scheme: dark)` block was removed (light-only
+  for v1, per the decision). `src/app/layout.tsx` registers **Fraunces** via `next/font/google`
+  (`--font-fraunces` → `--font-serif` → `font-serif` utility), mirroring the existing Geist setup;
+  applied only to headings/wordmark/large stat numerals, Geist Sans stays the body/UI face
+  unchanged. All four `components/ui/*` primitives updated: `Button.tsx` (`primary` = `bg-ink
+  text-paper`, `rounded-lg`→**`rounded-full`** pill, focus ring `sage-deep`; `secondary` = white/
+  `--ink`/soft border; `danger` **left untouched** — semantic red, out of scope); `Card.tsx`
+  (`rounded-xl`→**`rounded-2xl`**, border → warm-neutral `stone-200`); `NavLink.tsx` (active =
+  **`bg-sage-pale text-ink`** — deliberately **not** `text-sage-deep`, which is ~4.2:1 and fails
+  AA for this normal-weight `text-sm`; verified visually in the browser, not just by class name —
+  see manual check below); `styles.ts` (`inputClass` focus ring/border-on-focus → `sage-deep`,
+  `labelClass`/placeholder → warm-neutral; `errorTextClass` untouched). `(auth)/login` and
+  `(auth)/signup` (`LoginForm.tsx`, `SignupForm.tsx`, `(auth)/layout.tsx`) were structurally
+  refactored off their hand-rolled `bg-zinc-900` button/raw `<input>`/`<label>` classes onto the
+  `components/ui/` primitives (`Button`, `Card`, `inputClass`/`labelClass`/`errorTextClass`) —
+  the amber `auth_callback_failed` notice on `/login` was left untouched (semantic warning, out of
+  scope). A single "sage arc" SVG motif (one thin curved `<path>` in `--sage`, ~30% opacity) was
+  added once each behind the auth `Card` and behind the dashboard "Today so far" block, per the
+  motif guardrail (at most once per screen, never repeated decoration).
+  **Pass B (propagate to already-styled screens):** every direct `indigo`/`emerald`/`zinc-900`
+  reference was swapped per the design doc's file list and mapping (`FoodEntryForm.tsx`,
+  `SettingsForm.tsx`, `TodaySummary.tsx`, `MetricForm.tsx`, `DailyTotals.tsx`, `FoodDayView.tsx`,
+  `FoodEntryList.tsx`, the dashboard `(app)/page.tsx`, `(app)/layout.tsx` nav shell, and the
+  `food`/`metrics`/`settings` `page.tsx` headings) — `indigo-*` accents → `sage-deep`, badge/tint
+  fills → `sage-pale`, `rounded-xl` card-like surfaces → `rounded-2xl`, headings and the three
+  `DailyTotals` stat numerals → `font-serif`/`text-ink` (or `text-sage-deep` for the accented
+  protein-% stat, per the doc's "standard mapping," **not** `text-clay` — clay is reserved for
+  "positive emphasis only," which a routine metric isn't). The two flagged non-mechanical spots
+  were verified, not just pattern-matched: `SettingsForm`'s "Settings saved." pill is
+  **`bg-sage-pale text-ink`** (deliberate on-brand success, distinct from the persistent semantic
+  red — confirmed by also toggling an error path, which still renders in red); the `amber`
+  auth-callback notice was confirmed untouched. Residual non-brand greys were mapped to Tailwind's
+  built-in **`stone`** palette (a warm gray already in Tailwind v4's default theme, no new tokens
+  needed) rather than left as `zinc`, satisfying the design doc's "no stray zinc remains" bar —
+  with one deliberate, documented exception: `styles.ts`'s `inputClass` keeps **`border-zinc-300`**
+  literally unchanged, per the DECISIONS entry's explicit "field-border grays… stay" carve-out
+  (distinct from `Card`'s border, which *is* a "card surface" and did move to `stone-200`).
+  **Verification:** `npm run lint` / `npx tsc --noEmit` clean; `npm test` 166/166 (unchanged from
+  before this work — confirms no logic was touched); a full `supabase db reset` + `npm run
+  test:e2e` run against a freshly-started dev server passed **108/108** (all pre-existing tests,
+  including the 9 flaky ones logged in the 2026-07-25 Notes entry above, which are timing-sensitive
+  and not reliably reproducible run-to-run — see the Notes entry added below for how a stale,
+  heavily-cycled dev server process left over from investigation work made them appear to fail
+  10/10 on a first pass, and how restarting the dev server cleanly resolved that; this rollout did
+  not change their pass/fail status, confirmed by isolating the visual-identity diff via a
+  path-scoped `git stash` and re-running against the true pre-existing working tree). Manually
+  driven in a real browser (Playwright script, not just the automated suite) against `/login`,
+  `/signup`, dashboard, `/food` (including adding a live entry), `/metrics` (including logging a
+  weight entry, to see the "Already logged" `sage-pale`/`ink` pill), and `/settings` (including
+  toggling kg→lb and saving, to see the "Settings saved." pill) — screenshots confirm: warm paper
+  background throughout; Fraunces renders on every heading and the dashboard/food stat numerals;
+  pill-shaped buttons everywhere; `rounded-2xl` cards; the active nav pill (`bg-sage-pale
+  text-ink`) is clearly legible on every screen, the specific contrast trap the design doc flagged;
+  the sage arc appears exactly once on the auth screen and once on the dashboard; no stray
+  indigo/emerald/zinc-900 visible anywhere. Zero console errors from app code (one unrelated
+  Chromium-injected `caret-color` hydration-mismatch warning on the two auth pages' password/email
+  inputs, traced to the automated browser's own autofill/password-manager UI overlay, not app
+  styling — present regardless of which classes are on the inputs).
 
 ## Up Next
 1. **Phase 5 (Trend charts)** — per design doc §8 Phase 5. Goes to the developer next;
    qa-reviewer gates it afterward per the usual per-phase loop.
 2. Phases 6–9 follow per §8's dependency order (only 1→2→3 and 6→7 are hard dependencies; 4–8
    can be resequenced by priority if wanted — 4 is now done).
-3. **Follow-up (not scoped to any phase, low priority): no client-fetch timeout/fallback on
-   `/food` or `/metrics`.** If a browser-side Supabase read (`FoodDayView`, `MetricForm`) ever
-   genuinely hangs — a stuck keep-alive connection, a Docker/network hiccup — the page just shows
-   "Loading..." forever with no timeout, no error, and no "this is taking a while, try refreshing"
-   fallback. Found while investigating a real Jeff-reported case of `/food` stuck on "Loading..."
-   with a save that appeared to do nothing (2026-07-22) — see the Notes entry below for what was
-   ruled out. Not urgent (the underlying cause in that case was environmental, not a code bug),
-   but worth a small UX hardening pass whenever a phase touches these components again.
+3. **Follow-up, narrowed 2026-07-25: no true fetch-timeout/abort on `/food`, `/metrics`, or the
+   dashboard.** The 2026-07-25 fix (see Completed above) added error handling for queries that
+   *settle* with an error (HTTP 500, RLS rejection) — that part is done and verified. qa-reviewer
+   confirmed a genuine network-level hang (aborted connection, no response ever arriving — the
+   closest analog to Jeff's original report) still leaves the UI stuck on "Loading…" forever with
+   no feedback, since nothing currently imposes a time limit on the fetch itself. Needs an actual
+   timeout (e.g. `AbortController` + a few-second limit, surfacing the same error UI on abort).
+   Low priority (real-world trigger is rare — a wedged local Docker connection or similar), but
+   should stay open rather than being marked resolved.
+4. **Design follow-up, not urgent (Jeff, 2026-07-25): the 96-option time `<select>` feels like a
+   lot of choices, and it would help if the options visually lined up as you scroll** (e.g. a
+   fixed-width/monospace/tabular-number treatment so `8:15 AM` and `11:45 PM` align in a column,
+   rather than each label's width varying with digit count). Flagged for a later design pass, not
+   a blocker — the control is functionally correct (see the "Food time-of-day control changed..."
+   entry above) and qa-reviewer gates that separately. Whoever picks this up next should loop in
+   the architect first, same as the original `<input type="time">` → `<select>` change, since it's
+   a presentational revision to a decision already recorded in `ai-context/DECISIONS.md`.
+5. **Visual identity rollout — implemented, awaiting qa-reviewer.** See Completed below for what
+   shipped. qa-reviewer should review it as a standalone cross-cutting change against the two
+   DECISIONS entries + design doc §8 "Visual identity rollout", not a numbered §6 phase.
 
 ## Notes / Things Discovered
 - 2026-07-19: `AGENTS.md`, `ai-context/PROGRESS.md`, and `ai-context/DECISIONS.md` were still
@@ -330,5 +476,43 @@
   logged as a follow-up in Up Next above): **no client-fetch timeout or "taking a while" fallback**
   anywhere a browser-side Supabase read is used (`FoodDayView`, `MetricForm`) — if a request ever
   does genuinely hang for any reason, the user has zero feedback beyond an indefinite "Loading...".
+- 2026-07-25: **Discovered a pre-existing, reproducible failure in 9 e2e tests, unrelated to the
+  time-control change** — every failure is a test that seeds fixture data on a specific historical
+  date (e.g. `2026-07-12`) via a direct DB insert, then does `page.getByLabel("Day").fill(day)` to
+  navigate `/food` to that date; the fill silently doesn't take effect (the Day input stays on
+  today's date) so the seeded entries never render and the assertions time out. Confirmed via
+  `git stash` that this reproduces identically against the last commit on `main`
+  (`3695ace`) with no working-tree changes at all — **not a regression from this task's change**,
+  and not something this task's scope covers, so it was left as-is rather than fixed. Whoever picks
+  up Phase 5 or the next `/food`-touching phase should investigate `FoodDayView.tsx`'s `Day`
+  `<input type="date">` — likely another controlled-input/native-reset interaction similar to the
+  `SettingsForm` radio bug fixed during Phase 4 (`ai-context/DECISIONS.md`,
+  "`SettingsForm`'s fields remount…"), since `.fill()` normally works fine on controlled inputs
+  whose `onChange` just calls `setState`. Affected tests (all pre-existing, not touched by this
+  task): `e2e/food-logging.spec.ts` "per-entry protein %...", "day rollup is ratio-of-sums...",
+  "entries at distinct instants...", "entries sharing the exact same consumed_at..."; and
+  `e2e/phase3-acceptance.spec.ts` "entries one minute apart...", "every 30 minutes run...", "day
+  pct is calorie-weighted...", "per-entry protein pct over 100...", "editing an entry name in a
+  different browser tz...".
+- 2026-07-25: **The 9 pre-existing failures above turned out to be dev-server-state-sensitive, not
+  a deterministic 100%-repro bug** — found while verifying the visual identity rollout. A `npm run
+  test:e2e` run against a `next dev` process that had been left running across many hours of edits/
+  `git stash`/`git stash pop` cycles in this same session failed **10** tests (the same 9, plus one
+  more, `food-logging.spec.ts`'s "delete decrements the day totals" — count/exact members varied
+  slightly run to run). Killing that stale process (`netstat`-located leftover from an earlier,
+  unrelated session — see the leftover untracked `devserver.log`/`devserver.pid` in the repo root,
+  not created by this task) and letting Playwright's own `webServer` start a fresh one from a clean
+  `.next` cache made the **full 108-test suite pass, including all 9 previously-failing tests**,
+  reproduced twice. This does not contradict the earlier "confirmed via `git stash`" finding above
+  (that was real — the tests do fail against a stale/long-lived dev server on the unmodified
+  codebase too, `git stash` only proves the *code* isn't the variable, not that the *server
+  process's freshness* isn't) — it refines it: the actual trigger looks like a timing race on
+  `FoodDayView.tsx`'s `Day` `<input type="date">` (per the existing hypothesis above) that a
+  freshly-compiled route wins reliably but a long-hot dev server sometimes loses. **Practical
+  takeaway for whoever investigates this next**: reproduce against a *freshly started* `npm run
+  dev` (or let `test:e2e`'s own `webServer` start one — avoid a lingering manually-started server
+  from an earlier session) before concluding a failure is real; and the underlying `Day` input race
+  itself is still an open, unfixed bug worth investigating on its own merits (a flaky test is still
+  a symptom of something).
 
 ---

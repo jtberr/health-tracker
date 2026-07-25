@@ -60,12 +60,21 @@ test.describe("Phase 3 — core food logging loop", () => {
     await expect(page.locator("li", { hasText: "Banana" })).toContainText("1.3g protein");
   });
 
-  test("the time input is restricted to the 15-minute grid and defaults to floor-of-now", async ({
+  test("the time control is a 96-option quarter-hour <select> and defaults to floor-of-now", async ({
     page,
   }) => {
-    const timeInput = page.getByLabel("Time");
-    await expect(timeInput).toHaveAttribute("step", "900");
-    const value = await timeInput.inputValue(); // "HH:MM"
+    const timeSelect = page.getByLabel("Time");
+    await expect(timeSelect).toHaveJSProperty("tagName", "SELECT");
+
+    // All 96 quarter-hour buckets are present as options, with 12-hour AM/PM labels.
+    const options = timeSelect.locator("option");
+    await expect(options).toHaveCount(96);
+    await expect(options.first()).toHaveText("12:00 AM");
+    await expect(options.first()).toHaveAttribute("value", "00:00");
+    await expect(options.last()).toHaveText("11:45 PM");
+    await expect(options.last()).toHaveAttribute("value", "23:45");
+
+    const value = await timeSelect.inputValue(); // "HH:MM"
     const minutes = Number(value.slice(3, 5));
     expect([0, 15, 30, 45]).toContain(minutes);
 
@@ -75,6 +84,18 @@ test.describe("Phase 3 — core food logging loop", () => {
     const nowMinutesSinceMidnight = now.getHours() * 60 + now.getMinutes();
     // Floor, never a future bucket relative to "now" (allow a small margin for slow CI ticks).
     expect(inputMinutesSinceMidnight).toBeLessThanOrEqual(nowMinutesSinceMidnight + 1);
+  });
+
+  test("selecting a time option and submitting stores the exact selected quarter-hour", async ({ page }) => {
+    await page.getByLabel("Name").fill("Oatmeal");
+    await page.getByLabel("Total calories").fill("150");
+    await page.getByLabel("Total protein (g)").fill("5");
+    await page.getByLabel("Time").selectOption("08:15");
+    await page.getByRole("button", { name: "Add entry" }).click();
+
+    await expect(page.getByText("Oatmeal")).toBeVisible();
+    // The group header shows the local (24-hour) time of the entry it was logged under.
+    await expect(page.locator("section", { hasText: "Oatmeal" })).toContainText("08:15");
   });
 
   test("smart time default: a second add moments later shares the first entry's time and groups", async ({

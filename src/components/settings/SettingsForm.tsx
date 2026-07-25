@@ -68,7 +68,7 @@ function SettingsFields({
   return (
     <form
       action={formAction}
-      className="flex flex-col gap-5 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5"
+      className="flex flex-col gap-5 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5"
       noValidate
     >
       <div className="grid grid-cols-2 gap-3">
@@ -112,7 +112,7 @@ function SettingsFields({
 
       <fieldset className="flex flex-col gap-2">
         <legend className={labelClass}>Weight unit</legend>
-        <div className="inline-flex w-fit rounded-lg border border-zinc-200 bg-zinc-50 p-1">
+        <div className="inline-flex w-fit rounded-full border border-stone-200 bg-stone-50 p-1">
           <label className="relative cursor-pointer">
             <input
               type="radio"
@@ -122,7 +122,7 @@ function SettingsFields({
               onChange={() => setWeightUnit("kg")}
               className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
             />
-            <span className="block rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 transition-colors peer-checked:bg-white peer-checked:text-indigo-700 peer-checked:shadow-sm">
+            <span className="block rounded-full px-3 py-1.5 text-sm font-medium text-stone-600 transition-colors peer-checked:bg-white peer-checked:text-sage-deep peer-checked:shadow-sm">
               Kilograms (kg)
             </span>
           </label>
@@ -135,19 +135,19 @@ function SettingsFields({
               onChange={() => setWeightUnit("lb")}
               className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
             />
-            <span className="block rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 transition-colors peer-checked:bg-white peer-checked:text-indigo-700 peer-checked:shadow-sm">
+            <span className="block rounded-full px-3 py-1.5 text-sm font-medium text-stone-600 transition-colors peer-checked:bg-white peer-checked:text-sage-deep peer-checked:shadow-sm">
               Pounds (lb)
             </span>
           </label>
         </div>
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-stone-500">
           Weight is always stored in kilograms — this only changes how it&apos;s entered/displayed.
         </p>
       </fieldset>
 
       {state.error && <p className={errorTextClass}>{state.error}</p>}
       {state.ok && (
-        <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+        <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-sage-pale px-3 py-1 text-xs font-medium text-ink">
           Settings saved.
         </p>
       )}

@@ -45,9 +45,11 @@ Developer can implement directly against it.
   entry's `consumed_at`** while the user is adding items in the same sitting (so items typed together
   naturally share a timestamp and group as one meal — see grouping below), falling back to "now" for the
   first entry or after a freshness window elapses (exact rule in 3.4). **Time-of-day is entered on a
-  15-minute grid** (:00/:15/:30/:45) via a native `<input type="time" step="900">`; when the smart default
-  doesn't apply, "now" resolves to the 15-minute interval **at or before** the current time (floor — never a
-  future bucket, so it stays consistent with the no-future cap).
+  15-minute grid** (:00/:15/:30/:45) via a native **`<select>` of the 96 quarter-hour values of a day**
+  (option labels in 12-hour AM/PM form, option `value`s in 24-hour `HH:MM`) — one interaction to pick a
+  time, standard HTML, no custom picker. When the smart default doesn't apply, "now" resolves to the
+  15-minute interval **at or before** the current time (floor — never a future bucket, so it stays
+  consistent with the no-future cap).
 - **% of calories from protein (new metric):** each food entry displays its protein-calorie ratio using the
   conventional formula `(protein_g × 4) ÷ calories × 100`. The **day-level rollup uses ratio-of-sums**:
   `(day_total_protein_g × 4) ÷ day_total_calories × 100` — sum the day's protein and calories first, then
@@ -194,8 +196,9 @@ columns** = `round(quantity × per-unit)`, nullable `logged_from_meal_id` (**pla
 `consumed_local_date <= (now() at time zone consumed_tz)::date`. Indexes on
 `(user_id, consumed_local_date, consumed_at)` and partial `(logged_from_meal_id)`.
 
-The `consumed_at` **time-of-day input is restricted to 15-minute intervals** (:00/:15/:30/:45) — but this is
-an **input constraint only**: `consumed_at` remains a full-precision UTC `timestamptz` (a snapped time simply
+The `consumed_at` **time-of-day input is restricted to 15-minute intervals** (:00/:15/:30/:45) — via a native
+`<select>` of the 96 quarter-hour values (see §3.3/§4) — but this is an **input constraint only**:
+`consumed_at` remains a full-precision UTC `timestamptz` (a snapped time simply
 stores with `:00` seconds), so storage, indexing, the local-day trigger, and exact-match grouping are all
 unchanged. No DB constraint enforces the grid (it is a UI affordance for ease of entry, not an invariant);
 any legacy/off-grid instant still groups and sums correctly.
@@ -296,9 +299,17 @@ Lookup routes unchanged.
 calories + total protein + date/time; quantity 1, unit null, so the typed total is stored as the per-unit
 value at quantity 1. "Add detail" expander reveals quantity/unit/per-unit-or-total (auto-expands on a
 lookup-candidate pick; see prior revision).
-- **Time-of-day is a native `<input type="time" step="900">`** (900 s = 15 min), so the browser's own
-  keyboard/stepper/platform picker only offers :00/:15/:30/:45 — standard HTML, no custom picker. The date is
-  a native `<input type="date" max={today}>`.
+- **Time-of-day is a native `<select>` of the 96 valid quarter-hour values** ("12:00 AM" … "11:45 PM";
+  option labels 12-hour AM/PM, option `value`s 24-hour `HH:MM`), so picking a time is **one interaction**
+  rather than three separately-set segments — standard HTML, fully keyboard/screen-reader accessible, no
+  custom picker. (This replaces the earlier `<input type="time" step="900">`: `step` constrained the valid
+  values but browsers still render that widget as three independent hour/minute/AM-PM segments regardless of
+  `step`, so it never delivered the intended fewer-interactions friction win — see §4 and
+  `ai-context/DECISIONS.md`.) The value handed to the form/action is still the 24-hour `HH:MM` string, so
+  server validation, `localInputToUtcInTz`, grouping, and the future-day cap are unchanged. **Edit invariant:**
+  if an entry's stored time-of-day is ever off-grid, the edit form injects it as an extra selected option so
+  opening it for an unrelated edit never silently rewrites its time. The date is a native
+  `<input type="date" max={today}>`.
 - **Smart `consumed_at` default (the rule that makes exact-match grouping free):** `food/page` tracks the
   most recently logged entry's `consumed_at` for the selected day (`lastConsumedAt`). Opening the add form
   defaults its date/time to `datetime.defaultConsumedAtForNextEntry(lastConsumedAt, now)`:
@@ -311,7 +322,8 @@ lookup-candidate pick; see prior revision).
   - **enough time has passed** (>120 min) → default **the floor of now** again (starts a new group).
 - Edge cases: on submit `lastConsumedAt` updates to the just-saved `consumed_at` (following any manual time
   the user set); changing the selected day resets `lastConsumedAt` to null (→ floor-of-now on that day). The
-  user may override the time, but the `step` keeps even manual edits on the 15-minute grid. 120 min is a
+  user may override the time, but the `<select>`'s fixed 96-value option set keeps even manual edits on the
+  15-minute grid (the control literally cannot express an off-grid time). 120 min is a
   tunable constant; grouping semantics remain pure exact-match on whatever `consumed_at` is stored.
 - **This reinforces exact-`consumed_at` grouping:** snapping both the default and manual edits to the grid
   means near-miss hand entries from one sitting (e.g. 12:03 vs 12:04 for two items) collapse onto the same
@@ -332,7 +344,9 @@ ratio-of-sums function on the day's summed totals (from `daily_food_totals`). Th
 for today.
 
 Other components unchanged: `CopyDayDialog`, `LogMealDialog` (its date/time picker is likewise a
-`date max=today` + `time step="900"`), `MealList`/`MealForm`, `MealItemForm` (fields always visible),
+`date max=today` + the same 96-value quarter-hour time `<select>`), `MealList`/`MealForm`, `MealItemForm`
+(fields always visible — and note it has **no** time field at all: saved-meal items carry no `consumed_at`;
+time-of-day is chosen only at log time in `LogMealDialog`, so this control change doesn't touch it),
 `MetricForm` (date max=today, no time field, sends `metricTz`), `SettingsForm`, `RangeSelector`,
 `WeightChart`/`IntakeChart`. The `(app)` nav has a **"Log out"** control (the only session terminator).
 Installability via `app/manifest.ts` (+ icons), `display:'standalone'`, **no service worker**.
@@ -343,16 +357,26 @@ updates, chart range (URL), display-unit prop. No global store.
 
 ## 4. Alternatives Considered
 
-- **Time-of-day input: 15-minute grid via native `step="900"`, floor-to-past default (chosen)** vs.
-  round-to-nearest, free-second entry, or a custom time picker. **Floor, not round-to-nearest**, because
-  rounding up could land on a quarter-hour bucket *later* than the current time — a not-yet-happened instant
-  that the no-future-day cap would (correctly) reject, spuriously blocking the default; flooring can only ever
-  produce an at-or-before bucket, so it composes cleanly with the cap. **Native `<input type="time"
-  step="900">`** over a bespoke picker: it's standard HTML with built-in keyboard entry, platform pickers, and
-  accessibility for zero custom code — matching the project's prefer-conventional bias — and the `step`
-  constrains manual edits too. **Bonus:** snapping default and manual edits to the grid makes near-miss
-  timestamps from one sitting coincide, reinforcing the exact-`consumed_at` meal grouping. The grid is a UI
-  affordance only (not a DB constraint), so it never rejects data and doesn't touch storage precision.
+- **Time-of-day input: 15-minute grid via a native `<select>` of 96 values, floor-to-past default (chosen)**
+  vs. round-to-nearest, free-second entry, a native `<input type="time" step="900">`, or a custom time picker.
+  **Floor, not round-to-nearest**, because rounding up could land on a quarter-hour bucket *later* than the
+  current time — a not-yet-happened instant that the no-future-day cap would (correctly) reject, spuriously
+  blocking the default; flooring can only ever produce an at-or-before bucket, so it composes cleanly with the
+  cap. **Native `<select>` of the 96 quarter-hour values (`"12:00 AM"`…`"11:45 PM"`, `value`s in 24-hour
+  `HH:MM`)** over both a bespoke picker *and* the native time input: it's standard HTML with built-in keyboard
+  entry, type-ahead, and screen-reader accessibility for zero custom code — matching the project's
+  prefer-conventional bias — and collapses time selection to **one interaction**. This replaced an earlier
+  `<input type="time" step="900">`: `step` constrains valid *values* but browsers still *render* that widget as
+  three independently-set hour/minute/AM-PM segments regardless of `step`, so it enforced the grid but never
+  delivered the fewer-interactions friction win the coarse grid was chosen for (confirmed by hands-on use, not
+  a QA gap — see `ai-context/DECISIONS.md`). A `<select>`'s fixed option set also **constrains manual edits to
+  the grid by construction** (it can't express an off-grid value) — with one edit-path caveat: an off-grid
+  stored time must be injected as an extra selected option when editing so it isn't silently rewritten. The
+  option `value` stays 24-hour `HH:MM`, so nothing below the form boundary (validation, `localInputToUtcInTz`,
+  grouping, the cap) changes — the switch is presentation-only. **Bonus:** snapping default and manual edits to
+  the grid makes near-miss timestamps from one sitting coincide, reinforcing the exact-`consumed_at` meal
+  grouping. The grid is a UI affordance only (not a DB constraint), so it never rejects data and doesn't touch
+  storage precision.
 - **Meal grouping: exact-timestamp match (chosen) vs. a time-gap heuristic (rejected).** An earlier revision
   grouped entries by a >90-minute gap. Jeff rejected it: a user who eats every 30 minutes for 3 hours has no
   natural 90-minute chunk boundary — the heuristic would split or merge arbitrarily and unpredictably.
@@ -424,7 +448,9 @@ updates, chart range (URL), display-unit prop. No global store.
 - **Exact-timestamp meal grouping:** two entries logged with the same `consumed_at` render under one group
   with a group-level ratio-of-sums %; entries at different instants render as separate groups; a
   `logMealForDay` batch (one shared `consumed_at`) renders as exactly one group with no extra steps.
-- **15-minute time grid + floor default:** the time input only accepts :00/:15/:30/:45 (native `step=900`);
+- **15-minute time grid + floor default:** the time control only offers :00/:15/:30/:45 (native `<select>` of
+  the 96 quarter-hour values, `HH:MM` option `value`s); server-side validation still rejects any off-grid
+  `HH:MM` submitted directly;
   the first add of a session defaults to the quarter-hour **floor** of now (e.g. at 12:07 → 12:00), never a
   future bucket; two items typed in one sitting share the defaulted bucket and group; the metrics form has no
   time field and is unaffected.
@@ -510,13 +536,23 @@ focus of that phase's review.
 
 ### Phase 3 — Core food logging loop (minimum "actually useful" milestone)
 - **In:** `FoodEntryForm` (progressive disclosure: name + totals default, "add detail" expander, per-unit/
-  total modes) with quantity/unit; the 15-min `step="900"` time grid + `floorToQuarterHour` floor default +
-  the smart `lastConsumedAt` default; `addFoodEntry`/`updateFoodEntry`/`deleteFoodEntry` (future-day guarded);
+  total modes) with quantity/unit; the 15-min quarter-hour time grid (native `<select>` of the 96 values —
+  see the post-Phase-3 revision note below; originally shipped as `<input type="time" step="900">`) +
+  `floorToQuarterHour` floor default + the smart `lastConsumedAt` default;
+  `addFoodEntry`/`updateFoodEntry`/`deleteFoodEntry` (future-day guarded);
   `FoodEntryList` with exact-`consumed_at` grouping + per-entry and per-group protein %; `DailyTotals` +
   dashboard day protein %; reads off `daily_food_totals`; the domain modules `totals`, `quantity`,
   `nutrition`, `entry-grouping`, `datetime` (future-cap + floor + smart default), `validation`; `food/page`.
 - **Out:** metrics, charts, lookup, saved meals, copy mechanisms. (Build `FoodEntryForm` with a clean seam to
   accept an external `FoodCandidate` prefill + auto-expand later — the point Phase 6 plugs into.)
+- **Post-Phase-3 revision (2026-07-25, control-only):** the time-of-day input was changed from
+  `<input type="time" step="900">` to a native `<select>` of the 96 quarter-hour values (12-hour AM/PM
+  labels, 24-hour `HH:MM` option `value`s) — the original widget enforced the grid but, because browsers
+  render `<input type="time">` as three separate segments regardless of `step`, never delivered the
+  one-interaction friction win the coarse grid was chosen for. Presentation-only: the `HH:MM` value contract,
+  `floorToQuarterHour`, the smart default, grouping, and the future-day cap are unchanged. Edit path must
+  inject an off-grid stored time as an extra option so editing never silently rewrites it. Full reasoning in
+  `ai-context/DECISIONS.md`.
 - **§6 scope for qa-reviewer:** unit — `nutrition`, `entry-grouping`, `quantity`, `datetime` (floor, smart
   default, future cap), `totals`, `validation`. Acceptance — *per-entry protein %*, *day ratio-of-sums vs
   average*, *exact-timestamp grouping*, *15-min grid + floor default*, *smart time default*, *minimal-form
@@ -591,6 +627,90 @@ focus of that phase's review.
 - **Out:** service worker / offline / sync / push (explicitly out of scope).
 - **§6 scope for qa-reviewer:** *installability* (valid `manifest.webmanifest` with `display:'standalone'`,
   `start_url`, name, icons; **no service worker registered** — the online-only boundary holds).
+
+### Visual identity rollout (cross-cutting — two passes, not a numbered feature phase)
+
+This restyles every existing screen to the palette/type/shape identity recorded in
+`ai-context/DECISIONS.md` ("Visual identity: warm-paper + sage/clay palette…" and "Visual-identity
+tokens live in `globals.css`…"). It is **cross-cutting**, not a feature phase: it has no place in the
+1→9 dependency chain, touches only presentation (no data model, no actions, no RLS), and applies to
+whatever screens exist when it runs. It can run now (Phases 1–4 exist) and any later phase's new
+screens simply get built against the tokens from the start. **No application logic changes** — this
+is class-name/token work only.
+
+**Pass A — tokens + `components/ui/` source of truth + the never-styled auth pages.** Do this as one
+unit because Pass B depends on it and the auth pages are the app's worst first impression.
+- **`src/app/globals.css`**: add the six color custom properties on `:root` (`--paper #FBF8F1`,
+  `--ink #23211C`, `--sage #A9BE8C`, `--sage-deep #5C7444`, `--sage-pale #E3EAD6`, `--clay #C97452`)
+  and expose them in the existing `@theme inline` block as `--color-paper`/`--color-ink`/
+  `--color-sage`/`--color-sage-deep`/`--color-sage-pale`/`--color-clay` (making `bg-paper`,
+  `text-ink`, `text-sage-deep`, `ring-sage-deep`, `bg-sage-pale`, `bg-sage`, `text-clay`, etc. real
+  utilities). Point `--background`→`--paper` and `--foreground`→`--ink`. **Remove** the
+  `@media (prefers-color-scheme: dark)` block (light-only for v1, per the decision).
+- **`src/app/layout.tsx`**: register **Fraunces** via `next/font/google` with a `--font-serif` CSS
+  variable (mirroring the existing Geist setup), and wire `--font-serif` into `@theme inline` so a
+  `font-serif` utility exists. Apply Fraunces only to headings/wordmark/large stat numerals; Geist
+  stays the body/UI/data face.
+- **`components/ui/` primitives** (the single source of truth — updating these cascades to every
+  screen that already uses them):
+  - `Button.tsx`: `primary` → ink fill (`bg-ink text-paper`, hover a touch lighter, focus
+    `outline-sage-deep`), `secondary` → paper/white surface with `--ink` text and a soft border,
+    `danger` **unchanged** (semantic red). Shape `rounded-lg` → **`rounded-full`** (pill).
+  - `Card.tsx`: `rounded-xl` → **`rounded-2xl`**; `border-zinc-200`→a warm neutral border; surface
+    stays white/`--paper`.
+  - `NavLink.tsx`: active `bg-indigo-50 text-indigo-700` → **`bg-sage-pale text-ink`** (NOT
+    `text-sage-deep` — see the DECISIONS guardrail: sage-deep on sage-pale is ~4.2:1, under AA for this
+    normal-weight `text-sm`); inactive hover greys → warm-neutral equivalents.
+  - `styles.ts`: `inputClass` focus ring `indigo-500`→**`sage-deep`**; `labelClass`/placeholder greys
+    → warm-neutral; `errorTextClass` **unchanged** (semantic red).
+- **Auth pages — structural refactor** (`(auth)/login/{page.tsx,LoginForm.tsx}`,
+  `(auth)/signup/{page.tsx,SignupForm.tsx}`, `(auth)/layout.tsx`): replace their hand-rolled
+  `bg-zinc-900` submit button, raw `<input>`/`<label>`, and `text-zinc-900 underline` links with the
+  `components/ui/` primitives (`Button`, `Card`, `inputClass`/`labelClass`/`errorTextClass`). The
+  `bg-amber-50/amber-800` auth-callback notice on the login page **stays** (semantic warning). This is
+  the pass that finally brings these two never-restyled screens into the system. Optionally place the
+  single "sage arc" motif behind the auth `Card` here (once per screen — see guardrail below).
+
+**Pass B — propagate to the already-restyled screens.** After Pass A, most of these inherit the new
+look automatically through `Button`/`Card`/`NavLink`/`styles.ts`; the remaining work is swapping the
+**direct** color references that bypass the primitives. Known direct references to convert (from a
+grep of `indigo`/`emerald`/`bg-zinc-900`; 18 occurrences across these files):
+`components/food/FoodEntryForm.tsx` (indigo ×4), `components/settings/SettingsForm.tsx` (the kg/lb
+segmented control's `peer-checked:text-indigo-700` → `text-sage-deep`; the "Settings saved."
+`bg-emerald-50 text-emerald-700` pill → **`bg-sage-pale text-ink`** per the decision — a deliberate
+on-brand success confirmation, not a blind green swap, and distinct from the persistent semantic
+red), `components/food/TodaySummary.tsx` (indigo ×2), `components/metrics/MetricForm.tsx` (indigo ×2),
+`components/food/DailyTotals.tsx` (indigo ×1), `components/food/FoodDayView.tsx` (indigo ×1), plus the
+dashboard `(app)/page.tsx`, `(app)/layout.tsx` nav shell, `(app)/{food,metrics,settings}/page.tsx`,
+and `components/food/FoodEntryList.tsx` for any residual `zinc`/`rounded-lg` surfaces the primitives
+don't cover. Standard mapping: `indigo-*` accent → `sage-deep` (text/link/ring) or `sage-pale`
+(fill/tint); page background → `bg-paper`; body text → `text-ink`; `rounded-lg`/`rounded-xl` card
+surfaces → `rounded-2xl`; buttons → the pill `Button`. **Semantic reds/ambers and field-border grays
+stay.**
+
+**Sequencing choice & justification:** two passes rather than one big-bang or a per-screen drip. Pass
+A first because the tokens + primitives are the dependency for everything else and the auth pages are
+the highest-impact/lowest-risk starting point (they were never in the system, so they improve most and
+can't regress an already-approved screen). Pass B is then mostly mechanical utility swaps that the
+primitives already do 80% of. A single combined pass would be a large, hard-to-review diff spanning
+21 files; a per-screen drip would leave the app visibly half-migrated (new auth page, indigo
+dashboard) for longer. Splitting at the primitives boundary keeps each pass independently reviewable
+and shippable.
+
+**Motif guardrail (carry into review):** the "sage arc" appears **at most once per screen** (auth
+card, dashboard "Today so far", empty states) and never becomes repeated decoration on cards/rows —
+if it starts multiplying, pull it back.
+
+**Testing / qa for this work:** no automated test asserts on Tailwind class-names or colors (verified:
+zero hits for `indigo`/`zinc-900`/`toHaveClass`/`rounded-lg` across `e2e/*.spec.ts` and component
+tests), so the full unit + e2e suite must stay green unchanged — a red here means logic was touched,
+which this work must not do. Verification is therefore: (1) suite stays green; (2) a manual
+browser walk of every screen (dashboard, food, metrics, settings, nav, both auth pages) confirming no
+stray indigo/zinc remains and the auth pages now use the primitives; (3) an accessibility spot-check
+of the contrast-sensitive combos — active `NavLink` (`ink`-on-`sage-pale`), focus rings
+(`sage-deep`-on-`paper`), and that no text uses `--sage` or small `--clay`. Because this is
+cross-cutting presentation, qa-reviewer reviews it as a standalone change against the two DECISIONS
+entries + this section, not as a numbered §6 phase row.
 
 **On the ordering (architect's read):** the dependency order is sound — Foundation → schema/RLS is the right
 base, and isolating RLS in its own hardened checkpoint (Phase 2) before any feature is the highest-value

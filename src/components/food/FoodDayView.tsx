@@ -32,6 +32,7 @@ export function FoodDayView() {
   const [entries, setEntries] = useState<FoodEntry[]>([]);
   const [totals, setTotals] = useState<DailyFoodTotals | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [lastConsumedAt, setLastConsumedAt] = useState<string | null>(null);
   const [editingEntry, setEditingEntry] = useState<FoodEntry | null>(null);
   const [, startTransition] = useTransition();
@@ -39,17 +40,27 @@ export function FoodDayView() {
   const refresh = useCallback(
     async (date: string) => {
       setLoading(true);
-      const [entriesRes, totalsRes] = await Promise.all([
-        supabase
-          .from("food_entries")
-          .select("*")
-          .eq("consumed_local_date", date)
-          .order("consumed_at", { ascending: true }),
-        supabase.from("daily_food_totals").select("*").eq("consumed_local_date", date).maybeSingle(),
-      ]);
-      setEntries((entriesRes.data ?? []) as FoodEntry[]);
-      setTotals((totalsRes.data ?? null) as DailyFoodTotals | null);
-      setLoading(false);
+      setLoadError(false);
+      try {
+        const [entriesRes, totalsRes] = await Promise.all([
+          supabase
+            .from("food_entries")
+            .select("*")
+            .eq("consumed_local_date", date)
+            .order("consumed_at", { ascending: true }),
+          supabase.from("daily_food_totals").select("*").eq("consumed_local_date", date).maybeSingle(),
+        ]);
+        if (entriesRes.error || totalsRes.error) {
+          setLoadError(true);
+        } else {
+          setEntries((entriesRes.data ?? []) as FoodEntry[]);
+          setTotals((totalsRes.data ?? null) as DailyFoodTotals | null);
+        }
+      } catch {
+        setLoadError(true);
+      } finally {
+        setLoading(false);
+      }
     },
     [supabase],
   );
@@ -117,7 +128,18 @@ export function FoodDayView() {
       />
 
       {loading ? (
-        <p className="text-sm text-zinc-500">Loading…</p>
+        <p className="text-sm text-stone-500">Loading…</p>
+      ) : loadError ? (
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-red-600">Couldn&apos;t load this day&apos;s entries.</p>
+          <button
+            type="button"
+            onClick={() => refresh(selectedDate)}
+            className="text-sm font-medium text-sage-deep hover:text-sage-deep/80"
+          >
+            Retry
+          </button>
+        </div>
       ) : (
         <FoodEntryList entries={entries} onEdit={setEditingEntry} onDelete={handleDelete} />
       )}

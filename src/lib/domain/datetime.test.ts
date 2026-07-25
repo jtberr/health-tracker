@@ -3,9 +3,11 @@ import {
   browserTimeZone,
   defaultConsumedAtForNextEntry,
   floorToQuarterHour,
+  formatTimeLabel,
   localDateInTz,
   localDateNotAfterToday,
   localInputToUtcInTz,
+  quarterHourOptions,
   utcToLocalTime,
 } from "./datetime";
 
@@ -173,6 +175,86 @@ describe("localDateInTz", () => {
 
   it("stays on the previous local day behind UTC near midnight UTC", () => {
     expect(localDateInTz(new Date("2026-07-15T02:00:00.000Z"), "America/New_York")).toBe("2026-07-14");
+  });
+});
+
+describe("formatTimeLabel", () => {
+  it("formats midnight as 12:00 AM", () => {
+    expect(formatTimeLabel("00:00")).toBe("12:00 AM");
+  });
+
+  it("formats 12:15 AM just after midnight", () => {
+    expect(formatTimeLabel("00:15")).toBe("12:15 AM");
+  });
+
+  it("formats a morning time", () => {
+    expect(formatTimeLabel("08:15")).toBe("8:15 AM");
+  });
+
+  it("formats 11:45 AM just before noon", () => {
+    expect(formatTimeLabel("11:45")).toBe("11:45 AM");
+  });
+
+  it("formats noon as 12:00 PM", () => {
+    expect(formatTimeLabel("12:00")).toBe("12:00 PM");
+  });
+
+  it("formats 12:15 PM just after noon", () => {
+    expect(formatTimeLabel("12:15")).toBe("12:15 PM");
+  });
+
+  it("formats an afternoon/evening time", () => {
+    expect(formatTimeLabel("18:30")).toBe("6:30 PM");
+  });
+
+  it("formats the last bucket of the day", () => {
+    expect(formatTimeLabel("23:45")).toBe("11:45 PM");
+  });
+});
+
+describe("quarterHourOptions", () => {
+  const options = quarterHourOptions();
+
+  it("returns exactly 96 options (24 hours x 4 quarter-hours)", () => {
+    expect(options).toHaveLength(96);
+  });
+
+  it("starts at midnight and ends at 11:45 PM, in ascending order", () => {
+    expect(options[0]).toEqual({ value: "00:00", label: "12:00 AM" });
+    expect(options[95]).toEqual({ value: "23:45", label: "11:45 PM" });
+  });
+
+  it("has all unique, strictly ascending 24-hour HH:MM values", () => {
+    const values = options.map((o) => o.value);
+    const sorted = [...values].sort();
+    expect(values).toEqual(sorted);
+    expect(new Set(values).size).toBe(96);
+  });
+
+  it("every value matches the HH:MM pattern on a 15-minute boundary", () => {
+    for (const { value } of options) {
+      expect(value).toMatch(/^([01]\d|2[0-3]):([0-5]\d)$/);
+      const minutes = Number(value.slice(3, 5));
+      expect(minutes % 15).toBe(0);
+    }
+  });
+
+  it("crosses the noon AM/PM boundary correctly", () => {
+    expect(options.find((o) => o.value === "11:45")).toEqual({ value: "11:45", label: "11:45 AM" });
+    expect(options.find((o) => o.value === "12:00")).toEqual({ value: "12:00", label: "12:00 PM" });
+    expect(options.find((o) => o.value === "12:15")).toEqual({ value: "12:15", label: "12:15 PM" });
+  });
+
+  it("crosses the midnight AM/PM boundary correctly", () => {
+    expect(options.find((o) => o.value === "23:45")).toEqual({ value: "23:45", label: "11:45 PM" });
+    expect(options.find((o) => o.value === "00:00")).toEqual({ value: "00:00", label: "12:00 AM" });
+    expect(options.find((o) => o.value === "00:15")).toEqual({ value: "00:15", label: "12:15 AM" });
+  });
+
+  it("labels every option via formatTimeLabel(value)", () => {
+    for (const { value, label } of options) {
+      expect(label).toBe(formatTimeLabel(value));
+    }
   });
 });
 

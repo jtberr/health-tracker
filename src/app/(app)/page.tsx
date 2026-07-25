@@ -18,12 +18,28 @@ export default async function DashboardPage() {
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-col gap-1.5">
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900">Welcome back</h1>
-        <p className="text-sm text-zinc-500">
-          You&apos;re logged in as <span className="font-medium text-zinc-700">{user?.email}</span>.
+        <h1 className="font-serif text-2xl font-semibold tracking-tight text-ink">Welcome back</h1>
+        <p className="text-sm text-stone-500">
+          You&apos;re logged in as <span className="font-medium text-stone-700">{user?.email}</span>.
         </p>
       </div>
-      <TodaySummary />
+      <div className="relative overflow-hidden">
+        <svg
+          aria-hidden="true"
+          viewBox="0 0 400 160"
+          className="pointer-events-none absolute -right-10 -top-16 h-56 w-96 text-sage"
+        >
+          <path
+            d="M0 120 C 100 20, 260 20, 400 100"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="8"
+            strokeLinecap="round"
+            opacity="0.3"
+          />
+        </svg>
+        <TodaySummary />
+      </div>
     </div>
   );
 }

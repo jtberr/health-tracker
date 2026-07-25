@@ -4,19 +4,17 @@ import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { signIn, type AuthActionState } from "@/lib/actions/auth";
+import { Button } from "@/components/ui/Button";
+import { errorTextClass, inputClass, labelClass } from "@/components/ui/styles";
 
 const initialState: AuthActionState = { error: null };
 
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="w-full rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
-    >
+    <Button type="submit" disabled={pending} className="w-full">
       {pending ? "Logging in..." : "Log in"}
-    </button>
+    </Button>
   );
 }
 
@@ -26,7 +24,7 @@ export function LoginForm() {
   return (
     <form action={formAction} className="flex flex-col gap-4" noValidate>
       <div className="flex flex-col gap-1">
-        <label htmlFor="email" className="text-sm font-medium text-zinc-700">
+        <label htmlFor="email" className={labelClass}>
           Email
         </label>
         <input
@@ -35,15 +33,15 @@ export function LoginForm() {
           type="email"
           autoComplete="email"
           required
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+          className={inputClass}
         />
         {state.fieldErrors?.email && (
-          <p className="text-sm text-red-600">{state.fieldErrors.email}</p>
+          <p className={errorTextClass}>{state.fieldErrors.email}</p>
         )}
       </div>
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="password" className="text-sm font-medium text-zinc-700">
+        <label htmlFor="password" className={labelClass}>
           Password
         </label>
         <input
@@ -52,20 +50,20 @@ export function LoginForm() {
           type="password"
           autoComplete="current-password"
           required
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+          className={inputClass}
         />
         {state.fieldErrors?.password && (
-          <p className="text-sm text-red-600">{state.fieldErrors.password}</p>
+          <p className={errorTextClass}>{state.fieldErrors.password}</p>
         )}
       </div>
 
-      {state.error && <p className="text-sm text-red-600">{state.error}</p>}
+      {state.error && <p className={errorTextClass}>{state.error}</p>}
 
       <SubmitButton />
 
-      <p className="text-center text-sm text-zinc-600">
+      <p className="text-center text-sm text-stone-600">
         No account?{" "}
-        <Link href="/signup" className="font-medium text-zinc-900 underline">
+        <Link href="/signup" className="font-medium text-sage-deep underline">
           Sign up
         </Link>
       </p>

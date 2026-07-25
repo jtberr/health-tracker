@@ -55,6 +55,7 @@ export function MetricForm({ weightUnit }: MetricFormProps) {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [existing, setExisting] = useState<DailyMetric | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   // Client-only: resolves the browser's actual timezone/date post-mount, avoiding an SSR/client
   // hydration mismatch (see the module doc comment above).
@@ -78,39 +79,57 @@ export function MetricForm({ weightUnit }: MetricFormProps) {
     let cancelled = false;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
-    supabase
-      .from("daily_metrics")
-      .select("*")
-      .eq("metric_date", selectedDate)
-      .maybeSingle()
-      .then(({ data }) => {
+    setLoadError(false);
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("daily_metrics")
+          .select("*")
+          .eq("metric_date", selectedDate)
+          .maybeSingle();
         if (cancelled) return;
-        setExisting((data ?? null) as DailyMetric | null);
-        setLoading(false);
-      });
+        if (error) {
+          setLoadError(true);
+        } else {
+          setExisting((data ?? null) as DailyMetric | null);
+        }
+      } catch {
+        if (!cancelled) setLoadError(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
     return () => {
       cancelled = true;
     };
   }, [supabase, selectedDate]);
 
-  function refetch() {
+  async function refetch() {
     if (selectedDate === null) return;
     setLoading(true);
-    supabase
-      .from("daily_metrics")
-      .select("*")
-      .eq("metric_date", selectedDate)
-      .maybeSingle()
-      .then(({ data }) => {
+    setLoadError(false);
+    try {
+      const { data, error } = await supabase
+        .from("daily_metrics")
+        .select("*")
+        .eq("metric_date", selectedDate)
+        .maybeSingle();
+      if (error) {
+        setLoadError(true);
+      } else {
         setExisting((data ?? null) as DailyMetric | null);
-        setLoading(false);
-      });
+      }
+    } catch {
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
   }
 
   // Same placeholder on the server pass and the client's first pass (both have tz === null),
   // which is what keeps hydration in sync — see the module doc comment.
   if (tz === null || today === null || selectedDate === null) {
-    return <p className="text-sm text-zinc-500">Loading…</p>;
+    return <p className="text-sm text-stone-500">Loading…</p>;
   }
 
   return (
@@ -130,7 +149,18 @@ export function MetricForm({ weightUnit }: MetricFormProps) {
       </div>
 
       {loading ? (
-        <p className="text-sm text-zinc-500">Loading…</p>
+        <p className="text-sm text-stone-500">Loading…</p>
+      ) : loadError ? (
+        <div className="flex items-center gap-3">
+          <p className={errorTextClass}>Couldn&apos;t load this day&apos;s entry.</p>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            className="text-sm font-medium text-sage-deep hover:text-sage-deep/80"
+          >
+            Retry
+          </button>
+        </div>
       ) : (
         <MetricEntryForm
           key={selectedDate}
@@ -199,7 +229,7 @@ function MetricEntryForm({
   return (
     <form
       action={formAction}
-      className="flex flex-col gap-4 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm sm:p-5"
+      className="flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5"
       noValidate
     >
       <input type="hidden" name="metricDate" value={selectedDate} />
@@ -207,7 +237,7 @@ function MetricEntryForm({
       <input type="hidden" name="weightUnit" value={weightUnit} />
 
       {existing && (
-        <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
+        <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-sage-pale px-3 py-1 text-xs font-medium text-ink">
           Already logged for {selectedDate === today ? "today" : "this day"} — saving overwrites it.
         </p>
       )}

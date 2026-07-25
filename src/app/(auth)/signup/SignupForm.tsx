@@ -4,19 +4,17 @@ import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import Link from "next/link";
 import { signUp, type AuthActionState } from "@/lib/actions/auth";
+import { Button } from "@/components/ui/Button";
+import { errorTextClass, inputClass, labelClass } from "@/components/ui/styles";
 
 const initialState: AuthActionState = { error: null };
 
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="w-full rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
-    >
+    <Button type="submit" disabled={pending} className="w-full">
       {pending ? "Signing up..." : "Sign up"}
-    </button>
+    </Button>
   );
 }
 
@@ -26,9 +24,9 @@ export function SignupForm() {
   if (state.info) {
     return (
       <div className="flex flex-col gap-3 text-center">
-        <h1 className="text-xl font-semibold text-zinc-900">Almost there</h1>
-        <p className="text-sm text-zinc-600">{state.info}</p>
-        <Link href="/login" className="text-sm font-medium text-zinc-900 underline">
+        <h1 className="font-serif text-2xl font-semibold text-ink">Almost there</h1>
+        <p className="text-sm text-stone-600">{state.info}</p>
+        <Link href="/login" className="text-sm font-medium text-sage-deep underline">
           Back to log in
         </Link>
       </div>
@@ -38,7 +36,7 @@ export function SignupForm() {
   return (
     <form action={formAction} className="flex flex-col gap-4" noValidate>
       <div className="flex flex-col gap-1">
-        <label htmlFor="email" className="text-sm font-medium text-zinc-700">
+        <label htmlFor="email" className={labelClass}>
           Email
         </label>
         <input
@@ -47,15 +45,15 @@ export function SignupForm() {
           type="email"
           autoComplete="email"
           required
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+          className={inputClass}
         />
         {state.fieldErrors?.email && (
-          <p className="text-sm text-red-600">{state.fieldErrors.email}</p>
+          <p className={errorTextClass}>{state.fieldErrors.email}</p>
         )}
       </div>
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="password" className="text-sm font-medium text-zinc-700">
+        <label htmlFor="password" className={labelClass}>
           Password
         </label>
         <input
@@ -65,15 +63,15 @@ export function SignupForm() {
           autoComplete="new-password"
           required
           minLength={6}
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+          className={inputClass}
         />
         {state.fieldErrors?.password && (
-          <p className="text-sm text-red-600">{state.fieldErrors.password}</p>
+          <p className={errorTextClass}>{state.fieldErrors.password}</p>
         )}
       </div>
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="confirmPassword" className="text-sm font-medium text-zinc-700">
+        <label htmlFor="confirmPassword" className={labelClass}>
           Confirm password
         </label>
         <input
@@ -82,20 +80,20 @@ export function SignupForm() {
           type="password"
           autoComplete="new-password"
           required
-          className="rounded-md border border-zinc-300 px-3 py-2 text-sm"
+          className={inputClass}
         />
         {state.fieldErrors?.confirmPassword && (
-          <p className="text-sm text-red-600">{state.fieldErrors.confirmPassword}</p>
+          <p className={errorTextClass}>{state.fieldErrors.confirmPassword}</p>
         )}
       </div>
 
-      {state.error && <p className="text-sm text-red-600">{state.error}</p>}
+      {state.error && <p className={errorTextClass}>{state.error}</p>}
 
       <SubmitButton />
 
-      <p className="text-center text-sm text-zinc-600">
+      <p className="text-center text-sm text-stone-600">
         Already have an account?{" "}
-        <Link href="/login" className="font-medium text-zinc-900 underline">
+        <Link href="/login" className="font-medium text-sage-deep underline">
           Log in
         </Link>
       </p>

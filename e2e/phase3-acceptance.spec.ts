@@ -113,7 +113,17 @@ test.describe("Phase3 QA form flow, future cap, delete totals", () => {
     await page.getByLabel("Name").fill("OffGrid");
     await page.getByLabel("Total calories").fill("100");
     await page.getByLabel("Total protein (g)").fill("5");
-    await page.getByLabel("Time").evaluate((el) => { (el as HTMLInputElement).value = "12:07"; });
+    // The <select>'s fixed 96-option list can't express an off-grid value through normal use, so
+    // to prove the *server* (not just the client control) rejects an off-grid time, inject a rogue
+    // option into the DOM and select it — simulating a tampered client — then confirm the action
+    // still rejects it and writes no row.
+    await page.getByLabel("Time").evaluate((el) => {
+      const option = document.createElement("option");
+      option.value = "12:07";
+      option.text = "12:07 (injected)";
+      el.appendChild(option);
+    });
+    await page.getByLabel("Time").selectOption("12:07");
     await page.getByRole("button", { name: "Add entry" }).click();
     await expect(page.getByText(/15-minute interval/i)).toBeVisible();
     const client = await createUserClient(user);
@@ -160,7 +170,7 @@ test.describe("Phase3 QA form flow, future cap, delete totals", () => {
     await page.getByLabel("Name").fill("Lunch");
     await page.getByLabel("Total calories").fill("500");
     await page.getByLabel("Total protein (g)").fill("30");
-    await page.getByLabel("Time").fill("12:30");
+    await page.getByLabel("Time").selectOption("12:30");
     await page.getByRole("button", { name: "Add entry" }).click();
     await expect(page.getByText("Lunch")).toBeVisible();
     const group = page.locator("section", { hasText: "Lunch" });

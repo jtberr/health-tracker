@@ -61,6 +61,38 @@ export function defaultConsumedAtForNextEntry(
 }
 
 /**
+ * Formats a 24-hour `HH:MM` string as a 12-hour AM/PM display label (e.g. "08:15" -> "8:15 AM",
+ * "00:00" -> "12:00 AM", "12:00" -> "12:00 PM"). Used both to build `quarterHourOptions()`'s fixed
+ * list and to label a defensively-injected off-grid option (see `FoodEntryForm`'s edit invariant
+ * in §3.4/§4) whose value isn't one of the 96 quarter-hour buckets.
+ */
+export function formatTimeLabel(value: string): string {
+  const [hourStr, minuteStr] = value.split(":");
+  const hour = Number(hourStr);
+  const period = hour < 12 ? "AM" : "PM";
+  const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+  return `${displayHour}:${minuteStr} ${period}`;
+}
+
+/**
+ * The 96 quarter-hour options for a day's time-of-day `<select>` (§3.3/§3.4/§4): `value` stays the
+ * 24-hour `HH:MM` string every other part of the system (validation, `localInputToUtcInTz`,
+ * grouping, the future-day cap) already expects; `label` is a 12-hour AM/PM display string
+ * ("12:00 AM", "8:15 AM", "12:00 PM", "11:45 PM"). Ordered midnight -> 11:45 PM. Pure/static — no
+ * injected "now" — since every day has the same 96 buckets regardless of tz or date.
+ */
+export function quarterHourOptions(): { value: string; label: string }[] {
+  const options: { value: string; label: string }[] = [];
+  for (let hour = 0; hour < 24; hour++) {
+    for (const minute of [0, 15, 30, 45]) {
+      const value = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+      options.push({ value, label: formatTimeLabel(value) });
+    }
+  }
+  return options;
+}
+
+/**
  * Converts a wall-clock date + time entered *as if local to `tz`* into a UTC ISO instant.
  * E.g. `localInputToUtcInTz("2026-07-15", "12:00", "America/New_York")` -> the UTC instant that
  * is noon in New York on that date (accounting for whatever DST rule applies that day).

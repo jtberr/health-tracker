@@ -13,18 +13,18 @@ export function DailyTotals({ totals }: { totals: DailyFoodTotals | null }) {
   const pct = proteinCaloriePct(proteinG, calories);
 
   return (
-    <Card className="grid grid-cols-3 divide-x divide-zinc-100 p-4 sm:p-5">
+    <Card className="grid grid-cols-3 divide-x divide-stone-100 p-4 sm:p-5">
       <div className="flex flex-col gap-0.5 pr-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Calories</p>
-        <p className="text-2xl font-semibold tracking-tight text-zinc-900">{calories}</p>
+        <p className="text-xs font-medium uppercase tracking-wide text-stone-500">Calories</p>
+        <p className="font-serif text-2xl font-semibold tracking-tight text-ink">{calories}</p>
       </div>
       <div className="flex flex-col gap-0.5 px-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Protein</p>
-        <p className="text-2xl font-semibold tracking-tight text-zinc-900">{proteinG}g</p>
+        <p className="text-xs font-medium uppercase tracking-wide text-stone-500">Protein</p>
+        <p className="font-serif text-2xl font-semibold tracking-tight text-ink">{proteinG}g</p>
       </div>
       <div className="flex flex-col gap-0.5 pl-4">
-        <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">% from protein</p>
-        <p className="text-2xl font-semibold tracking-tight text-indigo-600">
+        <p className="text-xs font-medium uppercase tracking-wide text-stone-500">% from protein</p>
+        <p className="font-serif text-2xl font-semibold tracking-tight text-sage-deep">
           {pct === null ? "—" : `${pct}%`}
         </p>
       </div>

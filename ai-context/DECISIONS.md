@@ -250,6 +250,61 @@ default and manual edits to the grid makes near-miss hand entries from one sitti
 12:04) land on the same bucket and group correctly, reducing unintended splits. Accepted tradeoff:
 sub-15-minute precision is lost from the UI (storage keeps full precision, so it's reversible), and
 two truly distinct occasions inside one quarter-hour would share a bucket.
+**Superseded (2026-07-25) as to the *control*, not the *model*:** the 15-minute grid, the
+floor-to-past "now" default, the exact-`consumed_at` meal grouping it reinforces, and the
+`HH:MM` internal value all stand unchanged — but the **native `<input type="time" step="900">`
+is replaced by a plain native `<select>` of the 96 valid quarter-hour values**. Reason: `step`
+constrains valid *values* but browsers still *render* `<input type="time">` as three separately-set
+segments (hour/minute/AM-PM) regardless of `step`, so the "fewer interactions" friction win this
+entry was chosen for was never actually delivered. See "Food time-of-day entry is a native
+`<select>` of 96 quarter-hour options…" below.
+
+### Food time-of-day entry is a native `<select>` of 96 quarter-hour options (replaces the `<input type="time" step="900">` widget)
+**Date**: 2026-07-25
+**Decision**: The food-entry time-of-day control is a **plain native `<select>`** whose options are
+the 96 valid quarter-hour instants of a day (12h × 4 × AM/PM: "12:00 AM", "12:15 AM", … "11:45 PM").
+Each `<option>`'s **`value` stays 24-hour `HH:MM`** (`"00:00"`, `"08:15"`, `"23:45"`) — exactly the
+string the form field, `localInputToUtcInTz`, and the server-side `validateFoodEntryInput`
+already consume — while the **12-hour AM/PM form is display-label-only** (the option's visible text).
+This supersedes the `<input type="time" step="900">` widget from the entry above; nothing else about
+the time model changes (15-minute granularity, the `floorToQuarterHour` floor-of-now default, the
+smart `defaultConsumedAtForNextEntry` same-sitting default, exact-`consumed_at` meal grouping, and
+the no-future-day cap are all untouched, because none of them key off the widget — they key off the
+`HH:MM` value / the resulting `consumed_at`). Applies to `FoodEntryForm` and, when built, to
+`LogMealDialog`'s log-time picker (Phase 7). It does **not** apply to `MealItemForm`: saved-meal
+items carry no `consumed_at` and have no time field at all, so there is nothing to change there. One
+required implementation invariant: because a `<select>` can only display a value present in its
+option set, the **edit path must inject the entry's actual stored time-of-day as an extra selected
+option if it is ever off-grid** (e.g. a legacy or copied entry whose `consumed_at` doesn't land on a
+quarter hour), so opening an entry for an unrelated edit can never silently snap/rewrite its time.
+**Why**: The original entry chose native `<input type="time" step="900">` specifically "for zero
+custom code" friction reduction — but that reasoning had a real gap, confirmed by hands-on use (not a
+QA miss; qa tested exactly the spec — grid enforcement + server-side off-grid rejection — and both
+pass): `step` only restricts which values are *valid*, it does **not** change how Chrome/Edge/Safari
+*render* the widget, which is always three independently-set segments (hour, minute, AM-PM). So the
+constraint worked but the "fewer interactions to pick a time" benefit was never delivered — the whole
+reason a coarse grid was chosen over free-minute entry. Since the app only ever needs 15-minute
+granularity, a flat 96-option list collapses time selection to **one interaction** (open, pick),
+which is the actual friction win, and directly serves the project's first-order ease-of-entry goal on
+the everyday logging path. A **plain native `<select>`** (not a custom combobox/dropdown) is the
+right control: it's standard HTML, needs zero custom JS, and is fully keyboard- and screen-reader-
+accessible for free — matching the project's explicit prefer-conventional / no-clever-when-standard-
+exists bias. Keeping the option **`value` as 24-hour `HH:MM`** means the change is presentation-only
+below the form boundary: server validation (`TIME_PATTERN` + `minutes % 15 !== 0`),
+`localInputToUtcInTz`, `consumed_at` construction, grouping, and the future-day cap all see the exact
+same string they do today, so no domain/action/test contract moves — only the rendered control and
+its labels. **Accessibility is a wash-to-net-improvement, not a regression:** a native `<select>`
+gives screen-reader users a single labeled control announcing "X of 96" with working type-ahead
+(typing "8" jumps toward the 8-o'clock options) and keyboard arrow navigation, versus the time
+input's three separate segment interactions; and in the common in-sitting case the smart default
+already pre-selects the correct value, so the control is usually not touched at all — this fix is
+about the cases where the user *does* adjust it. **Accepted tradeoffs:** on mobile the gap is smaller
+(both render as native platform pickers), but a single-column 96-item list is still no worse than the
+time input's three-column wheel and is more consistent with desktop; and a 96-long list is longer to
+scroll than a wheel, mitigated by type-ahead and the pre-selected smart default. **Rejected:** a
+custom dropdown/combobox component (violates the conventional-default bias and adds JS/accessibility
+surface for no benefit over `<select>` at this option count); and keeping the native time input (its
+friction-reduction premise doesn't hold, per above).
 
 ### Phase 1 implementation choices: Next.js 16 (not pinned to 14), Vitest + Playwright, `middleware.ts` kept despite deprecation
 **Date**: 2026-07-20
@@ -392,5 +447,110 @@ already-correct saved data, so there's nothing for the native reset to desync. T
 `useActionState` with a *controlled* checkbox/radio (not just text inputs) should be checked for
 this exact symptom by hand in a browser — it will not surface from automated tests that only
 assert the persisted DB value or a post-reload render.
+
+### Visual identity: warm-paper + sage/clay palette, Fraunces-for-headings, pill/soft-radius, single "sage arc" motif
+**Date**: 2026-07-25
+**Decision**: Adopt a deliberate visual identity, replacing the app's accidental default-Tailwind
+`zinc`+`indigo` styling (which was never a decision — it was `create-next-app`'s defaults, later
+propagated into `components/ui/` by the 2026-07-22 "Visual redesign" commit but still never
+recorded). Direction was chosen by Jeff after a side-by-side review against noom.com, translating
+Noom's *feeling* — calm, warm, health-forward — into a daily-use logging tool, **not** copying its
+marketing-page literal content (no lifestyle photography, no serif marketing hero, no
+uppercase-tracked pill CTAs, no organic blob section transitions).
+
+**Design tokens** (live in `src/app/globals.css`; see the "where tokens live" decision below).
+Contrast ratios below are computed against `--paper` unless noted, and drive the semantic usage
+rules — the token *values* are as Jeff suggested; the *usage rules* are what keep them WCAG AA:
+
+| Token | Value | Contrast | Semantic use — and the accessibility guardrail |
+|---|---|---|---|
+| `--paper` | `#FBF8F1` | — | App background (replaces `zinc-50`/`#fafafa`); card surfaces stay white or `--paper`. |
+| `--ink` | `#23211C` | 15.2:1 on paper | Body/heading text **and** primary-button fill (replaces `zinc-900`). White/paper text on an ink button is ~15:1. |
+| `--sage` | `#A9BE8C` | **1.9:1 on paper — FAILS text** | **Decorative FILL ONLY**: the arc motif, chart area fills, badge/hover backgrounds, large flat blocks. **Never** a text color, link color, or focus-ring color on paper (fails both the 4.5:1 text and 3:1 non-text thresholds). Ink text *on* a sage fill is ~8:1 (fine). |
+| `--sage-deep` | `#5C7444` | 4.9:1 on paper | The **accent that carries meaning**: link text, active-nav text, focus rings/outlines (replaces every `indigo-600`/`indigo-500`/`indigo-700` use). 4.9:1 clears AA text (4.5) and the 3:1 focus-indicator rule. |
+| `--sage-pale` | `#E3EAD6` | — | Badge / hover-fill / active-nav background tint (replaces `indigo-50`). Put **ink** text on it (~13:1); `--sage-deep` on `--sage-pale` is only ~4.2:1, i.e. a hair under AA for `text-xs`, so don't use sage-deep for small text on this tint. |
+| `--clay` | `#C97452` | 3.2:1 on paper — large/fill only | The single secondary accent, **used sparingly for positive emphasis only** (streaks, milestones). OK as large stat numerals, an icon fill, or a badge background (with ink text on it, ~4.7:1). **Not** for small body text (fails AA), and **never** for errors/warnings. |
+
+Semantic reds/ambers/greens already in the code are **out of scope and stay**: the `red-600` error
+text/borders (Jeff explicitly excluded them), the `amber-50/amber-800` auth-callback notice on the
+login page (a warning signal, not brand), and field-border grays. The one existing green that *is*
+touched deliberately — `SettingsForm`'s `emerald-50/emerald-700` "Settings saved." pill — moves to
+`--sage-pale` + `--ink` **as an intentional choice** (a transient, low-stakes success confirmation
+reading on-brand), *not* as a blind find-replace of "a green"; it must not be confused with the
+persistent semantic red, which is a standing status and stays its own hue.
+
+**Type**: add **Fraunces** (a warm humanist serif, Google Fonts) self-hosted via `next/font/google`
+— identical loading pattern to the already-loaded Geist, so **no external runtime request and no
+CSP/privacy implication** (the fonts are served from our own origin at build time). Fraunces is used
+**only** for headings, the wordmark, and large stat numerals. **Geist Sans stays the body/UI/forms/
+data face, unchanged** — deliberately not replacing an already-good workhorse; the serif is an
+accent, not a wholesale swap.
+
+**Shape**: buttons become fully-rounded pills (`rounded-full`, replacing the current
+`rounded-lg`/`rounded-md` mix); cards soften from `rounded-lg`/`rounded-xl` to `rounded-2xl`.
+
+**Signature motif**: a single quiet **"sage arc"** — one thin curved line (evoking a day's progress
+curve) rendered in `--sage` as a restrained backdrop element, **once per screen** (behind the auth
+card, behind the dashboard "Today so far" block, behind empty states). This is the one deliberate
+visual risk; **everything else stays quiet on purpose.** **Explicit guardrail: the arc appears at
+most once per screen and never becomes repeated decoration** — if it starts showing up on cards,
+list rows, or multiple times per page, that has drifted from the decision and should be pulled back.
+
+**Why**: The prior palette carried no intent and the two most-seen-first screens (`(auth)/login`,
+`(auth)/signup`) were never even brought into the `components/ui/` system — they still use raw
+ad-hoc classes (a hardcoded `bg-zinc-900` button, no `Button`/`Card` reuse), making the app's first
+impression its most dated. Recording this as a real decision (with tokens, usage rules, and the
+verified contrast constraints) is what the indigo/zinc choice never got, and is what lets the
+developer roll it out consistently instead of re-guessing per screen. The sage-mid/clay text
+restrictions above are the substantive finding: the suggested hex values are fine, but sage-mid can
+only be a fill and clay only large/emphasis — enforced by choosing `--sage-deep` for anything that
+must be legible (links, nav, focus). Fraunces-headings-only and Geist-body keeps the register warm
+but plain (a frequent-use tool, not a landing page), and self-hosting keeps the privacy posture
+identical to today. **Rejected** (per Jeff's review): Noom's literal marketing treatment —
+lifestyle photography, serif marketing hero copy, uppercase button labels (sentence case fits this
+app's plainer register), and blob section transitions beyond the single arc.
+
+### Visual-identity tokens live in `globals.css` `@theme inline`; `components/ui/*` consume Tailwind color utilities, not inline hex
+**Date**: 2026-07-25
+**Decision**: The tokens above are defined as CSS custom properties on `:root` in
+`src/app/globals.css` and exposed to Tailwind v4 via its `@theme inline` block (e.g.
+`--color-paper: var(--paper)`, `--color-ink`, `--color-sage`, `--color-sage-deep`,
+`--color-sage-pale`, `--color-clay`), so they become first-class utilities (`bg-paper`, `text-ink`,
+`ring-sage-deep`, `bg-sage-pale`, etc.). `components/ui/` primitives (`Button.tsx`, `Card.tsx`,
+`NavLink.tsx`, `styles.ts`) and every screen reference those utilities — **no raw hex in
+components** — so the palette has exactly one source of truth. Fraunces is registered in
+`src/app/layout.tsx` as a `next/font/google` instance with a `--font-serif` CSS variable and wired
+into `@theme inline` as `--font-serif` (a `font-serif` utility), mirroring how `--font-geist-sans`
+is done today.
+**Why**: This is the structure the repo already uses — `globals.css` already has the `:root` +
+`@theme inline` pattern for `--background`/`--foreground`/`--font-geist-sans`, so extending it is the
+lowest-surprise, conventional Tailwind-v4 approach and keeps the developer from inventing a parallel
+config. Centralizing in tokens is also what makes the two-pass rollout (below, design doc §8
+"Visual identity") mostly a matter of swapping utility names, since the already-restyled Food/Weight/
+Settings screens reference a small shared vocabulary.
+**Also decided (light-only)**: `globals.css` currently has a `@media (prefers-color-scheme: dark)`
+block that flips only `--background`/`--foreground` — but nothing else in the app respects those
+(cards are hardcoded `bg-white`, text `zinc-900`), so dark mode is already non-functional. This warm
+light palette is explicitly **light-only for v1**; the dark-mode media block should be **removed**
+as part of this work rather than shipping a half-wired dark theme against warm paper. A real dark
+theme is a future decision, not silently half-present.
+**Also decided (component-mapping guardrails — the one non-mechanical part of the swap)**: the
+rollout is *mostly* a utility-name swap, but three spots must not be blind find-replaced:
+- **Active `NavLink` must be `bg-sage-pale text-ink`, NOT `bg-sage-pale text-sage-deep`.** The active
+  nav today is `bg-indigo-50 text-indigo-700`; the naive mapping (`indigo-50→sage-pale`,
+  `indigo-700→sage-deep`) lands on `sage-deep`-on-`sage-pale` = ~4.2:1, which is under AA (4.5:1) for
+  `NavLink`'s normal-weight `text-sm`. Use **`--ink` on `--sage-pale`** (~13:1) for the active pill;
+  reserve `--sage-deep` for text/links/focus that sit **on `--paper`/white** (4.9:1). This resolves
+  the apparent tension between the token table's `--sage-deep` row (which lists "active-nav text") and
+  its `--sage-pale` row (which warns off small `--sage-deep` text on that tint) — `--sage-pale` wins
+  for the active-nav *background*, so its text goes to `--ink`.
+- **`Button`'s `danger` variant and `errorTextClass` stay their existing red** — semantic status, out
+  of scope per the entry above; do not route them through the brand palette.
+- **`(auth)/login` + `(auth)/signup` need a structural refactor, not a color swap.** `LoginForm`/
+  `SignupForm` hand-roll their own `<button className="...bg-zinc-900...">`, `<input>`, `<label>`, and
+  link styles instead of using `components/ui/` at all. They must be refactored to consume `Button`,
+  `Card`, and `styles.ts` (`inputClass`/`labelClass`/`errorTextClass`) so they inherit the tokens like
+  every other screen — this is what makes "one source of truth" actually true for the first-impression
+  pages, and is why they're their own pass in the design doc §8 rollout.
 
 ---
