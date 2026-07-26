@@ -243,10 +243,10 @@ export function FoodEntryForm({
             required
             value={consumedTime}
             onChange={(e) => setConsumedTime(e.target.value)}
-            className={inputClass}
+            className={`${inputClass} tabular-nums`}
           >
             {timeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
+              <option key={option.value} value={option.value} className="tabular-nums">
                 {option.label}
               </option>
             ))}

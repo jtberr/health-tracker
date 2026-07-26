@@ -187,8 +187,8 @@ describe("formatTimeLabel", () => {
     expect(formatTimeLabel("00:15")).toBe("12:15 AM");
   });
 
-  it("formats a morning time", () => {
-    expect(formatTimeLabel("08:15")).toBe("8:15 AM");
+  it("formats a morning time with a zero-padded hour", () => {
+    expect(formatTimeLabel("08:15")).toBe("08:15 AM");
   });
 
   it("formats 11:45 AM just before noon", () => {
@@ -203,8 +203,8 @@ describe("formatTimeLabel", () => {
     expect(formatTimeLabel("12:15")).toBe("12:15 PM");
   });
 
-  it("formats an afternoon/evening time", () => {
-    expect(formatTimeLabel("18:30")).toBe("6:30 PM");
+  it("formats an afternoon/evening time with a zero-padded hour", () => {
+    expect(formatTimeLabel("18:30")).toBe("06:30 PM");
   });
 
   it("formats the last bucket of the day", () => {
@@ -254,6 +254,13 @@ describe("quarterHourOptions", () => {
   it("labels every option via formatTimeLabel(value)", () => {
     for (const { value, label } of options) {
       expect(label).toBe(formatTimeLabel(value));
+    }
+  });
+
+  it("every label is exactly 8 characters (zero-padded hh:mm AM|PM), so the list lines up in a column", () => {
+    for (const { label } of options) {
+      expect(label).toHaveLength(8);
+      expect(label).toMatch(/^\d{2}:\d{2} (AM|PM)$/);
     }
   });
 });

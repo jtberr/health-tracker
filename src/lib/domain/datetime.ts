@@ -61,17 +61,20 @@ export function defaultConsumedAtForNextEntry(
 }
 
 /**
- * Formats a 24-hour `HH:MM` string as a 12-hour AM/PM display label (e.g. "08:15" -> "8:15 AM",
- * "00:00" -> "12:00 AM", "12:00" -> "12:00 PM"). Used both to build `quarterHourOptions()`'s fixed
- * list and to label a defensively-injected off-grid option (see `FoodEntryForm`'s edit invariant
- * in §3.4/§4) whose value isn't one of the 96 quarter-hour buckets.
+ * Formats a 24-hour `HH:MM` string as a zero-padded 12-hour AM/PM display label (e.g.
+ * "08:15" -> "08:15 AM", "00:00" -> "12:00 AM", "12:00" -> "12:00 PM"). The 12-hour hour is always
+ * two digits, so every possible label is exactly 8 characters (`hh:mm AM|PM`) — this is what lets
+ * the 96-option `<select>` line up in a column (see ai-context/DECISIONS.md, "Time-`<select>`
+ * option labels are zero-padded..."). Used both to build `quarterHourOptions()`'s fixed list and to
+ * label a defensively-injected off-grid option (see `FoodEntryForm`'s edit invariant in §3.4/§4)
+ * whose value isn't one of the 96 quarter-hour buckets.
  */
 export function formatTimeLabel(value: string): string {
   const [hourStr, minuteStr] = value.split(":");
   const hour = Number(hourStr);
   const period = hour < 12 ? "AM" : "PM";
   const displayHour = hour % 12 === 0 ? 12 : hour % 12;
-  return `${displayHour}:${minuteStr} ${period}`;
+  return `${String(displayHour).padStart(2, "0")}:${minuteStr} ${period}`;
 }
 
 /**

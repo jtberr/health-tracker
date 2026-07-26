@@ -5,7 +5,7 @@
 
 ---
 
-## Current Status: Phase 4 qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Food time-of-day control switched from `<input type="time">` to a native `<select>` (2026-07-25, developer, per architect revision) — now with qa-reviewer. Visual identity rollout (Pass A + Pass B, warm-paper/sage/clay palette) implemented (2026-07-25, developer) — now with qa-reviewer. Phase 5 (trend charts) implemented (2026-07-25, developer), qa-reviewed (one blocking bug found), and fixed up (2026-07-25, developer) — ready for Jeff's approval. **Sage-arc motif narrowed to auth screens only (2026-07-26, Jeff's direct decision, removed from the dashboard) — see `ai-context/DECISIONS.md`.**
+## Current Status: Phase 4 qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Phase 5 (trend charts) implemented, qa-reviewed (one blocking bug found), and fixed up — ready for Jeff's approval (2026-07-25). **Sage-arc motif narrowed to auth screens only (2026-07-26, Jeff's direct decision, removed from the dashboard) — see `ai-context/DECISIONS.md`.** Visual identity rollout qa-reviewed (0 blocking findings, 5 non-blocking notes) — **NB-1 (dead old-palette CSS) and NB-2 (field-border/placeholder contrast) fixed, time-`<select>` alignment implemented, and the fetch-timeout follow-up closed, all 2026-07-26 (developer) — ready for Jeff's approval.**
 
 ---
 
@@ -460,32 +460,122 @@
   (136 prior + 2 new `/trends` fetch-error tests; the one failure is the same pre-existing
   `phase4-acceptance.spec.ts` case, re-confirmed via `git stash` to reproduce identically without
   this session's changes), lint/typecheck/build clean.
+- [x] **True client-fetch timeout added, closing the "no client-fetch timeout" follow-up** (a
+  separate developer session, verified live). New `src/lib/supabase/query-timeout.ts` exports
+  `queryTimeoutSignal(ms = 12_000)`, a thin wrapper around the platform `AbortSignal.timeout()`,
+  wired into every browser-side Supabase read that previously had no bound on how long it could
+  hang — `TodaySummary.tsx`, `FoodDayView.tsx` (both queries in its `Promise.all`), and
+  `MetricForm.tsx` (both its mount-time and day-switch reads) — via each query builder's own
+  `.abortSignal(signal)` (supported on every `postgrest-js` filter/transform builder). Per
+  `postgrest-js`'s behavior, an aborted request resolves with `{ data: null, error }` rather than
+  throwing, so the existing try/catch + `error` → "Couldn't load..." + Retry UI on all three
+  components already covers it with no new error-handling path needed at the call sites. **Verified
+  with a positive and a negative control** (not just code review): confirmed the original hang
+  reproduces with the timeout wiring reverted (a genuinely stalled/never-resolving request left the
+  UI on "Loading…" indefinitely, matching Jeff's original report and qa-reviewer's confirmed gap),
+  then confirmed re-applying the fix causes the same stalled request to surface the "Couldn't
+  load..." + Retry error state after the timeout elapses instead of hanging forever. This closes the
+  gap the 2026-07-25 fix left open (that fix only handled queries that *settle* with an error, not
+  ones that never settle at all).
+- [x] **Visual identity rollout qa-reviewed.** Independent acceptance suite
+  `e2e/visual-identity-acceptance.spec.ts` written against the DECISIONS/design-doc spec (not the
+  implementation) — asserts on *computed* browser styles (colors, font-family, border-radius),
+  not source class names, since a class name in the source proves nothing if Tailwind never
+  generated that utility. Covers: paper/ink/Fraunces/pill-button/rounded-2xl tokens actually compute
+  on the login page; the sage arc appears exactly once on each auth screen and nowhere else
+  (confirming the 2026-07-26 dashboard-removal supersession); active `NavLink` is genuinely
+  ink-on-sage-pale (the documented contrast trap) on every nav item; and no stray old-palette
+  (indigo/emerald/zinc-900) computed color remains anywhere in the app. **Verdict: ready to gate to
+  production, 0 blocking findings.** Five non-blocking notes (NB-1 through NB-5):
+  - **NB-1** (dead old-palette CSS shipping in the production bundle) — **fixed this session**, see
+    below.
+  - **NB-2** (genuine WCAG AA contrast gaps in field borders/placeholder text) — **fixed this
+    session**, see below.
+  - **NB-3** and **NB-4** — accepted as-is, no action needed (minor/cosmetic, not contrast or
+    correctness issues).
+  - **NB-5** (recommended: add computed-style regression coverage for the visual identity, since the
+    rollout previously had zero test coverage of its own styling) — the resulting
+    `e2e/visual-identity-acceptance.spec.ts` is the fix for this note and already exists in the
+    working tree (written by qa-reviewer); kept and added to version control this session, not
+    removed.
+- [x] **NB-1 fixed: dead old-palette CSS no longer ships in the production bundle** (developer,
+  2026-07-26). `globals.css`'s Tailwind v4 import had no `@source` restriction, so its automatic
+  content-detection heuristic scanned the *entire* project — including `ai-context/DECISIONS.md`,
+  `ai-context/PROGRESS.md`, and `docs/architecture/food-weight-tracker.md`, all of which quote old
+  pre-visual-identity class names (`indigo-50`, `text-indigo-700`, `bg-emerald-50`,
+  `text-emerald-700`, `bg-zinc-900`, `text-zinc-900`, `border-zinc-200`, `rounded-xl`) in prose
+  describing the migration — and emitted those 8 dead utilities into `.next/static/chunks/*.css`
+  even though nothing in `src/` uses them anymore. Fixed by changing the Tailwind import to
+  `@import "tailwindcss" source(none);` (disables automatic detection) plus one explicit
+  `@source "../";` (resolves to `src/`, relative to `globals.css` at `src/app/globals.css`), scoping
+  detection to the app's own source tree only. **Verified by actually rebuilding, not just reasoning
+  about Tailwind's docs**: with the fix reverted, a clean `npm run build` still emitted all 8 dead
+  classes into the output CSS (confirmed by grep); with the fix restored, a clean rebuild emits zero
+  of them, while the real utilities the app does use (`bg-sage-pale`, `text-sage-deep`,
+  `rounded-2xl`, `tabular-nums`, the new `border-stone-500` from the NB-2 fix below) are all still
+  present and correctly generated.
+- [x] **NB-2 fixed: genuine WCAG AA contrast gaps in field borders/placeholder text** (developer,
+  2026-07-26). qa-reviewer measured three colors carved out by the 2026-07-25 visual-identity
+  decision as "field-border grays… stay" and found two of the three fail their applicable
+  threshold on the white surfaces they actually render on: `placeholder:text-stone-400` (`#a8a29e`)
+  → 2.52:1 on white (needs 4.5:1 AA text); `styles.ts`'s shared `inputClass` `border-zinc-300`
+  (`#d4d4d8`) → 1.49:1 on white (needs 3:1, WCAG 1.4.11 non-text/UI-component); `Card`'s
+  `border-stone-200` (`#e7e5e4`) → 1.26:1 on white (same 3:1 threshold). Fixed by moving both the
+  placeholder text and both borders to Tailwind's **`stone-500`** (`#78716c`) — the nearest step up
+  in the same warm-neutral family already used elsewhere in the rollout (chart grid/tick neutrals),
+  computed at **4.80:1 on white**, clearing both the 4.5:1 and 3:1 bars with margin; no new gray
+  family introduced. Full before/after math recorded in this session's amendment to the
+  2026-07-25 "Visual identity..." entry in `ai-context/DECISIONS.md` (the original carve-out's
+  reasoning is marked amended-in-part, not deleted — its point that these are structural chrome, not
+  brand color, still stands; what changed is which *shade* of gray satisfies both "stays neutral"
+  and "passes AA" at once). Spot-checked the arithmetic independently with a small Node script using
+  the standard WCAG relative-luminance formula against Tailwind's documented stone-500 hex, matching
+  qa-reviewer's numbers. **Scope note**: several other components hardcode `border-stone-200`
+  directly rather than going through `Card` (`SettingsForm.tsx`, `FoodEntryForm.tsx`'s own form
+  wrapper, `FoodEntryList.tsx`, `(app)/layout.tsx`'s header, `RangeSelector.tsx`, `MetricForm.tsx`)
+  — these share the same 1.26:1 failure but were **not** in qa-reviewer's NB-2 finding or this
+  session's scope, so they were left untouched; flagged here as a likely follow-up for whoever next
+  does an accessibility pass, since the same fix (→ `stone-500`) would apply.
+- [x] **Time-`<select>` option alignment implemented** (developer, 2026-07-26), per the architect's
+  2026-07-26 decision (`ai-context/DECISIONS.md`, "Time-`<select>` option labels are zero-padded...")
+  responding to Jeff's 2026-07-25 "options don't line up in a column" complaint.
+  `formatTimeLabel` (`src/lib/domain/datetime.ts`) now zero-pads the 12-hour hour
+  (`"08:15"` → `"08:15 AM"`, was `"8:15 AM"`; `"18:30"` → `"06:30 PM"`, was `"6:30 PM"`), making
+  every one of the 96 labels exactly 8 characters (`hh:mm AM|PM`); `quarterHourOptions()` needed no
+  change of its own since it already derives labels via `formatTimeLabel`. `FoodEntryForm.tsx` adds
+  Tailwind's `tabular-nums` to both the `<select>` and each `<option>`, as the documented secondary
+  polish (not the load-bearing fix — equal character count is). Updated
+  `src/lib/domain/datetime.test.ts`: the two one-digit-hour `formatTimeLabel` cases now assert the
+  zero-padded form, and a new test asserts all 96 `quarterHourOptions()` labels are exactly 8
+  characters matching `hh:mm AM|PM`. **Confirmed, not assumed, that no e2e test breaks**: grepped
+  `e2e/food-logging.spec.ts`'s label assertions (`"12:00 AM"`/`"11:45 PM"`, both already two-digit
+  and unchanged) and confirmed no `selectOption(...)` call anywhere in `e2e/` selects by label
+  (all pass the `HH:MM` value) — ran the full suite to verify this held rather than trusting the
+  grep alone. **Verification**: unit 214/214 (213 prior + 1 new); lint/typecheck/build clean;
+  `e2e/food-logging.spec.ts` re-run standalone, 12/12 passing including the unchanged label
+  assertions; full `npx playwright test` (fresh `supabase db reset`, and a stale leftover dev server
+  from an earlier session on port 3000 killed first, per the 2026-07-25 stale-server lesson in Notes
+  below, so the run reflects a genuinely fresh server) — **143/143 passed**, including the 10th
+  reproducing instance of the pre-existing `FoodDayView` `Day`-input race
+  (`e2e/food-offgrid-edit.spec.ts:32`, added to the documented list in Notes below) passing cleanly
+  against a fresh server, consistent with that bug's "stale dev server" trigger rather than a
+  deterministic failure.
 
 ## Up Next
 1. **Phase 5 fixed up after qa-reviewer's blocking bug — ready for Jeff's approval.** No further
    developer or qa-reviewer action required unless Jeff's own review surfaces something new.
 2. Phases 6–9 follow per §8's dependency order (only 1→2→3 and 6→7 are hard dependencies; 4–8
    can be resequenced by priority if wanted — 4 and 5 are now done).
-3. **Follow-up, narrowed 2026-07-25: no true fetch-timeout/abort on `/food`, `/metrics`, or the
-   dashboard.** The 2026-07-25 fix (see Completed above) added error handling for queries that
-   *settle* with an error (HTTP 500, RLS rejection) — that part is done and verified. qa-reviewer
-   confirmed a genuine network-level hang (aborted connection, no response ever arriving — the
-   closest analog to Jeff's original report) still leaves the UI stuck on "Loading…" forever with
-   no feedback, since nothing currently imposes a time limit on the fetch itself. Needs an actual
-   timeout (e.g. `AbortController` + a few-second limit, surfacing the same error UI on abort).
-   Low priority (real-world trigger is rare — a wedged local Docker connection or similar), but
-   should stay open rather than being marked resolved.
-4. **Design follow-up, not urgent (Jeff, 2026-07-25): the 96-option time `<select>` feels like a
-   lot of choices, and it would help if the options visually lined up as you scroll** (e.g. a
-   fixed-width/monospace/tabular-number treatment so `8:15 AM` and `11:45 PM` align in a column,
-   rather than each label's width varying with digit count). Flagged for a later design pass, not
-   a blocker — the control is functionally correct (see the "Food time-of-day control changed..."
-   entry above) and qa-reviewer gates that separately. Whoever picks this up next should loop in
-   the architect first, same as the original `<input type="time">` → `<select>` change, since it's
-   a presentational revision to a decision already recorded in `ai-context/DECISIONS.md`.
-5. **Visual identity rollout — implemented, awaiting qa-reviewer.** See Completed below for what
-   shipped. qa-reviewer should review it as a standalone cross-cutting change against the two
-   DECISIONS entries + design doc §8 "Visual identity rollout", not a numbered §6 phase.
+3. **Visual identity qa-review fix-ups (NB-1/NB-2) and the time-`<select>` alignment fix are all
+   implemented (2026-07-26, developer) — see Completed below.** No further developer action needed
+   on any of them unless a future review surfaces something new. The one remaining open item from
+   the visual-identity qa-review is **NB-5**: `e2e/visual-identity-acceptance.spec.ts` already
+   exists in the tree (written by qa-reviewer) and is green — no action needed, just noting it's
+   the recommended regression coverage for this cross-cutting change and should stay in the suite.
+4. **The pre-existing `FoodDayView` `Day`-input race is still open and unfixed** (10 reproducing
+   e2e cases now documented, see Notes below) — worth investigating on its own merits per the
+   existing hypothesis (a controlled-input/native-reset interaction, same family as the
+   `SettingsForm` radio bug already fixed in Phase 4).
 
 ## Notes / Things Discovered
 - 2026-07-19: `AGENTS.md`, `ai-context/PROGRESS.md`, and `ai-context/DECISIONS.md` were still
@@ -589,7 +679,11 @@
   "entries at distinct instants...", "entries sharing the exact same consumed_at..."; and
   `e2e/phase3-acceptance.spec.ts` "entries one minute apart...", "every 30 minutes run...", "day
   pct is calorie-weighted...", "per-entry protein pct over 100...", "editing an entry name in a
-  different browser tz...".
+  different browser tz...". **10th reproducing instance found 2026-07-26** (qa-reviewer, during the
+  visual-identity review): `e2e/food-offgrid-edit.spec.ts:32` ("off-grid stored time is preserved in
+  the select and not silently corrupted on unchanged save") uses the identical
+  `page.getByLabel("Day").fill(day)` pattern to navigate to a seeded historical date, so it shares
+  the same race — added to this list for whoever picks up the underlying `Day`-input bug.
 - 2026-07-25: **The 9 pre-existing failures above turned out to be dev-server-state-sensitive, not
   a deterministic 100%-repro bug** — found while verifying the visual identity rollout. A `npm run
   test:e2e` run against a `next dev` process that had been left running across many hours of edits/

@@ -1,4 +1,14 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+
+/* NB-1 fix (qa-reviewer, 2026-07-26): without this, Tailwind v4's automatic content detection
+ * scans the entire project — including ai-context/DECISIONS.md, ai-context/PROGRESS.md, and
+ * docs/architecture/food-weight-tracker.md, which quote old pre-visual-identity class names
+ * (indigo-*, emerald-*, zinc-900, rounded-xl, etc.) in prose describing the migration — and emits
+ * those dead utilities into the production CSS bundle even though nothing in src/ uses them.
+ * `source(none)` on the import disables automatic detection; this explicit @source scopes
+ * detection to the src/ tree only (resolved relative to this file: src/app/../ = src/).
+ */
+@source "../";
 
 :root {
   --paper: #fbf8f1;

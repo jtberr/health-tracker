@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useId, useMemo, useState, useTransition } from "react";
 import { useFormStatus } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
+import { queryTimeoutSignal } from "@/lib/supabase/query-timeout";
 import { deleteDailyMetric, upsertDailyMetric, type DailyMetricActionState } from "@/lib/actions/metrics";
 import { browserTimeZone, localDateInTz } from "@/lib/domain/datetime";
 import { weightForDisplay } from "@/lib/domain/units";
@@ -86,6 +87,7 @@ export function MetricForm({ weightUnit }: MetricFormProps) {
           .from("daily_metrics")
           .select("*")
           .eq("metric_date", selectedDate)
+          .abortSignal(queryTimeoutSignal())
           .maybeSingle();
         if (cancelled) return;
         if (error) {
@@ -113,6 +115,7 @@ export function MetricForm({ weightUnit }: MetricFormProps) {
         .from("daily_metrics")
         .select("*")
         .eq("metric_date", selectedDate)
+        .abortSignal(queryTimeoutSignal())
         .maybeSingle();
       if (error) {
         setLoadError(true);

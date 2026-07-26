@@ -305,6 +305,17 @@ scroll than a wheel, mitigated by type-ahead and the pre-selected smart default.
 custom dropdown/combobox component (violates the conventional-default bias and adds JS/accessibility
 surface for no benefit over `<select>` at this option count); and keeping the native time input (its
 friction-reduction premise doesn't hold, per above).
+**Amended (2026-07-26, label *format* only — the control, the value contract, and every time-model
+invariant stand):** the option label format changes from a bare-hour 12-hour string (`"8:15 AM"`) to a
+**zero-padded** one (`"08:15 AM"`), so all 96 labels are the same character count and line up as a
+column while scrolling. The `<select>` itself, the 96-option set, the 24-hour `HH:MM` option `value`s,
+and everything below the form boundary are unchanged. Two specific claims in this entry are superseded
+by that amendment: (a) the four labels enumerated in the Decision paragraph read as `"12:00 AM"`,
+`"12:15 AM"`, … `"11:45 PM"` — still literally correct, since those all have two-digit hours, but
+one-digit-hour examples elsewhere (`"8:15 AM"`) now render `"08:15 AM"`; and (b) the type-ahead claim
+in the Why ("typing `8` jumps toward the 8-o'clock options") **no longer holds** — with padded labels
+the user types `0` then `8`. That regression was weighed and accepted; see "Time-`<select>` option
+labels are zero-padded…" below for the full reasoning.
 
 ### Phase 1 implementation choices: Next.js 16 (not pinned to 14), Vitest + Playwright, `middleware.ts` kept despite deprecation
 **Date**: 2026-07-20
@@ -566,6 +577,26 @@ rollout is *mostly* a utility-name swap, but three spots must not be blind find-
   every other screen — this is what makes "one source of truth" actually true for the first-impression
   pages, and is why they're their own pass in the design doc §8 rollout.
 
+**Amendment (2026-07-26) — the "field-border grays… stay" carve-out is partially superseded for a
+genuine AA contrast failure, not a stylistic re-litigation:** qa-reviewer measured the actual
+shipped colors against `#ffffff` (`inputClass`/`Card` are both on a white surface) using the
+standard WCAG relative-luminance formula and found two of the three carved-out grays fail their
+applicable threshold:
+- `placeholder:text-stone-400` (`#a8a29e`) → **2.52:1** on white — fails the 4.5:1 AA text minimum.
+- `border-zinc-300` (`#d4d4d8`, `styles.ts`'s shared `inputClass`) → **1.49:1** on white — fails the
+  3:1 WCAG 1.4.11 non-text/UI-component minimum.
+- `Card`'s `border-stone-200` (`#e7e5e4`) → **1.26:1** on white — also fails the same 3:1 minimum.
+
+Fix: both moved to **`stone-500`** (`#78716c`), the nearest step up in the same warm-neutral family
+already used elsewhere in the rollout (chart grid/tick neutrals) — **4.80:1** on white, clearing
+both the 4.5:1 text and 3:1 non-text bars with margin. No new gray family was introduced. The
+*labels*/*legends*/other stone-700 body text and `Card`'s general "stay warm-neutral, not brand"
+intent are untouched — only the two specific under-threshold shades moved. The original reasoning
+for excluding these three from the sage/clay/ink rollout (they're structural chrome, not brand
+color) still stands and is not what's being revised; what's revised is which *shade* of gray
+satisfies both "stays neutral" and "passes AA" at the same time — the original choice hadn't
+actually been checked against contrast math when it was carved out, and now has been.
+
 ### Phase 5 implementation choices: trend-series reads inlined in the client view (not a Server Action), Recharts data-series colors via `currentColor` + Tailwind `className` (not hex), dot markers keyed on the domain `isReal` flag
 **Date**: 2026-07-25
 **Decision**: Three implementation choices for Phase 5 ("Trend charts"), none specified precisely
@@ -598,5 +629,115 @@ the dot on `isReal` rather than the incidental null-check makes the "chart gaps:
 missing days, mark real entries with a dot" rule an explicit, intentional property of the render
 code — matching what `lib/domain/trends.ts`'s dense-series builders were designed to expose — rather
 than something that happens to work today because of how the values are currently encoded.
+
+### Time-`<select>` option labels are zero-padded (`"08:15 AM"`), with `tabular-nums` as a secondary polish — a label-format change, not a CSS-only one
+**Date**: 2026-07-26
+**Decision**: Fix Jeff's 2026-07-25 complaint that the 96-option time `<select>`'s options don't line
+up in a column by changing **the label string itself**, with a CSS utility as a secondary polish:
+
+1. **`formatTimeLabel(value)` in `src/lib/domain/datetime.ts` zero-pads the 12-hour hour to two
+   digits.** `"08:15"` → `"08:15 AM"` (was `"8:15 AM"`); `"18:30"` → `"06:30 PM"` (was `"6:30 PM"`).
+   Labels with a two-digit hour are unchanged (`"12:00 AM"`, `"11:45 AM"`, `"12:00 PM"`, `"11:45 PM"`).
+   Every one of the 96 labels becomes exactly 8 characters, in the fixed shape `hh:mm AM|PM`. This is
+   a one-line change (drop the existing `displayHour` collapse into a `String(displayHour).padStart(2, "0")`);
+   the AM/PM and 12-vs-24-hour mapping rules themselves do **not** change.
+2. **`quarterHourOptions()` needs no edit of its own** — it already derives every label by calling
+   `formatTimeLabel(value)`, so it inherits the new format, and so does `FoodEntryForm`'s
+   defensively-injected off-grid option (same helper), which keeps the edit invariant intact and
+   consistently formatted (a legacy `09:07` renders `"09:07 AM"`).
+3. **`FoodEntryForm.tsx` adds Tailwind's built-in `tabular-nums` utility** to the time `<select>`
+   (`className={`${inputClass} tabular-nums`}`) **and to each `<option>`** (`className="tabular-nums"`).
+   Both are needed: some browsers render popup option text from the option's own computed style rather
+   than inheriting the select's. This is a **best-effort polish, not the fix** — see Why.
+4. **Explicitly not changed**: `src/components/ui/styles.ts`'s shared `inputClass` (the utility goes on
+   the one control that needs it, not on every text/number/date field app-wide); no monospace font
+   anywhere; no new CSS token, no custom CSS, no `<optgroup>`, no change to the option count.
+
+**Test impact** (all label-assertion sites, verified by grep — the developer should expect exactly
+these and no others): `src/lib/domain/datetime.test.ts` — the `formatTimeLabel` cases for `"08:15"` and
+`"18:30"`, and the `quarterHourOptions` "crosses the noon/midnight boundary" cases only insofar as they
+assert one-digit-hour labels (the enumerated `12:00 AM`/`11:45 PM`/`12:15 PM` cases are unaffected);
+`e2e/food-logging.spec.ts` lines ~72/~74 assert `options.first()`/`options.last()` text, which are
+`"12:00 AM"`/`"11:45 PM"` — **both unchanged**, so that spec likely needs no edit at all. **No e2e test
+selects an option by label** — every `selectOption(...)` call in `e2e/` passes the `HH:MM` *value*
+(`"08:15"`, `"12:07"`, `"12:30"`), so the Playwright suite is insulated from this by construction. A
+new unit case asserting a uniform label length across all 96 options is worth adding, since "they all
+line up" is now a real, testable property rather than an incidental one.
+
+**Invariants explicitly confirmed unchanged** (this is a label-text change only, strictly above the
+form boundary): the option **`value` contract stays 24-hour `HH:MM`**; the **15-minute grid** and its
+96 buckets; `floorToQuarterHour`'s **floor-of-now** default; `defaultConsumedAtForNextEntry`'s smart
+same-sitting default and its 120-minute freshness window; **exact-`consumed_at` meal grouping**; the
+**no-future-day cap**; server-side `validateFoodEntryInput` (`TIME_PATTERN` + `minutes % 15 !== 0`);
+`localInputToUtcInTz`; `consumed_at` storage precision; and the off-grid-option **edit invariant**.
+Nothing downstream of the rendered label reads it — validation, conversion, grouping, and the cap all
+key off the `HH:MM` value or the resulting `consumed_at`, so none of them can observe this change.
+Scope: `FoodEntryForm` today, and `LogMealDialog`'s log-time picker when Phase 7 builds it (it consumes
+the same `quarterHourOptions()` helper, so it inherits this for free). `MealItemForm` is untouched —
+saved-meal items carry no `consumed_at` and have no time field.
+
+**Why**: The central finding is that **the CSS-only fix does not actually work, so this cannot stay a
+pure rendering concern.** `font-variant-numeric: tabular-nums` equalizes the advance width of each
+*digit glyph*; it cannot conjure a character that isn't there. `"8:15 AM"` is seven characters and
+`"11:45 PM"` is eight, so in a left-aligned list the colon, the minutes, and the AM/PM of every
+one-digit-hour row sit one glyph to the left of every two-digit-hour row — with or without tabular
+figures. This is not a marginal case: of the 96 labels, **72 have a one-digit hour** (12-hour hours
+1–9) and only 24 have two digits (10, 11, 12), so the ragged edge is what you see for most of the
+scroll — exactly what Jeff reported. Equal character count is therefore the necessary condition, and
+that lives in the label string, i.e. in `formatTimeLabel`. Accepting a small, well-tested change to one
+pure domain function is the honest fix; reaching for CSS because it's "not domain logic" would have
+shipped a change that demonstrably doesn't solve the reported problem.
+
+`tabular-nums` still earns its place as a **secondary** measure, for a different reason than the one
+it's usually reached for: once all labels are 8 characters, any residual drift comes from proportional
+figures (a `1` narrower than an `8`), which depends on Geist Sans' default figure set — not something
+worth guessing about when one built-in Tailwind utility makes it deterministic at zero cost. It is
+deliberately *not* the load-bearing fix, because **`<option>` styling is unreliable exactly where it
+matters most**: macOS Safari/Chrome largely ignore `<option>` CSS (native menu rendering), and every
+mobile browser renders the option list as a native platform picker that ignores author CSS entirely.
+The padded label is *content*, so it survives all of those paths; the CSS is an enhancement on the
+platforms that honor it. Getting this ordering wrong (CSS as the fix, padding as optional) would leave
+mobile — a primary surface for a "log it fast" app — unfixed.
+
+Zero-padding also happens to make the picker **more** consistent with the rest of the app, not less:
+`FoodEntryList`'s meal-group headers already render times as raw 24-hour `HH:MM` from `utcToLocalTime`
+(`"08:15"`, `"23:45"`) — already two-digit-hour and already uniform-width. So the padded picker moves
+toward the existing display convention rather than inventing a third one. (The list's lack of AM/PM is
+a separate pre-existing inconsistency; deliberately **out of scope** here, not silently changed.)
+
+**Accepted tradeoff — a real, small type-ahead regression, called out rather than glossed:** the
+2026-07-25 entry advertised native `<select>` type-ahead ("typing `8` jumps toward the 8-o'clock
+options") as an accessibility benefit. Browser type-ahead prefix-matches the option's *text*, so with
+`"08:15 AM"` a bare `8` matches nothing and the user must type `0` then `8`. This was weighed against
+simply not fixing the alignment, and the fix wins: the previous behavior was already coarse (a lone
+`8` landed on the first `8`-something option and needed repeat presses to advance), the two-keystroke
+form is fully deterministic once learned, arrow-key navigation is unaffected, and — the deciding
+point — in the common in-sitting case the smart default already pre-selects the right value, so the
+control is usually not touched at all. Jeff raised scanning-while-scrolling, a mouse/touch path, as the
+actual pain; trading a marginal keyboard shortcut for it is the right direction. Flagged here so it is
+a recorded choice, not a silent side effect discovered later.
+
+**On the other half of the complaint ("feels like a lot of choices")**: deliberately *not* addressed by
+reducing the option count, because that isn't a presentational change — 96 options is a direct
+consequence of the recorded 15-minute-grid decision, and cutting to a 30-minute grid would change the
+time model, meal-grouping granularity, and the floor-of-now default. If 96 still feels heavy once
+alignment lands, that is a **separate decision** (architect loop, its own entry), not something to
+smuggle in here. Improved scannability is the appropriate first remedy for "a lot of choices" anyway.
+
+**Rejected**: (a) **`tabular-nums` alone** — doesn't solve it, per above; this is the option the fix was
+most likely to default to, and it fails on the arithmetic. (b) **A monospace font on the `<select>`** —
+would align, but clashes with the Geist UI face, looks wrong beside the Date field sitting next to it,
+inherits the same unreliable-`<option>`-CSS problem, and is unnecessary once labels are equal-length.
+(c) **Padding with a leading space or a U+2007 figure space** (`" 8:15 AM"`) — preserves single-digit
+type-ahead and looks cleaner than a leading zero, but HTML collapses leading whitespace in option text,
+so it requires an invisible special character: precisely the kind of clever, non-obvious trick the
+project's conventional-default bias exists to prevent. (d) **Switching labels to 24-hour `"08:15"`** —
+naturally aligned and would make label equal value, but reverses the deliberate 12-hour AM/PM display
+choice from the prior entry and is a bigger change than the alignment problem warrants. (e) **Grouping
+the options under 24 `<optgroup>` hour headers** — plausible against "a lot of choices", but adds 24
+non-selectable rows (120 total) and more scrolling, and does nothing about alignment, which is the
+stated problem. (f) **Adding `tabular-nums` to the shared `inputClass`** — would apply tabular figures
+to every text/number/date field app-wide as a side effect of fixing one dropdown; scope the utility to
+the control that needs it.
 
 ---

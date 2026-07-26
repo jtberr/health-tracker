@@ -310,6 +310,17 @@ lookup-candidate pick; see prior revision).
   if an entry's stored time-of-day is ever off-grid, the edit form injects it as an extra selected option so
   opening it for an unrelated edit never silently rewrites its time. The date is a native
   `<input type="date" max={today}>`.
+- **Label format (2026-07-26 revision): the 12-hour label is zero-padded to a fixed `hh:mm AM|PM` shape** —
+  `"08:15 AM"`, `"06:30 PM"`, `"12:00 AM"`, `"11:45 PM"` — so all 96 labels are the same character count and
+  line up as a column while scrolling (a one-digit hour otherwise shifted the colon/minutes/meridiem one glyph
+  left on 72 of the 96 rows). `formatTimeLabel` owns the padding; `quarterHourOptions` and the off-grid
+  injected option inherit it. The `<select>` and each `<option>` also carry Tailwind's `tabular-nums`, as a
+  secondary polish only — equal character count is the load-bearing fix, since `<option>` CSS is ignored by
+  macOS Safari/Chrome and by every mobile native picker. Label text only: the `HH:MM` option `value`, the
+  15-minute grid, the floor-of-now default, exact-`consumed_at` grouping, and the future-day cap are all
+  untouched. Accepted tradeoff: `<select>` type-ahead now needs `0`,`8` rather than a bare `8`. Full
+  reasoning and rejected alternatives (tabular-nums alone, monospace, figure-space padding, 24-hour labels,
+  `<optgroup>`s) in `ai-context/DECISIONS.md`.
 - **Smart `consumed_at` default (the rule that makes exact-match grouping free):** `food/page` tracks the
   most recently logged entry's `consumed_at` for the selected day (`lastConsumedAt`). Opening the add form
   defaults its date/time to `datetime.defaultConsumedAtForNextEntry(lastConsumedAt, now)`:

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { queryTimeoutSignal } from "@/lib/supabase/query-timeout";
 import { browserTimeZone, localDateInTz } from "@/lib/domain/datetime";
 import { deleteFoodEntry } from "@/lib/actions/food";
 import { inputClass, labelClass } from "@/components/ui/styles";
@@ -47,8 +48,14 @@ export function FoodDayView() {
             .from("food_entries")
             .select("*")
             .eq("consumed_local_date", date)
-            .order("consumed_at", { ascending: true }),
-          supabase.from("daily_food_totals").select("*").eq("consumed_local_date", date).maybeSingle(),
+            .order("consumed_at", { ascending: true })
+            .abortSignal(queryTimeoutSignal()),
+          supabase
+            .from("daily_food_totals")
+            .select("*")
+            .eq("consumed_local_date", date)
+            .abortSignal(queryTimeoutSignal())
+            .maybeSingle(),
         ]);
         if (entriesRes.error || totalsRes.error) {
           setLoadError(true);

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { queryTimeoutSignal } from "@/lib/supabase/query-timeout";
 import { browserTimeZone, localDateInTz } from "@/lib/domain/datetime";
 import { DailyTotals } from "./DailyTotals";
 import type { DailyFoodTotals } from "@/lib/types";
@@ -30,6 +31,7 @@ export function TodaySummary() {
           .from("daily_food_totals")
           .select("*")
           .eq("consumed_local_date", today)
+          .abortSignal(queryTimeoutSignal())
           .maybeSingle();
         if (cancelled) return;
         if (error) {
