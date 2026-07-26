@@ -495,6 +495,19 @@ card, behind the dashboard "Today so far" block, behind empty states). This is t
 visual risk; **everything else stays quiet on purpose.** **Explicit guardrail: the arc appears at
 most once per screen and never becomes repeated decoration** — if it starts showing up on cards,
 list rows, or multiple times per page, that has drifted from the decision and should be pulled back.
+**Superseded (2026-07-26, scope only — the auth-screen usage stands):** the dashboard usage is
+removed; the arc is now **auth screens only** (`(auth)/layout.tsx`), not the dashboard. Jeff's
+call, made directly (no architect loop needed for narrowing an already-recorded decision): on the
+dashboard the arc's `<svg>` was absolutely positioned while `DailyTotals`' `Card` was not, so per
+CSS stacking rules the (non-positioned) card painted *before* the (positioned) arc regardless of
+DOM order — the arc rendered visibly on top of the stat numbers rather than behind them as
+intended, confirmed against a live screenshot. Beyond that rendering bug, Jeff judged that even a
+correctly-stacked arc-sliver poking out from one card on one screen read as arbitrary rather than
+intentional, and rejected the alternative of adding it to every page's header (that would trade
+one glitch for exactly the "repeated decoration" outcome this decision's own guardrail warns
+against). Net: the motif now appears on exactly one surface (auth), which is still "at most once
+per screen." `(app)/page.tsx`'s dashboard reverted to just its heading + `TodaySummary`, no wrapping
+`relative overflow-hidden`/`<svg>`.
 
 **Why**: The prior palette carried no intent and the two most-seen-first screens (`(auth)/login`,
 `(auth)/signup`) were never even brought into the `components/ui/` system — they still use raw
@@ -552,5 +565,38 @@ rollout is *mostly* a utility-name swap, but three spots must not be blind find-
   `Card`, and `styles.ts` (`inputClass`/`labelClass`/`errorTextClass`) so they inherit the tokens like
   every other screen — this is what makes "one source of truth" actually true for the first-impression
   pages, and is why they're their own pass in the design doc §8 rollout.
+
+### Phase 5 implementation choices: trend-series reads inlined in the client view (not a Server Action), Recharts data-series colors via `currentColor` + Tailwind `className` (not hex), dot markers keyed on the domain `isReal` flag
+**Date**: 2026-07-25
+**Decision**: Three implementation choices for Phase 5 ("Trend charts"), none specified precisely
+enough by the design doc's §8 Phase 5 bullet to be unambiguous, recorded here per the project's
+"flag deviations/implicit decisions" convention: (1) `getWeightSeries`/`getIntakeSeries` (the exact
+names §8 Phase 5 uses) are plain async functions living in `components/trends/TrendsView.tsx`
+itself — not a `'use server'` Server Action, and not a separate query-layer module — that query
+`daily_metrics`/`daily_food_totals` through the RLS-scoped **browser** Supabase client and hand the
+rows to the pure `lib/domain/trends.ts` builders. (2) `WeightChart`/`IntakeChart`'s data-series
+`Line`/`ReferenceLine` colors are set via `stroke="currentColor"` plus a Tailwind
+`className="text-sage-deep"`/`"text-clay"` on the same element — never a literal hex string —
+while `CartesianGrid`/`XAxis`/`YAxis` (which don't accept a `className` at all, per the installed
+`recharts` type declarations) use two small documented constants that are Tailwind's own built-in
+`stone-200`/`stone-500` neutrals, not a second copy of the brand palette. (3) Each chart's dot
+marker is a custom render function that checks the data point's own `isReal` boolean (carried
+through from `lib/domain/trends.ts`), not Recharts' own implicit "no dot for a `null` value"
+behavior, even though the two are equivalent for this data shape.
+**Why**: (1) mirrors the already-established Phase 3/4 precedent (`FoodDayView`, `MetricForm`,
+`TodaySummary`) that any read whose date window depends on "today in the user's local timezone"
+must happen client-side, since the server can't determine that reliably — a trend chart's range is
+exactly this kind of read, so keeping the query beside the client component that needs it (rather
+than introducing a new server-side data-access pattern for just this one screen) stays consistent
+with the rest of the codebase. (2) preserves "no raw hex in components, one source of truth for the
+brand tokens" (see the two 2026-07-25 visual-identity entries above) for the colors that carry
+actual brand meaning, using the exact `currentColor`-on-a-colored-ancestor technique the dashboard's
+"sage arc" motif already established, rather than inventing a second technique; the two neutral
+grid/tick constants are a narrow, documented exception forced by Recharts' own API (verified by
+reading its type declarations, not assumed) rather than a silent drift from the palette. (3) keying
+the dot on `isReal` rather than the incidental null-check makes the "chart gaps: connect across
+missing days, mark real entries with a dot" rule an explicit, intentional property of the render
+code — matching what `lib/domain/trends.ts`'s dense-series builders were designed to expose — rather
+than something that happens to work today because of how the values are currently encoded.
 
 ---

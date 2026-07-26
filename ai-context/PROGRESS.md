@@ -1,11 +1,11 @@
 # Progress
 # Health Tracker
 
-**Last updated**: 2026-07-25
+**Last updated**: 2026-07-26
 
 ---
 
-## Current Status: Phase 4 qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Food time-of-day control switched from `<input type="time">` to a native `<select>` (2026-07-25, developer, per architect revision) — now with qa-reviewer. Visual identity rollout (Pass A + Pass B, warm-paper/sage/clay palette) implemented (2026-07-25, developer) — now with qa-reviewer. Phase 5 (trend charts) starting next.
+## Current Status: Phase 4 qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Food time-of-day control switched from `<input type="time">` to a native `<select>` (2026-07-25, developer, per architect revision) — now with qa-reviewer. Visual identity rollout (Pass A + Pass B, warm-paper/sage/clay palette) implemented (2026-07-25, developer) — now with qa-reviewer. Phase 5 (trend charts) implemented (2026-07-25, developer), qa-reviewed (one blocking bug found), and fixed up (2026-07-25, developer) — ready for Jeff's approval. **Sage-arc motif narrowed to auth screens only (2026-07-26, Jeff's direct decision, removed from the dashboard) — see `ai-context/DECISIONS.md`.**
 
 ---
 
@@ -364,12 +364,108 @@
   Chromium-injected `caret-color` hydration-mismatch warning on the two auth pages' password/email
   inputs, traced to the automated browser's own autofill/password-manager UI overlay, not app
   styling — present regardless of which classes are on the inputs).
+- [x] **Phase 5 (Trend charts) implemented** (developer), against the design doc's §8 Phase 5
+  scope and the "chart gaps: connect across missing days, mark real entries with a dot" decision.
+  New pure domain module `src/lib/domain/trends.ts`: `TREND_RANGES`/`TrendRange` (7/30/90),
+  `parseRangeParam` (defaults to 30 for anything missing/invalid, never throws), `dateRange`/
+  `startDateForRange` (pure `Date.UTC` calendar arithmetic, tz-independent so tests are stable
+  regardless of runner tz), and `buildWeightSeries`/`buildIntakeSeries` — both produce a DENSE
+  day-by-day array (every calendar day present) with `isReal: false` + `null` values on days with
+  no logged row, and `isReal: true` + the real values otherwise; a weight-only day (no body fat %)
+  is still `isReal: true` with `bodyFatPct: null`. 21 new unit tests covering dense-fill/gap
+  behavior, `isReal` flagging, and 7/30/90 range-window math (166 → 187 total). `trends/page.tsx`
+  (Server Component) reads the `?range=` query param (via Next 15+/16's async `searchParams`
+  Promise, matching `(auth)/login/page.tsx`'s existing pattern) and the existing `getGoals()`
+  action for `weightUnit`/calorie/protein targets, passing them down as plain props — the URL is
+  the source of truth for range, not client state, per the design doc. `RangeSelector` is three
+  plain `Link`s to `/trends?range=<n>` (no `useState`/`useRouter`), mirroring how `NavLink` derives
+  active state from the URL rather than a store. `TrendsView.tsx` (client) owns the browser
+  tz/"today" resolution (same mount-only-Effect pattern as `MetricForm`, avoiding an SSR/client
+  hydration mismatch) and the actual Supabase reads — `getWeightSeries`/`getIntakeSeries` (the
+  names the design doc's §8 Phase 5 bullet uses), querying `daily_metrics`/`daily_food_totals`
+  scoped by the RLS-scoped **browser** client (never service-role, never a client-supplied
+  `user_id` — RLS does the scoping) and feeding the pure builders — consistent with the established
+  Phase 3/4 deviation that browser-tz-dependent "today" reads happen client-side, not in a Server
+  Component. `WeightChart`/`IntakeChart` (new `recharts` dependency, `npm install recharts` —
+  v3.10.1) render the dense series as a single `connectNulls` line with a **custom dot renderer**
+  so the "dot only on real days" rule is explicit and testable at the domain level, not incidental
+  to Recharts' own null-skipping (originally keyed on each point's `isReal` flag; corrected in the
+  2026-07-25 qa fix-up below to key on each series' own plotted value being non-null instead, since
+  `isReal` is a per-day, not per-series, flag — see that entry for why). `IntakeChart` draws a
+  `ReferenceLine` per goal **only when that goal is actually set**
+  (`daily_calorie_target`/`daily_protein_target_g` are `null` from `getGoals`'s ensure-row
+  default until the user sets one — confirmed, not assumed). `WeightChart` converts stored
+  canonical kg to the display unit via the existing `lib/domain/units.ts` (`weightForDisplay`) —
+  no reimplementation — and only adds the body-fat second axis/line when at least one point in
+  range actually has a body-fat value. Chart data-series colors (lines, dots, `ReferenceLine`s) use
+  the real `--sage-deep`/`--clay` brand tokens via the `className="text-sage-deep"` +
+  `stroke="currentColor"` technique the dashboard's "sage arc" motif already established — **not**
+  hardcoded hex — confirmed against the installed `recharts` type declarations that `Line`/
+  `ReferenceLine` support `className` but `CartesianGrid`/`XAxis`/`YAxis` do not, so the latter's
+  neutral grid/tick colors use two small documented constants that are Tailwind's own built-in
+  `stone-200`/`stone-500` shades (not a second brand palette). Both charts show a plain Tailwind
+  legend row (colored dots + text) instead of SVG-rendered `ReferenceLine` labels, and an empty-state
+  message + link when there's no data at all in the selected range. Added a "Trends" `NavLink` to
+  `(app)/layout.tsx`. **Verification:** `npm run lint` / `npx tsc --noEmit` clean; `npm test`
+  187/187 (166 prior + 21 new). Docker/local Supabase **was** available this round (unlike some
+  earlier phases) — ran `supabase db reset` and drove a throwaway (written, run, then deleted —
+  not part of the delivered suite, per instructions that qa-reviewer owns Phase 5's acceptance
+  tests) Playwright script against the real local stack: seeded `daily_metrics`/`food_entries`/
+  `user_goals` rows via `e2e/helpers/user-client.ts`, confirmed the weight/intake charts render
+  real data with a gap correctly connected, the calorie-goal `ReferenceLine`/legend item appears
+  while the unset protein-goal one does not, switching 30d→7d via `RangeSelector` updates the URL
+  and refetches, and a user with zero data sees both empty-state messages — all passed, zero
+  browser console errors. Also ran the full pre-existing e2e suite (`npx playwright test`, fresh
+  `.next`/dev server per the 2026-07-25 stale-server lesson in Notes below): **107/108 passed**;
+  the one failure (`phase4-acceptance.spec.ts` "no-future metric date (UTC browser)") reproduces
+  identically against the unmodified `main` branch via `git stash` — confirmed pre-existing and
+  unrelated to this Phase 5 work (not fixed here — Phase 4 scope, not Phase 5's).
+- [x] **Phase 5 qa-reviewed (one blocking bug), then fixed (developer, 2026-07-25).**
+  Independent suite `e2e/phase5-acceptance.spec.ts` (28 tests) + `src/lib/domain/trends.qa.test.ts`
+  (26 tests) — 213/213 unit incl. the 26 independent, 134/136 e2e (the other failure the same
+  unrelated pre-existing `phase4-acceptance.spec.ts` bug above), lint/typecheck/build clean, all
+  Absolute Rules independently re-verified. **One blocking bug**: `IntakeChart.tsx`'s goal
+  `ReferenceLine`s silently failed to render whenever a goal sat above the highest logged value in
+  the visible range — `YAxis domain={[0, "auto"]}` is computed by Recharts from the plotted `Line`
+  data only, with no awareness of a `ReferenceLine`'s `y`, and `ReferenceLine`'s default
+  `ifOverflow: "discard"` drops it silently when it falls outside that computed domain — while the
+  legend (gated only on `calorieGoal`/`proteinGoal` being non-null) still showed the goal swatch.
+  This is precisely the "currently under target" case the chart exists to show. **Fix**: added
+  `ifOverflow="extendDomain"` to both `ReferenceLine`s, so the axis extends to include a
+  higher-than-data goal instead of discarding its line. While in this code, also **corrected the
+  dot-suppression logic** in both `IntakeChart.tsx` and `WeightChart.tsx`: `makeDot` was keyed on
+  the point's `isReal` flag, but `isReal` is a per-*day* flag (true whenever a `daily_metrics` row
+  exists for that day) — for the body-fat series specifically, a weight-only day is `isReal: true`
+  with `bodyFatPct: null`, so suppressing that series' dot was actually resting on `cx`/`cy` coming
+  back `null` from Recharts for a `null` data point (verified true in practice, but undocumented and
+  not the load-bearing mechanism the doc comment claimed). `makeDot` now takes an explicit
+  `valueKey` and checks that series' own plotted value directly — correct for both charts and no
+  longer dependent on Recharts' internal `cx`/`cy` behavior for `null` points. Also closed three of
+  qa-reviewer's four non-blocking notes: added `/trends` coverage to
+  `e2e/fetch-error-handling.spec.ts` (error+Retry+recovery, mirroring the other 3 surfaces);
+  narrowed `trends/page.tsx`'s `searchParams` prop type from `Promise<{ range?: string }>` to
+  `Promise<{ range?: string | string[] }>` (Next's actual runtime shape for a repeated query param)
+  with an explicit `Array.isArray` normalization before `parseRangeParam`; and corrected/expanded the
+  `isReal`-vs-dot-suppression doc comments in both chart components (per the mechanism above) rather
+  than just leaving them describing stale behavior. Left the fourth note as-is per qa-reviewer's own
+  "likely leave as-is" framing: `/trends` still triggers `getGoals()`'s ensure-row upsert on a
+  read-only page, an already-accepted pre-existing Phase 4 pattern being reused, not a new issue.
+  **Verification after the fix**: `e2e/phase5-acceptance.spec.ts` re-run standalone — 28/28,
+  including the previously-failing "a calorie goal ABOVE the logged intake still draws its goal
+  line" now passing, and the two previously-passing boundary cases (no goals set, goal inside the
+  logged range) still passing (no regression). Full suite from a clean `supabase db reset`: unit
+  213/213 (unchanged — this was a presentation-only fix, no new unit tests added, none needed since
+  qa-reviewer's own domain-level `trends.qa.test.ts` already covers `buildIntakeSeries`/
+  `buildWeightSeries`; the bug was purely in the Recharts wiring, not in `lib/domain/`), e2e 137/138
+  (136 prior + 2 new `/trends` fetch-error tests; the one failure is the same pre-existing
+  `phase4-acceptance.spec.ts` case, re-confirmed via `git stash` to reproduce identically without
+  this session's changes), lint/typecheck/build clean.
 
 ## Up Next
-1. **Phase 5 (Trend charts)** — per design doc §8 Phase 5. Goes to the developer next;
-   qa-reviewer gates it afterward per the usual per-phase loop.
+1. **Phase 5 fixed up after qa-reviewer's blocking bug — ready for Jeff's approval.** No further
+   developer or qa-reviewer action required unless Jeff's own review surfaces something new.
 2. Phases 6–9 follow per §8's dependency order (only 1→2→3 and 6→7 are hard dependencies; 4–8
-   can be resequenced by priority if wanted — 4 is now done).
+   can be resequenced by priority if wanted — 4 and 5 are now done).
 3. **Follow-up, narrowed 2026-07-25: no true fetch-timeout/abort on `/food`, `/metrics`, or the
    dashboard.** The 2026-07-25 fix (see Completed above) added error handling for queries that
    *settle* with an error (HTTP 500, RLS rejection) — that part is done and verified. qa-reviewer

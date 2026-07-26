@@ -46,6 +46,25 @@ test.describe("browser-fetch error handling", () => {
     await expect(page.getByText(/Couldn.t load today.s totals/i)).toBeVisible();
   });
 
+  test("/trends shows an error + Retry when the read fails, not an infinite spinner", async ({ page }) => {
+    await page.route("**/rest/v1/**", fail500);
+    await page.goto("/trends");
+    await expect(page.getByText(/Couldn.t load trend data/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
+    await expect(page.getByText("Loading…")).toHaveCount(0);
+  });
+
+  test("/trends Retry re-issues the fetch and recovers once the backend is reachable again", async ({ page }) => {
+    let fail = true;
+    await page.route("**/rest/v1/**", (route) => (fail ? fail500(route) : route.continue()));
+    await page.goto("/trends");
+    await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
+    fail = false;
+    await page.getByRole("button", { name: "Retry" }).click();
+    await expect(page.getByText(/Couldn.t load trend data/i)).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Retry" })).toHaveCount(0);
+  });
+
   test("Retry re-issues the fetch and recovers once the backend is reachable again", async ({ page }) => {
     let fail = true;
     await page.route("**/rest/v1/**", (route) => (fail ? fail500(route) : route.continue()));

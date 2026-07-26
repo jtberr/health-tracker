@@ -23,23 +23,7 @@ export default async function DashboardPage() {
           You&apos;re logged in as <span className="font-medium text-stone-700">{user?.email}</span>.
         </p>
       </div>
-      <div className="relative overflow-hidden">
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 400 160"
-          className="pointer-events-none absolute -right-10 -top-16 h-56 w-96 text-sage"
-        >
-          <path
-            d="M0 120 C 100 20, 260 20, 400 100"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="8"
-            strokeLinecap="round"
-            opacity="0.3"
-          />
-        </svg>
-        <TodaySummary />
-      </div>
+      <TodaySummary />
     </div>
   );
 }
