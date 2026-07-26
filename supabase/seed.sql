@@ -99,3 +99,103 @@ insert into public.daily_metrics (user_id, metric_date, weight_kg, body_fat_pct)
 insert into public.user_goals (user_id, daily_calorie_target, daily_protein_target_g, weight_unit)
 values
   ('11111111-1111-1111-1111-111111111111', 2000, 150, 'lb');
+
+-- --- Third seeded account: bodine990@gmail.com, with ~90 days of realistic food/weight history --
+--
+-- Jeff's own email, so it's a stable, memorable login across every `supabase db reset` — but the
+-- password below ("password123", same disposable local-dev convention as alice/bob above) is
+-- NOT Jeff's real account password. Never put a real, reusable password in a file that's
+-- committed to git and pushed to GitHub, even for a "local dev only" seed script — Jeff confirmed
+-- this tradeoff explicitly (2026-07-26) rather than using his actual password here.
+
+insert into auth.users (
+  instance_id, id, aud, role, email, encrypted_password, email_confirmed_at,
+  raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+  confirmation_token, recovery_token, email_change_token_new, email_change,
+  is_sso_user, is_anonymous
+) values (
+  '00000000-0000-0000-0000-000000000000',
+  '33333333-3333-3333-3333-333333333333',
+  'authenticated', 'authenticated', 'bodine990@gmail.com',
+  extensions.crypt('password123', extensions.gen_salt('bf')), now(),
+  '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, now(), now(),
+  '', '', '', '', false, false
+);
+
+insert into auth.identities (
+  id, provider_id, user_id, identity_data, provider, last_sign_in_at, created_at, updated_at
+) values (
+  gen_random_uuid(), '33333333-3333-3333-3333-333333333333',
+  '33333333-3333-3333-3333-333333333333',
+  '{"sub":"33333333-3333-3333-3333-333333333333","email":"bodine990@gmail.com"}'::jsonb,
+  'email', now(), now(), now()
+);
+
+insert into public.user_goals (user_id, daily_calorie_target, daily_protein_target_g, weight_unit)
+values
+  ('33333333-3333-3333-3333-333333333333', 2200, 160, 'lb');
+
+-- 90 days of weight/body-fat: a gentle downward trend (~86kg -> ~82kg) with small day-to-day
+-- noise (sin-based, so it's deterministic and reproducible across every reset rather than using
+-- random()). body_fat_pct is skipped every 5th day to mimic a real "weight logged more often than
+-- body fat" habit, matching the schema's "weight-only day" case (ai-context/DECISIONS.md).
+insert into public.daily_metrics (user_id, metric_date, weight_kg, body_fat_pct)
+select
+  '33333333-3333-3333-3333-333333333333',
+  current_date - d.day_offset,
+  round((86.0 - (89 - d.day_offset) * 0.044 + sin(d.day_offset * 0.7) * 0.4)::numeric, 2),
+  case when d.day_offset % 5 = 0 then null
+       else round((24.0 - (89 - d.day_offset) * 0.02 + sin(d.day_offset * 0.5) * 0.3)::numeric, 1)
+  end
+from generate_series(0, 89) as d(day_offset);
+
+-- 90 days of food entries: breakfast/lunch/snack/dinner, each rotating through a small pool of
+-- realistic foods (real names + plausible calorie/protein values, not placeholder/gibberish text)
+-- so day-to-day totals vary naturally instead of repeating the exact same items every day.
+with pools as (
+  select * from (values
+    ('breakfast', 0, 'Scrambled eggs (2)', 180::numeric, 12::numeric),
+    ('breakfast', 1, 'Oatmeal with banana', 310, 8),
+    ('breakfast', 2, 'Greek yogurt with berries', 220, 18),
+    ('breakfast', 3, 'Avocado toast', 280, 7),
+    ('breakfast', 4, 'Protein pancakes', 350, 24),
+    ('lunch', 0, 'Turkey sandwich', 380, 26),
+    ('lunch', 1, 'Chicken Caesar salad', 420, 35),
+    ('lunch', 2, 'Grilled chicken with rice', 520, 45),
+    ('lunch', 3, 'Tuna salad wrap', 400, 30),
+    ('lunch', 4, 'Veggie burrito bowl', 460, 20),
+    ('snack', 0, 'Protein shake', 160, 25),
+    ('snack', 1, 'Almonds (1 oz)', 165, 6),
+    ('snack', 2, 'Apple', 95, 0.5),
+    ('snack', 3, 'Cottage cheese', 120, 14),
+    ('dinner', 0, 'Salmon with roasted vegetables', 480, 38),
+    ('dinner', 1, 'Grilled steak with sweet potato', 560, 42),
+    ('dinner', 2, 'Spaghetti with meat sauce', 620, 28),
+    ('dinner', 3, 'Stir-fry chicken and vegetables', 440, 36),
+    ('dinner', 4, 'Baked cod with quinoa', 400, 34)
+  ) as t(slot, idx, name, kcal, protein)
+),
+slots as (
+  select * from (values
+    ('breakfast', '07:30', 5),
+    ('lunch', '12:30', 5),
+    ('snack', '15:30', 4),
+    ('dinner', '18:30', 5)
+  ) as t(slot, time_of_day, pool_size)
+),
+days as (
+  select day_offset from generate_series(0, 89) as g(day_offset)
+)
+insert into public.food_entries
+  (user_id, name, quantity, calories_per_unit, protein_g_per_unit, consumed_at, consumed_tz)
+select
+  '33333333-3333-3333-3333-333333333333',
+  p.name,
+  1,
+  p.kcal,
+  p.protein,
+  ((current_date - days.day_offset)::text || ' ' || s.time_of_day)::timestamp at time zone 'America/Chicago',
+  'America/Chicago'
+from days
+cross join slots s
+join pools p on p.slot = s.slot and p.idx = days.day_offset % s.pool_size;
