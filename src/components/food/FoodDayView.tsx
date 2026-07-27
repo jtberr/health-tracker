@@ -9,6 +9,7 @@ import { inputClass, labelClass } from "@/components/ui/styles";
 import { DailyTotals } from "./DailyTotals";
 import { FoodEntryForm } from "./FoodEntryForm";
 import { FoodEntryList } from "./FoodEntryList";
+import { LogMealDialog } from "./LogMealDialog";
 import type { DailyFoodTotals, FoodEntry } from "@/lib/types";
 
 /**
@@ -107,6 +108,18 @@ export function FoodDayView() {
     });
   }
 
+  // Phase 7: logging a saved meal shares one `consumed_at` across its whole batch (already an
+  // exact-timestamp meal group with no extra work — see `logMealForDay`'s doc comment), so it
+  // updates the smart-default `lastConsumedAt` exactly like a single manual save does, letting a
+  // subsequently-added item default into the same group.
+  function handleMealLogged(entries: FoodEntry[]) {
+    if (entries.length > 0) {
+      setLastConsumedAt(entries[0].consumed_at);
+    }
+    setEditingEntry(null);
+    refresh(selectedDate);
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center gap-3">
@@ -124,6 +137,8 @@ export function FoodDayView() {
       </div>
 
       <DailyTotals totals={totals} />
+
+      <LogMealDialog selectedDate={selectedDate} today={today} tz={tz} onLogged={handleMealLogged} />
 
       <FoodEntryForm
         key={editingEntry ? `edit-${editingEntry.id}` : `add-${selectedDate}-${lastConsumedAt ?? "none"}`}

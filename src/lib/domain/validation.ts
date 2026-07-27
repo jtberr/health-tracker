@@ -140,3 +140,103 @@ export function validateGoalsInput(input: GoalsInput): GoalsValidationResult {
 
   return errors.length > 0 ? { ok: false, errors } : { ok: true };
 }
+
+/**
+ * Validates a `meals` create/rename (Phase 7 — "Saved meals"). Name only — items are validated
+ * separately via `validateMealItemInput`.
+ */
+export type MealField = "name";
+export type MealFieldError = { field: MealField; message: string };
+export type MealValidationResult = { ok: true } | { ok: false; errors: MealFieldError[] };
+export type MealInput = { name: string };
+
+export function validateMealInput(input: MealInput): MealValidationResult {
+  const errors: MealFieldError[] = [];
+
+  if (!input.name.trim()) {
+    errors.push({ field: "name", message: "Name is required." });
+  }
+
+  return errors.length > 0 ? { ok: false, errors } : { ok: true };
+}
+
+/**
+ * Validates a `meal_items` add/edit (Phase 7). Deliberately the same shape as
+ * `validateFoodEntryInput` minus the date/time fields — a saved-meal item has no `consumed_at` at
+ * all (time-of-day is chosen only at log time, in `LogMealDialog`); like `validateFoodEntryInput`,
+ * this validates the *final* per-unit shape after the caller has already resolved the
+ * per-unit-vs-total input mode (`quantity.perUnitFromTotal`).
+ */
+export type MealItemField = "name" | "quantity" | "caloriesPerUnit" | "proteinGPerUnit";
+export type MealItemFieldError = { field: MealItemField; message: string };
+export type MealItemValidationResult = { ok: true } | { ok: false; errors: MealItemFieldError[] };
+
+export type MealItemInput = {
+  name: string;
+  quantity: number;
+  caloriesPerUnit: number;
+  proteinGPerUnit: number;
+};
+
+export function validateMealItemInput(input: MealItemInput): MealItemValidationResult {
+  const errors: MealItemFieldError[] = [];
+
+  if (!input.name.trim()) {
+    errors.push({ field: "name", message: "Name is required." });
+  }
+
+  if (!Number.isFinite(input.quantity) || input.quantity <= 0) {
+    errors.push({ field: "quantity", message: "Quantity must be greater than 0." });
+  }
+
+  if (!Number.isFinite(input.caloriesPerUnit) || input.caloriesPerUnit < 0) {
+    errors.push({ field: "caloriesPerUnit", message: "Calories can't be negative." });
+  }
+
+  if (!Number.isFinite(input.proteinGPerUnit) || input.proteinGPerUnit < 0) {
+    errors.push({ field: "proteinGPerUnit", message: "Protein can't be negative." });
+  }
+
+  return errors.length > 0 ? { ok: false, errors } : { ok: true };
+}
+
+/**
+ * Validates `logMealForDay`'s form input (Phase 7) — which meal, and the date/time to log it at.
+ * Reuses the same `DATE_PATTERN`/`TIME_PATTERN`/15-minute-grid rules `validateFoodEntryInput`
+ * applies to `consumedDate`/`consumedTime`, since a logged meal batch shares one `consumed_at`
+ * with the exact same shape/constraints as a single food entry's. Deliberately does NOT check the
+ * no-future-day cap here — same convention as the other validators in this module: that's
+ * tz-aware (`datetime.localDateNotAfterToday`) and applied by the caller (the server action).
+ */
+export type LogMealField = "mealId" | "logDate" | "logTime";
+export type LogMealFieldError = { field: LogMealField; message: string };
+export type LogMealValidationResult = { ok: true } | { ok: false; errors: LogMealFieldError[] };
+
+export type LogMealInput = {
+  mealId: string;
+  logDate: string;
+  logTime: string;
+};
+
+export function validateLogMealInput(input: LogMealInput): LogMealValidationResult {
+  const errors: LogMealFieldError[] = [];
+
+  if (!input.mealId.trim()) {
+    errors.push({ field: "mealId", message: "Choose a meal to log." });
+  }
+
+  if (!DATE_PATTERN.test(input.logDate)) {
+    errors.push({ field: "logDate", message: "Enter a valid date." });
+  }
+
+  if (!TIME_PATTERN.test(input.logTime)) {
+    errors.push({ field: "logTime", message: "Enter a valid time." });
+  } else {
+    const minutes = Number(input.logTime.slice(3, 5));
+    if (minutes % 15 !== 0) {
+      errors.push({ field: "logTime", message: "Time must be on a 15-minute interval." });
+    }
+  }
+
+  return errors.length > 0 ? { ok: false, errors } : { ok: true };
+}

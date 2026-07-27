@@ -87,3 +87,43 @@ export type UserGoals = {
   created_at: string;
   updated_at: string;
 };
+
+/**
+ * One row of `public.meals` (Phase 7 -- "Saved meals"). A named, reusable combination of food
+ * items; see `MealItem` for the items themselves. Deleting a meal cascades its items at the DB
+ * level (`meal_items` FK `ON DELETE CASCADE`) but never touches already-logged `food_entries` --
+ * those hold copied values, not a live reference (ai-context/DECISIONS.md "Saved meals: items
+ * scoped per-meal, logged by copying values into independent food_entries rows").
+ */
+export type Meal = {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * One row of `public.meal_items` (Phase 7). Scoped to exactly one meal -- no shared cross-meal
+ * food library (per the decision above). Same quantity/unit/per-unit + generated-total shape as
+ * `FoodEntry`, minus the `consumed_at`/tz/date fields a saved-meal item doesn't have (time-of-day
+ * is chosen only at log time, in `LogMealDialog`). `sort_order` persists user-controlled item
+ * order within the meal.
+ */
+export type MealItem = {
+  id: string;
+  meal_id: string;
+  user_id: string;
+  name: string;
+  quantity: number;
+  unit: string | null;
+  calories_per_unit: number;
+  protein_g_per_unit: number;
+  /** STORED generated column: round(quantity * calories_per_unit). Read-only. */
+  calories: number;
+  /** STORED generated column: round(quantity * protein_g_per_unit, 2). Read-only. */
+  protein_g: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};

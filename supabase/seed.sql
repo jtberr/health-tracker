@@ -139,10 +139,24 @@ values
 -- noise (sin-based, so it's deterministic and reproducible across every reset rather than using
 -- random()). body_fat_pct is skipped every 5th day to mimic a real "weight logged more often than
 -- body fat" habit, matching the schema's "weight-only day" case (ai-context/DECISIONS.md).
+--
+-- IMPORTANT (fixed 2026-07-27, see ai-context/PROGRESS.md for the root-cause writeup): the anchor
+-- for "today" below is deliberately (now() at time zone 'America/Chicago')::date, NOT the bare
+-- current_date. Postgres's current_date is evaluated in the *session's* TimeZone (UTC on this
+-- Docker image, confirmed via `show timezone`), not in this seed's chosen America/Chicago zone.
+-- Every day, for the ~5-6 hours between UTC midnight and America/Chicago's own midnight, UTC's
+-- current_date is one calendar day ahead of Chicago's real current date. Using the bare
+-- current_date as the food_entries anchor (below) generated a day_offset=0 row dated one day
+-- into Chicago's future during exactly that window, which trips food_entries_not_future_day (its
+-- CHECK compares against `(now() at time zone consumed_tz)::date` — the *real* Chicago date, not
+-- session current_date) and made `supabase db reset` intermittently fail depending on real
+-- wall-clock time. Anchoring on the same now()-derived Chicago date here too (even though
+-- daily_metrics' looser `metric_date <= current_date + 1` check never actually failed from this)
+-- keeps one consistent, correct notion of "today" across both generators below.
 insert into public.daily_metrics (user_id, metric_date, weight_kg, body_fat_pct)
 select
   '33333333-3333-3333-3333-333333333333',
-  current_date - d.day_offset,
+  (now() at time zone 'America/Chicago')::date - d.day_offset,
   round((86.0 - (89 - d.day_offset) * 0.044 + sin(d.day_offset * 0.7) * 0.4)::numeric, 2),
   case when d.day_offset % 5 = 0 then null
        else round((24.0 - (89 - d.day_offset) * 0.02 + sin(d.day_offset * 0.5) * 0.3)::numeric, 1)
@@ -186,6 +200,11 @@ slots as (
 days as (
   select day_offset from generate_series(0, 89) as g(day_offset)
 )
+-- Anchor "today" on Chicago's own real current date (derived from now(), the same instant the
+-- food_entries_not_future_day CHECK constraint itself uses via `now() at time zone consumed_tz`),
+-- NOT the bare current_date, which is evaluated in the session's TimeZone (UTC here) and can be
+-- a full day ahead of Chicago's actual date for several hours after every UTC midnight. See the
+-- comment above the daily_metrics generator for the full root-cause writeup.
 insert into public.food_entries
   (user_id, name, quantity, calories_per_unit, protein_g_per_unit, consumed_at, consumed_tz)
 select
@@ -194,7 +213,8 @@ select
   1,
   p.kcal,
   p.protein,
-  ((current_date - days.day_offset)::text || ' ' || s.time_of_day)::timestamp at time zone 'America/Chicago',
+  ((((now() at time zone 'America/Chicago')::date - days.day_offset)::text || ' ' || s.time_of_day)::timestamp)
+    at time zone 'America/Chicago',
   'America/Chicago'
 from days
 cross join slots s

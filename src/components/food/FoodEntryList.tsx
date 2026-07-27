@@ -61,10 +61,18 @@ export function FoodEntryList({
                     className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-stone-50/70"
                   >
                     <div>
-                      <p className="text-sm font-medium text-ink">
+                      <p className="flex items-center gap-2 text-sm font-medium text-ink">
                         {entry.quantity !== 1 || entry.unit
                           ? `${entry.quantity}${entry.unit ? ` ${entry.unit}` : "x"} — ${entry.name}`
                           : entry.name}
+                        {/* Meal-batch rows (Phase 7): `logMealForDay` shares one `consumed_at`
+                            per batch and stamps `logged_from_meal_id` on every row it writes —
+                            labeled here per design doc §3.4 "Meal-batch rows ... are labeled". */}
+                        {entry.logged_from_meal_id !== null && (
+                          <span className="inline-flex items-center rounded-full bg-sage-pale px-2 py-0.5 text-xs font-medium text-ink">
+                            From a saved meal
+                          </span>
+                        )}
                       </p>
                       <p className="text-sm text-stone-500">
                         {entry.calories} kcal · {entry.protein_g}g protein

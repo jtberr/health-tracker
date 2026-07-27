@@ -3,9 +3,15 @@ import {
   validateDailyMetricInput,
   validateFoodEntryInput,
   validateGoalsInput,
+  validateLogMealInput,
+  validateMealInput,
+  validateMealItemInput,
   type DailyMetricInput,
   type FoodEntryInput,
   type GoalsInput,
+  type LogMealInput,
+  type MealInput,
+  type MealItemInput,
 } from "./validation";
 
 const base: FoodEntryInput = {
@@ -226,5 +232,144 @@ describe("validateGoalsInput", () => {
 
   it("accepts a fractional protein target (numeric(6,2) column)", () => {
     expect(validateGoalsInput({ ...baseGoals, dailyProteinTargetG: 150.5 }).ok).toBe(true);
+  });
+});
+
+const baseMeal: MealInput = { name: "Breakfast burrito" };
+
+describe("validateMealInput", () => {
+  it("accepts a valid name", () => {
+    expect(validateMealInput(baseMeal).ok).toBe(true);
+  });
+
+  it("rejects an empty name", () => {
+    const result = validateMealInput({ name: "" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "name")).toBe(true);
+  });
+
+  it("rejects a whitespace-only name", () => {
+    const result = validateMealInput({ name: "   " });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "name")).toBe(true);
+  });
+});
+
+const baseMealItem: MealItemInput = {
+  name: "Eggs",
+  quantity: 4,
+  caloriesPerUnit: 70,
+  proteinGPerUnit: 6,
+};
+
+describe("validateMealItemInput", () => {
+  it("accepts fully valid input", () => {
+    expect(validateMealItemInput(baseMealItem).ok).toBe(true);
+  });
+
+  it("accepts the minimal-form shape (quantity 1)", () => {
+    expect(
+      validateMealItemInput({ name: "Snack", quantity: 1, caloriesPerUnit: 200, proteinGPerUnit: 5 }).ok,
+    ).toBe(true);
+  });
+
+  it("rejects an empty name", () => {
+    const result = validateMealItemInput({ ...baseMealItem, name: "" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "name")).toBe(true);
+  });
+
+  it("rejects a zero quantity", () => {
+    const result = validateMealItemInput({ ...baseMealItem, quantity: 0 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "quantity")).toBe(true);
+  });
+
+  it("rejects a negative quantity", () => {
+    const result = validateMealItemInput({ ...baseMealItem, quantity: -1 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "quantity")).toBe(true);
+  });
+
+  it("rejects negative calories per unit", () => {
+    const result = validateMealItemInput({ ...baseMealItem, caloriesPerUnit: -1 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "caloriesPerUnit")).toBe(true);
+  });
+
+  it("accepts zero calories per unit (e.g. water)", () => {
+    expect(validateMealItemInput({ ...baseMealItem, caloriesPerUnit: 0 }).ok).toBe(true);
+  });
+
+  it("rejects negative protein per unit", () => {
+    const result = validateMealItemInput({ ...baseMealItem, proteinGPerUnit: -1 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "proteinGPerUnit")).toBe(true);
+  });
+
+  it("reports multiple errors at once", () => {
+    const result = validateMealItemInput({ name: "", quantity: -1, caloriesPerUnit: -1, proteinGPerUnit: -1 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const fields = result.errors.map((e) => e.field).sort();
+      expect(fields).toEqual(["caloriesPerUnit", "name", "proteinGPerUnit", "quantity"].sort());
+    }
+  });
+});
+
+const baseLogMeal: LogMealInput = {
+  mealId: "11111111-1111-1111-1111-111111111111",
+  logDate: "2026-07-15",
+  logTime: "08:00",
+};
+
+describe("validateLogMealInput", () => {
+  it("accepts fully valid input", () => {
+    expect(validateLogMealInput(baseLogMeal).ok).toBe(true);
+  });
+
+  it("rejects an empty mealId", () => {
+    const result = validateLogMealInput({ ...baseLogMeal, mealId: "" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "mealId")).toBe(true);
+  });
+
+  it("rejects a whitespace-only mealId", () => {
+    const result = validateLogMealInput({ ...baseLogMeal, mealId: "   " });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "mealId")).toBe(true);
+  });
+
+  it("rejects a malformed date", () => {
+    const result = validateLogMealInput({ ...baseLogMeal, logDate: "07/15/2026" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "logDate")).toBe(true);
+  });
+
+  it("rejects a malformed time", () => {
+    const result = validateLogMealInput({ ...baseLogMeal, logTime: "8am" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "logTime")).toBe(true);
+  });
+
+  it("rejects a time not on the 15-minute grid", () => {
+    const result = validateLogMealInput({ ...baseLogMeal, logTime: "08:07" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "logTime")).toBe(true);
+  });
+
+  it("accepts every quarter-hour grid value", () => {
+    for (const time of ["00:00", "08:00", "08:15", "08:30", "08:45", "23:45"]) {
+      expect(validateLogMealInput({ ...baseLogMeal, logTime: time }).ok).toBe(true);
+    }
+  });
+
+  it("reports multiple errors at once", () => {
+    const result = validateLogMealInput({ mealId: "", logDate: "bad", logTime: "bad" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const fields = result.errors.map((e) => e.field).sort();
+      expect(fields).toEqual(["logDate", "logTime", "mealId"].sort());
+    }
   });
 });

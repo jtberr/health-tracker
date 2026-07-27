@@ -740,4 +740,81 @@ stated problem. (f) **Adding `tabular-nums` to the shared `inputClass`** — wou
 to every text/number/date field app-wide as a side effect of fixing one dropdown; scope the utility to
 the control that needs it.
 
+### `/api/lookup/search` rate limiting is a simple in-memory, per-user sliding window — an accepted v1 stopgap, not a distributed limiter
+**Date**: 2026-07-26
+**Decision**: `/api/lookup/search` (the USDA FoodData Central proxy) is rate-limited per
+authenticated user via a plain in-memory `Map<userId, timestamps[]>` sliding window
+(`lib/lookup/rate-limit.ts`, `isWithinLookupRateLimit`), capped at 30 requests/minute/user,
+returning `429 { error: "rate_limited" }` before the query is validated or USDA is called. Raised
+by qa-reviewer (N-7) during the Phase 6 review as a blocking-adjacent non-blocking finding: any
+single authenticated user could otherwise burn through the whole app's shared ~1000 req/hr USDA
+quota (already accepted as a v1 constraint — see "Food lookup: Open Food Facts (barcode) + USDA
+FoodData Central (search), via a server-side proxy" above) alone.
+**Why**: This is explicitly a v1-appropriate stopgap, not a production-grade distributed rate
+limiter: the `Map` lives in a single process's memory, so it does not persist across a serverless
+cold start and does not coordinate a shared limit across multiple concurrently-running instances.
+Both are accepted, known limitations at this app's actual solo/small-user scale — a DB- or
+Redis-backed limiter would coordinate/persist correctly but would need a new table/migration (an
+architect-owned schema change) or an external service, which is disproportionate infrastructure for
+what a v1 solo app needs right now. 30 req/min/user was chosen as generously above any legitimate
+single-user burst (searching several foods back-to-back while building one meal) while still
+meaningfully capping a runaway client/script. `/api/lookup/barcode` (Open Food Facts) was
+deliberately left unlimited — it's free/keyless with no comparable shared-quota risk, so adding
+rate limiting there would be defending against a problem that doesn't exist for that provider.
+
+### Phase 7 implementation choices: `logMealForDay`'s ownership check re-reads via the RLS-scoped client (belt-and-suspenders over RLS alone), `MealsView`/`LogMealDialog` add their own client-side orchestrator layer (like Phase 3's `FoodDayView`), `LogMealDialog` is an inline expander not a modal, two flat queries instead of one embedded select
+**Date**: 2026-07-27
+**Decision**: Several implementation choices for Phase 7 ("Saved meals"), none pinned down to the
+letter by the design doc's §8 Phase 7 bullet, recorded here per the project's "flag deviations/
+implicit decisions" convention: (1) `logMealForDay` (`lib/actions/meals.ts`) resolves the target
+meal via `.from("meals").select("id").eq("id", mealId).eq("user_id", user.id).maybeSingle()` on
+the RLS-scoped server client — the explicit `.eq("user_id", ...)` is redundant with what
+`meals_select_own` RLS already enforces, added purely as self-documenting belt-and-suspenders
+(the same convention `food.ts`/`metrics.ts` already use on update/delete), not because RLS alone
+was judged insufficient. (2) `meals/page.tsx` and `food/page.tsx`'s new `LogMealDialog` both gained
+a client "orchestrator" component (`MealsView.tsx`, `LogMealDialog.tsx`) that owns the RLS-scoped
+browser-client read + refetch-after-mutation loop, mirroring the `FoodDayView` pattern Phase 3
+established (and flagged as a deviation there) rather than a literal reading of the design doc's
+flatter `meals/MealList.tsx / MealForm.tsx / MealItemForm.tsx` component list — a saved meal has no
+timezone-dependent "today" the way food/metrics do, but the read+refetch shape was kept consistent
+with every other data screen rather than inventing a second pattern for one screen. (3)
+`LogMealDialog` is a plain inline expand/collapse panel (open/closed local state, matching the
+existing `FoodLookupPanel`/"Add detail" expander convention), not a native `<dialog>` element or a
+modal overlay — this codebase has no modal precedent anywhere, and introducing one for a single
+feature would cost more (new interaction pattern, new focus-trap/dismiss semantics to get right)
+than it buys over the already-established expander idiom. (4) `MealsView`/`LogMealDialog` fetch
+`meals` and `meal_items` as two independent flat queries and group them client-side via the new
+pure `lib/domain/meal-items.ts` (`groupMealItemsByMeal`), rather than one PostgREST embedded
+`.select("*, meal_items(*)")` — `meal_items`' FK to `meals` is the *composite* `(meal_id, user_id)`
+key (not a plain single-column FK), and PostgREST embedding for composite foreign keys isn't
+exercised anywhere else in this codebase, so two flat, independently-RLS-scoped queries plus a pure
+grouping function were judged the lower-risk, more-obviously-correct choice over relying on
+untested embedding behavior for this one screen.
+**Also recorded — a real bug found only by manually driving the feature in a browser, not by any
+automated test**: `MealsView`'s first implementation swapped to a full-screen "Loading…" placeholder
+(unmounting `MealList` entirely) on *every* `refresh()` call, including the ones `onChanged` fires
+after a routine item add/edit/delete/reorder or meal rename. Since `MealList` owns real local UI
+state (which meal card is expanded, which item is mid-edit), that unmount-then-remount silently
+collapsed the meal card the user was actively working in immediately after they added the item they
+were adding — confirmed live (add an item -> the still-open "Manage items" panel snapped shut).
+`FoodDayView`'s equivalent loading-branch swap is safe because `FoodEntryList` holds no comparable
+local UI state (its edit target lives in the parent `FoodDayView`), so this wasn't a case of copying
+a known-bad pattern, only of the same *shape* of code behaving differently once a child component
+holds meaningful state of its own. Fixed with a `hasLoadedOnce` flag: the big loading placeholder is
+now scoped to the true *initial* load only; a background refresh after a mutation keeps `MealList`
+mounted (and its state intact) throughout. Verified with a Playwright script driven through the real
+UI (create meal -> add two items -> rename -> reorder, asserting the item-management panel stays
+expanded throughout) before and after the fix.
+**Why**: (1) makes the ownership invariant legible at the call site without requiring a reader to
+already know the RLS policy exists, matching the rationale already given for the same pattern
+elsewhere in this codebase. (2)/(3)/(4) all prioritize consistency with already-established patterns
+(the `FoodDayView`-style orchestrator, the expander idiom, flat independently-scoped queries) over
+introducing a new pattern (a Server-Component-driven meals list, a modal, or embedded-select
+reliance) for a single screen, per the project's general "prefer the pattern already proven
+elsewhere in this codebase" bias. The `hasLoadedOnce` fix is recorded in detail because it's exactly
+the kind of bug the project's own convention flags as one automated tests are unlikely to catch
+(no assertion anywhere pins "the panel stays open across a background refresh") — it surfaced only
+because the phase was actually driven by hand in a real browser per the developer role's own
+verification bar, not because a test caught it.
+
 ---

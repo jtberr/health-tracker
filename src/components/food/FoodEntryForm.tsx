@@ -11,8 +11,10 @@ import {
   quarterHourOptions,
   utcToLocalTime,
 } from "@/lib/domain/datetime";
+import type { FoodCandidate } from "@/lib/domain/lookup";
 import { Button } from "@/components/ui/Button";
 import { errorTextClass, inputClass, labelClass } from "@/components/ui/styles";
+import { FoodLookupPanel } from "./FoodLookupPanel";
 import type { FoodCandidatePrefill, FoodEntry } from "@/lib/types";
 
 /**
@@ -24,9 +26,14 @@ import type { FoodCandidatePrefill, FoodEntry } from "@/lib/types";
  * mode. Editing an existing entry always shows full detail (there's no ambiguity to progressively
  * disclose once real per-unit values already exist).
  *
- * `prefill` is the seam Phase 6 (food lookup) plugs a picked `FoodCandidate` into — unused by any
- * caller in this phase, but wired end-to-end here (auto-expands + fills quantity/unit/per-unit)
- * so Phase 6 can slot in without reworking this component.
+ * `prefill` is the seam Phase 3 built for Phase 6 (food lookup) to plug an initial
+ * `FoodCandidatePrefill` into at mount -- no caller passes it yet, but it's still wired end-to-end
+ * (auto-expands + fills quantity/unit/per-unit). Phase 6 itself plugs in via a second, dynamic
+ * path: `FoodLookupPanel` is embedded directly in this form (add mode only -- see below) and its
+ * `onPick` calls `handleCandidatePick`, which re-runs the same fill-and-expand logic against a
+ * candidate picked *after* the form has already mounted (a barcode/search result), rather than
+ * only at construction time. Either path is a prefill for review, never an auto-submit -- the
+ * user still explicitly presses "Add entry".
  */
 
 const initialActionState: FoodEntryActionState = { ok: false, error: null };
@@ -56,6 +63,15 @@ function SubmitButton({ label, pendingLabel }: { label: string; pendingLabel: st
       {pending ? pendingLabel : label}
     </Button>
   );
+}
+
+/**
+ * Rounds a candidate's per-unit figure to 2 decimal places for display right after a lookup pick
+ * (qa-reviewer N-4) -- real provider data can come back as e.g. `390.15000000000003`. Returns a
+ * plain decimal string (never scientific notation) suitable for a controlled `<input>` value.
+ */
+function formatPrefillNumber(value: number): string {
+  return String(Math.round(value * 100) / 100);
 }
 
 /** Pure, module-level so it isn't subject to the render-body declaration-order lint rule. */
@@ -127,6 +143,24 @@ export function FoodEntryForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
+  // Phase 6 (food lookup): a picked barcode/search candidate silently fills quantity/unit/
+  // per-unit calories+protein and auto-expands the detail section, exactly like an initial
+  // `prefill` prop would at mount -- see the file doc comment above. `FoodCandidate` is a strict
+  // superset of `FoodCandidatePrefill`'s fields, so no mapping is needed here.
+  function handleCandidatePick(candidate: FoodCandidate) {
+    setName(candidate.name);
+    setQuantity(String(candidate.quantity));
+    setUnit(candidate.unit ?? "");
+    // qa-reviewer N-4: real provider data (esp. USDA's per-100g scaling) routinely produces float
+    // noise like 390.15000000000003. Round to 2 decimal places for what's *shown* right after a
+    // pick -- this is purely a prefill-display nicety; it doesn't change what gets stored if the
+    // user edits the field further before submitting.
+    setCalories(formatPrefillNumber(candidate.caloriesPerUnit));
+    setProtein(formatPrefillNumber(candidate.proteinGPerUnit));
+    setMode("perUnit");
+    setExpanded(true);
+  }
+
   const caloriesLabel = mode === "perUnit" ? "Calories per unit" : "Total calories";
   const proteinLabel = mode === "perUnit" ? "Protein per unit (g)" : "Total protein (g)";
 
@@ -150,12 +184,24 @@ export function FoodEntryForm({
       {isEditing && <input type="hidden" name="id" value={editingEntry!.id} />}
       <input type="hidden" name="consumedTz" value={tz} />
       <input type="hidden" name="mode" value={mode} />
+      {/* When the detail section is collapsed, the visible quantity/unit inputs below aren't
+          rendered, but the form must still submit whatever quantity/unit the user (or a lookup
+          pick) actually set -- collapsing only hides the inputs, it must never reset the values
+          back to the fast-entry default. Bug fixed 2026-07-26 (qa-reviewer B-1): this used to
+          hardcode value="1"/value="" here, which silently discarded a picked/typed quantity the
+          moment "Hide detail" was clicked after it had been changed. */}
       {!expanded && (
         <>
-          <input type="hidden" name="quantity" value="1" />
-          <input type="hidden" name="unit" value="" />
+          <input type="hidden" name="quantity" value={quantity} />
+          <input type="hidden" name="unit" value={unit} />
         </>
       )}
+
+      {/* Phase 6: lookup is offered for new entries only -- an edit form already shows the
+          entry's real, previously-saved values, and overwriting them from a fresh lookup pick
+          would be a bigger, more surprising change than this panel's "quick prefill" is meant
+          to be. */}
+      {!isEditing && <FoodLookupPanel onPick={handleCandidatePick} />}
 
       <div className="flex flex-col gap-1">
         <label htmlFor={`${idPrefix}-name`} className={labelClass}>

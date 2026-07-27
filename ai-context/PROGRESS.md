@@ -1,11 +1,11 @@
 # Progress
 # Health Tracker
 
-**Last updated**: 2026-07-26
+**Last updated**: 2026-07-27
 
 ---
 
-## Current Status: Phase 4 qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Phase 5 (trend charts) implemented, qa-reviewed (one blocking bug found), and fixed up — ready for Jeff's approval (2026-07-25). **Sage-arc motif narrowed to auth screens only (2026-07-26, Jeff's direct decision, removed from the dashboard) — see `ai-context/DECISIONS.md`.** Visual identity rollout qa-reviewed (0 blocking findings, 5 non-blocking notes) — **NB-1 (dead old-palette CSS) and NB-2 (field-border/placeholder contrast) fixed, time-`<select>` alignment implemented, and the fetch-timeout follow-up closed, all 2026-07-26 (developer) — ready for Jeff's approval.**
+## Current Status: Phase 4 qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Phase 5 (trend charts) implemented, qa-reviewed (one blocking bug found), and fixed up — ready for Jeff's approval (2026-07-25). **Sage-arc motif narrowed to auth screens only (2026-07-26, Jeff's direct decision, removed from the dashboard) — see `ai-context/DECISIONS.md`.** Visual identity rollout qa-reviewed (0 blocking findings, 5 non-blocking notes) — **NB-1 (dead old-palette CSS) and NB-2 (field-border/placeholder contrast) fixed, time-`<select>` alignment implemented, and the fetch-timeout follow-up closed, all 2026-07-26 (developer) — ready for Jeff's approval.** **Jeff approved Phase 6 (food lookup: barcode + description search), 2026-07-27.** **Phase 7 (Saved meals) implemented (2026-07-27, developer) — ready for qa-reviewer.** The previously-flagged `supabase/seed.sql` time-of-day-dependent `db reset` failure has been root-caused (with a live repro) and fixed (2026-07-27, developer) — see Completed below.
 
 ---
 
@@ -560,22 +560,411 @@
   (`e2e/food-offgrid-edit.spec.ts:32`, added to the documented list in Notes below) passing cleanly
   against a fresh server, consistent with that bug's "stale dev server" trigger rather than a
   deterministic failure.
+- [x] **Phase 6 (Food lookup: barcode + description search) implemented** (developer), against the
+  design doc's §8 Phase 6 scope and the "Food lookup: Open Food Facts (barcode) + USDA FoodData
+  Central (search), via a server-side proxy" decision.
+  - **`lib/domain/lookup.ts`** (pure, framework-free): a common `FoodCandidate` type (`source`,
+    `sourceId`, `name`, `quantity`, `unit`, `caloriesPerUnit`, `proteinGPerUnit` — a strict superset
+    of the existing `FoodCandidatePrefill` seam from Phase 3, so a picked candidate needs no mapping
+    to hand straight to `FoodEntryForm`); `unitFromServingLabel` (parses serving strings like
+    `"1 cup (240 ml)"`/`"2 tbsp"`/`"100g"` into `{quantity, unit}`, `null` when unparseable);
+    `normalizeOpenFoodFactsProduct` and `normalizeUsdaFood`. Both normalizers convert whatever basis
+    the provider reports (a per-serving figure, or a flat per-100g figure) down to a genuine
+    **per-single-unit** figure via the existing `quantity.perUnitFromTotal` — e.g. "2 tbsp" per-
+    serving values are halved to a per-tbsp figure, and a bare per-100g figure becomes "quantity
+    100, unit g, per-gram calories/protein" — so every candidate lands in the *same* single storage
+    model manual entry already uses, and a later quantity edit keeps recalculating correctly
+    regardless of which provider/basis produced it. Candidates with no usable name or no finite
+    calorie figure on any basis are dropped (return `null`); a legitimately-zero calorie value
+    (e.g. water) is explicitly NOT dropped, and a missing protein figure defaults to `0` rather than
+    dropping the candidate (many real foods are ~0g protein and still have real calorie data worth
+    prefilling) — both distinctions covered by dedicated unit tests, not just asserted in prose.
+  - **`lib/lookup/openfoodfacts.ts` / `lib/lookup/usda.ts`** (server-only adapters): thin
+    fetch-and-loosely-parse wrappers, each returning a tri-state result (`ok:false` for a transport/
+    provider failure vs. `found:false` for a real "not found") so the Route Handler can distinguish
+    "provider unavailable" from "no match" without the normalizer needing to know about HTTP at all.
+  - **`app/api/lookup/barcode/route.ts` / `app/api/lookup/search/route.ts`**: auth-gated Route
+    Handlers (`supabase.auth.getUser()` checked and rejected with 401 **before** any outbound
+    provider call is ever made — confirmed by a dedicated test asserting the provider mock is never
+    invoked on the unauthenticated path). Barcode validates a loose 6-14-digit shape (400 otherwise);
+    search validates a non-blank query (400 otherwise) and requires `USDA_FDC_API_KEY` to be
+    configured server-side (502 if missing, never client-visible). A found-but-unusable product and
+    a genuinely-not-found barcode both resolve to `{ candidate: null }` — deliberately not
+    distinguished further, since the caller's fallback UI ("enter manually") is identical either way.
+    `USDA_FDC_API_KEY` is read only from `process.env` inside the route/adapter, is never echoed in
+    any response, and was confirmed absent from `.next/static` **and** from `.next` entirely (grepped
+    for the actual configured key value, not just the env-var name) after a production build.
+  - **`components/food/FoodLookupPanel.tsx`** (search + barcode tabs, collapsed by default behind an
+    "Look up a food" expander mirroring `FoodEntryForm`'s own progressive-disclosure convention) and
+    **`components/food/BarcodeScanner.tsx`** (always-available manual digit entry, plus an optional
+    "Scan with camera" control using the new `html5-qrcode` dependency, feature-detected via
+    `navigator.mediaDevices.getUserMedia` in a mount-only Effect so a camera-less browser never
+    renders a non-functional button and SSR/first-client-render never mismatch). Both call this
+    app's own `/api/lookup/*` routes via `fetch` — never a third-party API directly from a client
+    component. Picking a result calls `FoodEntryForm`'s new `handleCandidatePick`, which fills
+    name/quantity/unit/per-unit calories+protein, switches to "per-unit" input mode, and
+    auto-expands the "add detail" section — a **prefill for review, never an auto-submit**; the user
+    still explicitly presses "Add entry". The panel is only rendered in add mode
+    (`!isEditing`) — a deliberate scoping choice, flagged below, not in the literal doc text.
+  - **Real bug caught only by driving the feature in an actual browser (automated/mocked tests never
+    would have)**: `FoodLookupPanel`'s search box and `BarcodeScanner`'s manual-entry box were
+    originally each their own `<form onSubmit>`, both nested inside `FoodEntryForm`'s own outer
+    `<form>`. HTML forbids nested forms; the browser silently flattens/ignores the inner `<form>`
+    tags, so clicking "Search"/"Look up" actually submitted the *outer* food-entry form (with a
+    blank required Name field) instead of running the lookup — the lookup panel appeared to just
+    close itself with no results, and no error surfaced anywhere. Confirmed via a live Playwright
+    smoke run against the real dev server (see verification below) before this was caught. Fixed by
+    replacing both inner `<form>`s with plain `<div>`s, moving the "Search"/"Look up" buttons to
+    `type="button"` + `onClick`, and adding an `onKeyDown` Enter handler on each text input so
+    keyboard submission still works without a real form.
+  - **Unit tests**: `src/lib/domain/lookup.test.ts` (33 tests) — `unitFromServingLabel` (parenthetical
+    stripping, multi-word units, no-space `"100g"`, decimals, lowercasing, whitespace collapsing,
+    null/empty/no-leading-digit → `null`); `normalizeOpenFoodFactsProduct` (per-serving-preferred,
+    per-100g fallback, unparseable-serving-label fallback to quantity 1/unit null, zero-vs-missing
+    calories, name fallback chain `product_name` → `product_name_en` → `brands`, dropping when no
+    name/no nutrition at all); `normalizeUsdaFood` (household-serving scaling from a per-100g basis,
+    fallback to quantity 100/unit g, matching the kcal energy entry by `nutrientId` over a same-named
+    kJ entry, missing-protein defaults to 0, dropping when no name/no energy value).
+    `src/app/api/lookup/barcode/route.test.ts` (7 tests) and
+    `src/app/api/lookup/search/route.test.ts` (8 tests) mock `@/lib/supabase/server` and the
+    `lib/lookup/*` adapters (matching how CI mocks providers) to cover: 401-before-provider-call,
+    400 on missing/invalid input, 502 on provider failure and on a missing USDA key, the USDA key
+    never appearing in the response body, and the null-candidate "not found or unusable" path.
+    261/261 unit tests total (213 prior + 48 new).
+  - **Manual end-to-end verification, including two real live provider calls** (network access and a
+    real `USDA_FDC_API_KEY` were both available in this sandbox — the repo owner had just added a
+    real key to `.env.local`, per this task's brief): a throwaway Playwright script (written, run,
+    then deleted — not part of the delivered suite, mirroring the Phase 5 developer verification
+    approach) against a real local Supabase instance + a real dev server confirmed, with **actual
+    network calls** to both providers (no mocking): a live USDA search for "cheddar cheese" returned
+    a usable, correctly-normalized candidate ("CHEDDAR CHEESE"); picking it auto-expanded the detail
+    section and correctly prefilled quantity/per-unit values; adjusting the quantity and submitting
+    produced a correctly-totaled entry in the day's list; a live Open Food Facts barcode lookup for
+    a well-known real barcode (Nutella 400g, `3017620422003`) returned a match; a bogus barcode
+    (`000000000000`) correctly showed "No match found — enter the details manually"; a non-numeric
+    barcode (`abc`) correctly showed "That doesn't look like a valid barcode." (the expected
+    server-side 400, surfaced as a benign browser network-tab entry, not a JS error — zero real
+    console errors observed). This is also what caught the nested-`<form>` bug above on the first
+    run, before the fix. Confirmed via `curl` that both routes reject an unauthenticated request
+    with 401 before ever calling a provider.
+  - **Deviations from the literal doc text, flagged rather than silently resolved**: (1) the design
+    doc's module tree describes `BarcodeScanner.tsx` as "camera scan via html5-qrcode; manual code
+    fallback" — implemented with manual entry as the **primary, always-rendered** path and camera
+    scanning as a feature-detected progressive enhancement, rather than camera-first with manual as
+    a fallback shown only on failure; this keeps the common case (no camera, or a desktop browser)
+    fully functional with zero permissions friction, and the "fallback" framing in the doc doesn't
+    specify an ordering, only that manual entry must exist. (2) `FoodLookupPanel` is only rendered
+    for new entries (`!isEditing`); the doc doesn't say either way — editing already shows an
+    entry's real saved values, and silently letting a fresh lookup pick overwrite them felt like a
+    bigger, more surprising change than this panel's "quick prefill" is meant to be, so it was scoped
+    out of edit mode. (3) not-found and found-but-unusable-nutrition both resolve to the same
+    `{ candidate: null }` client response — the doc's §6 scope lists them as separate acceptance-test
+    rows ("not-found" / implied by "dropping candidates without usable nutrition") but doesn't
+    require the *client* to distinguish them, only that both fall back to manual entry; the route
+    tests do assert the two cases separately at the point they diverge (an OFF `found: false` vs. a
+    normalizer returning `null` for a found product).
+  - **Environment notes**: Docker/local Supabase was available this round; `npm install html5-qrcode`
+    was verified to add **no new** `npm audit` findings (all 12 pre-existing high-severity advisories
+    are in already-present `eslint`/`next`/`postcss`/`sharp` transitive dependencies, unrelated to
+    this addition — checked via `npm audit --json` before vs. after). While verifying, hit and worked
+    around (not fixed — out of this task's scope) a **pre-existing, time-of-day-dependent bug in
+    `supabase/seed.sql`**'s third-account 90-day generator: it builds each day's timestamp from the
+    database's `current_date` (a UTC date) combined with a wall-clock slot time, then converts that
+    as if it were already `America/Chicago` local time — during the early hours of the UTC day (e.g.
+    ~01:00–06:00 UTC, when it's still "yesterday evening" in Chicago), the "today" dinner slot
+    (`current_date` + `18:30` interpreted in Chicago) resolves to a UTC instant that is still in the
+    future relative to the real current instant, tripping `food_entries_not_future_day` and failing
+    `supabase db reset` entirely. Reproduced consistently while this session ran (real UTC time was
+    ~01:57–02:00); worked around **locally and temporarily only** (a one-line `- 1` day-offset shift)
+    to unblock this task's own e2e verification, then reverted via `git checkout -- supabase/seed.sql`
+    before finishing — **no fix was committed**, since this is Phase-2/seed-fixture territory,
+    unrelated to Phase 6's scope. Flagged in Up Next for whoever next touches seed data.
+  - **If you have no network access when re-verifying this later**: the delivered automated suite
+    (unit tests above) is fully mocked and needs no network access or real API key; only the
+    throwaway manual smoke-test (already deleted) used live network calls.
+
+- [x] **Phase 6 qa-reviewed (one blocking bug + seven non-blocking findings), all eight fixed**
+  (developer, 2026-07-27). qa-reviewer's independent suite (`e2e/phase6-acceptance.spec.ts`,
+  `src/lib/lookup/api-routes.qa.test.ts`, `src/lib/domain/lookup.qa.test.ts`) is the acceptance bar
+  for this pass; all three pass in full after the fixes (see Verification below).
+  - **B-1 (blocking) — collapsing "Add detail" after a lookup pick silently zeroed the entry.**
+    `FoodEntryForm.tsx` rendered hidden `<input name="quantity" value="1">` /
+    `<input name="unit" value="">` overrides whenever the detail section was collapsed, regardless
+    of what quantity/unit had actually been set (by a lookup pick or manual typing). A 100g/
+    2.02-kcal-per-g pick, collapsed after picking, saved as 1 × 2.02 = 2 kcal instead of 202, with no
+    on-screen warning. Fixed by having the hidden inputs submit the current `quantity`/`unit` React
+    state instead of hardcoded literals — collapsing hides the *inputs*, it must never reset the
+    *values*. The fast-entry default (quantity 1, unit blank for a fresh, untouched manual entry) is
+    unaffected, since that's what the state already initializes to.
+  - **N-1 — no timeout on lookup fetches.** Added `lib/lookup/timeout.ts` (`LOOKUP_TIMEOUT_MS =
+    10_000`, `lookupTimeoutSignal()`), mirroring the existing `lib/supabase/query-timeout.ts`
+    pattern. Wired into both server adapters' `fetch()` calls (`openfoodfacts.ts`, `usda.ts`) and
+    both of `FoodLookupPanel.tsx`'s client-side fetches (`runSearch`, `runBarcodeLookup`). An
+    aborted fetch is treated as an ordinary transport failure by the *existing* catch blocks/error
+    UI — no new error-handling path was needed. qa-reviewer's own "FINDING: a hung proxy leaves the
+    panel loading forever" e2e test was updated in place (still their file, now proving the fix
+    rather than pinning the bug: waits past `LOOKUP_TIMEOUT_MS` and asserts the panel degrades to
+    the same "unavailable right now" manual-entry fallback a real provider error produces).
+  - **N-2 — normalizers could produce a saveable candidate with silently-wrong-zero or negative
+    nutrition.** Three root causes in `lib/domain/lookup.ts`, all fixed at the source rather than
+    patched after the fact: (a) `unitFromServingLabel` now rejects a zero quantity exactly like it
+    already rejected a negative one (`"0 g"`/`"0 cup"` no longer parse to `{quantity: 0, ...}`,
+    which used to divide a real nutrition figure by zero via `perUnitFromTotal`'s defensive-zero
+    path); (b) USDA's household-serving scaling now requires `servingSizeGrams > 0` (not just
+    "present") before trusting it, so `servingSize: 0` falls back to the flat per-100g basis instead
+    of zeroing a real figure; (c) both normalizers now treat a negative calorie or protein figure as
+    unusable — Open Food Facts falls back to its other basis (serving vs. per-100g) before giving
+    up, USDA (single basis) drops the candidate outright. qa-reviewer's own "FINDING" tests in
+    `src/lib/domain/lookup.qa.test.ts` (which had deliberately pinned the *buggy* behavior as
+    passing assertions, per that file's own doc comment: "MUST be updated if the drop rule is
+    tightened") were updated in place to assert the corrected behavior instead.
+  - **N-3 — no seam to intercept the outbound provider call in tests.** `OPEN_FOOD_FACTS_BASE_URL`
+    / `USDA_SEARCH_URL` now read `process.env.OPEN_FOOD_FACTS_BASE_URL` /
+    `process.env.USDA_SEARCH_URL`, falling back to the real hardcoded defaults. Documented in
+    `.env.example` as an optional, normally-blank override. **Not wired into
+    `.github/workflows/ci.yml`** — that's the architect's file; this only makes the seam exist, per
+    the task brief. New adapter-level unit tests (`openfoodfacts.test.ts`, `usda.test.ts`) cover
+    both the default and the override.
+  - **N-4 — float noise prefilled verbatim.** `handleCandidatePick` now rounds
+    `caloriesPerUnit`/`proteinGPerUnit` to 2 decimal places (`formatPrefillNumber`, a small module-
+    level pure helper) before setting the form fields — e.g. USDA's `390.15000000000003` now shows
+    `390.15`. Purely a display nicety at pick time; doesn't touch what gets stored if the user edits
+    the field further, and doesn't touch `lib/domain/lookup.ts`'s own values.
+  - **N-5 — React key collision risk.** `FoodLookupPanel.tsx`'s result list key was
+    `${source}-${sourceId}`, and `sourceId` falls back to the candidate's description when a
+    provider omits a real id — two same-named results could collide. Folded the array index into
+    the key (`${source}-${sourceId}-${index}`), stable for one render of a single search/lookup
+    response.
+  - **N-6 — non-deterministic camera-start ordering.** `BarcodeScanner.tsx`'s `startScanning` used
+    to construct `new Html5Qrcode(regionId)` directly after `await import("html5-qrcode")`, relying
+    on React having already committed the DOM (with the target region `<div>` present) by the time
+    that promise resolved — not a guaranteed ordering. Moved the construction into a `useEffect`
+    keyed on the `scanning` state, so it only ever runs after React has committed a render where the
+    region div exists. New test `BarcodeScanner.test.tsx` (this repo's first component-level test —
+    no prior pattern existed for one) mocks `html5-qrcode` and asserts
+    `document.getElementById(regionId)` already resolves to a real element at the moment
+    `Html5Qrcode` is constructed.
+  - **N-7 — no rate limiting on `/api/lookup/search`.** Added `lib/lookup/rate-limit.ts`
+    (`isWithinLookupRateLimit`), a simple in-memory per-user sliding-window limiter — 30
+    requests/minute/user, `429 { error: "rate_limited" }` before query validation or the USDA call.
+    Explicitly a v1-appropriate stopgap (in-process `Map`, no cross-instance/cold-start persistence)
+    per the task brief — no new table/migration was added (that would have needed the architect).
+    `/api/lookup/barcode` (Open Food Facts, free/keyless) was deliberately left unlimited — no
+    comparable shared-quota risk to defend against. Recorded in `ai-context/DECISIONS.md` as its own
+    entry, mirroring how the USDA free-tier acceptance itself was recorded. Judgment call: the
+    30/min/user threshold — chosen generously above any legitimate single-user burst while still
+    meaningfully capping a runaway client/script; qa-reviewer's own ~24-call test file and the
+    developer's own 6-call test file both stay well under it, confirmed by running them.
+  - **Verification**: `npm run lint` / `npx tsc --noEmit` clean. `npm test`: **326/326** (261 prior
+    + a net 65 new: `openfoodfacts.test.ts`, `usda.test.ts`, `rate-limit.test.ts`,
+    `BarcodeScanner.test.tsx`, plus the updated/added cases in qa-reviewer's own
+    `lookup.qa.test.ts` and the developer's `search/route.test.ts`). `npm run build` clean. Full
+    `npm run test:e2e` from a clean `supabase db reset`: **169/170 passed** — the one failure is the
+    already-documented pre-existing flaky `phase4-acceptance.spec.ts` "no-future metric date (UTC
+    browser)" test (see the 2026-07-25 Notes entry below), reconfirmed unrelated to this change, not
+    a new regression. All 27 tests in `e2e/phase6-acceptance.spec.ts` passed, including B-1's
+    regression test ("collapsing Add detail after a pick must not silently drop the candidate
+    quantity") and the updated N-1 hung-proxy test.
+  - **Note on `supabase db reset` itself**: hit the same pre-existing, time-of-day-dependent
+    `supabase/seed.sql` bug the prior developer session already discovered and documented (below,
+    2026-07-27 Notes) — worked around it the same way (a temporary local-only edit, reverted via
+    `git checkout -- supabase/seed.sql` before finishing) to get a clean reset for verification. No
+    seed change is part of this delivery.
+
+- [x] **`supabase/seed.sql`'s time-of-day-dependent `db reset` failure investigated, root-caused
+  for real, and fixed (developer, 2026-07-27).** This bug had been flagged twice (Phase 6 developer
+  and qa-reviewer sessions above) but only worked around and reverted, never actually fixed — this
+  session investigated it properly per that open item.
+  - **Reproduced live, not just reasoned about.** Docker/local Supabase was available. Confirmed via
+    direct `psql`: this Postgres image's session `TimeZone` is `UTC` (`show timezone` → `UTC`), so
+    Postgres's bare `current_date` is always **the UTC calendar date**, never `America/Chicago`'s.
+    At the moment of testing (`now()` = `2026-07-27 03:1x UTC`), `current_date` = `2026-07-27` while
+    `(now() at time zone 'America/Chicago')::date` = `2026-07-26` — i.e. real Chicago local time had
+    not yet reached its own midnight. Ran `npx supabase db reset` at that exact moment against the
+    **unmodified** seed script and reproduced the failure on demand:
+    `ERROR: new row for relation "food_entries" violates check constraint
+    "food_entries_not_future_day"`.
+  - **Root cause, precisely.** The generator built each day's `consumed_at` as
+    `((current_date - day_offset)::text || ' ' || slot_time)::timestamp at time zone
+    'America/Chicago'` — i.e. it took the **UTC** calendar date, glued on a Chicago wall-clock time
+    string, and converted *that* to a UTC instant. The `set_consumed_local_date` trigger then
+    reverses this (`consumed_at at time zone consumed_tz`) to get back a `consumed_local_date` that,
+    by construction, always equals the literal UTC `current_date` used to build the string — **not**
+    Chicago's real current date. The `food_entries_not_future_day` CHECK, meanwhile, correctly
+    compares against `(now() at time zone consumed_tz)::date` — Chicago's *real* current date, from
+    the actual instant. Every day, for the ~5-6 hours between UTC midnight and Chicago's own midnight
+    (Chicago trails UTC by 5h in CDT / 6h in CST), UTC's `current_date` is one calendar day ahead of
+    Chicago's actual date — so the `day_offset = 0` row was generated one day into Chicago's future
+    for that whole window, tripping the CHECK and failing the entire seed (and therefore the whole
+    `db reset`, since Postgres seeding runs as one script/transaction). This confirms — with an actual
+    live repro, not just the secondhand description — that the previously-reported cause ("uses UTC
+    `current_date` reinterpreted as `America/Chicago` local time") was directionally correct, and adds
+    the precise mechanism (which specific CHECK, which specific comparison, and the exact ~5-6-hour
+    daily window) that the earlier secondhand report didn't include.
+  - **Evaluated as a small, well-understood fixture-arithmetic correction, not a design change** —
+    per the task framing and `AGENTS.md`'s own "don't derive 'today' from the server's clock or naive
+    UTC-truncation" guidance (this seed script was doing exactly that). No architect loop needed.
+  - **Fix**: both 90-day generators (`daily_metrics` and `food_entries`) now anchor "today" on
+    `(now() at time zone 'America/Chicago')::date` instead of the bare `current_date` — the same
+    now()-derived Chicago date the `food_entries_not_future_day` CHECK itself uses, and (since
+    Postgres's `now()` is stable for the whole transaction) guaranteed to be the exact same value the
+    CHECK sees when it runs moments later in the same seeding transaction. `day_offset = 0` therefore
+    always resolves to *equal* Chicago's real current date (never a day ahead), for any real
+    wall-clock time in any timezone the machine running `db reset` happens to be in — the fix doesn't
+    depend on the host OS's timezone at all, only on the container's `now()`, which is a real UTC
+    instant regardless. (`daily_metrics`' own `metric_date <= current_date + 1` CHECK is loose enough
+    that it was never actually failing from this — its generator was still switched to the same
+    now()-derived anchor for consistency, so both generators share one correct notion of "today.")
+  - **Verified, not just asserted**: re-ran `npx supabase db reset` at `2026-07-27 03:18 UTC` — still
+    inside the exact previously-failing window (confirmed via the same `psql` check immediately
+    before: `current_date` = `2026-07-27`, Chicago actual today = `2026-07-26`) — and it now succeeds.
+    Directly queried the seeded data afterward: the third account's `food_entries.consumed_local_date`
+    and `daily_metrics.metric_date` both max out at exactly `2026-07-26`, matching
+    `(now() at time zone 'America/Chicago')::date` precisely (the CHECK's own boundary — equality
+    passes). Checked git history/stash for the prior sessions' temporary workaround to compare against
+    — none was preserved (they reverted via `git checkout`, as documented), so this fix was derived
+    independently from the root-cause analysis above, not copied from a discarded patch.
+  - **Full regression check**: `npm test` → **326/326** (unchanged — this is a fixture-only change,
+    no application logic touched). `npx playwright test` against the freshly-reset DB → **169/170**;
+    the one failure (`phase4-acceptance.spec.ts` "no-future metric date (UTC browser)") is unrelated
+    to this fix — confirmed by re-running it standalone (fails identically) and via `git stash` (fails
+    identically against the pre-existing, unmodified working tree too, and that test doesn't touch the
+    third seeded account at all — it creates its own throwaway test user). Matches the failure already
+    documented repeatedly elsewhere in this file as a pre-existing, unrelated flake.
+
+- [x] **Phase 7 (Saved meals) implemented** (developer), against the design doc's §8 Phase 7 scope,
+  following Jeff's 2026-07-27 approval of Phase 6. Types `Meal`/`MealItem` added to `lib/types.ts`
+  (mirroring `FoodEntry`'s quantity/unit/per-unit + generated `calories`/`protein_g` shape, minus
+  the `consumed_at`/tz fields a saved-meal item doesn't have). New pure domain validators in
+  `lib/domain/validation.ts` — `validateMealInput` (name only), `validateMealItemInput` (same shape
+  as `validateFoodEntryInput` minus date/time), `validateLogMealInput` (which meal + date/time,
+  reusing the existing `DATE_PATTERN`/`TIME_PATTERN`/15-minute-grid rules) — and a new pure module
+  `lib/domain/meal-items.ts` (`groupMealItemsByMeal`, `computeReorderedSortOrders`), each with unit
+  tests; `lib/domain/totals.ts`'s existing `sumEntries` and `nutrition.ts`'s `proteinCaloriePct` are
+  reused as-is for meal totals/protein-%, per the task brief — no duplicate summation logic added.
+  Server actions `lib/actions/meals.ts`: `createMeal`/`updateMeal`/`deleteMeal`;
+  `addMealItem`/`updateMealItem`/`deleteMealItem`/`reorderMealItems`; and `logMealForDay` — the
+  phase's single most load-bearing piece of logic. `logMealForDay` resolves the target meal *and*
+  its items via the same RLS-scoped server client used for the session check, strictly before any
+  insert (with a belt-and-suspenders explicit `.eq("user_id", user.id)` on top of RLS, matching this
+  codebase's existing convention on mutations) — a foreign or nonexistent `mealId` therefore
+  resolves to zero rows and a generic `meal_not_found` error, with **no** `food_entries` insert ever
+  attempted, making the `logged_from_meal_id` ownership invariant true by construction rather than
+  by convention (see `ai-context/DECISIONS.md`'s "`logged_from_meal_id` stays a plain FK..." and this
+  session's new Phase 7 entry). An empty meal (zero items) is rejected with `error: 'empty_meal'`
+  before any insert. The whole batch shares one `consumed_at`/`consumed_tz` (computed once via the
+  existing `localInputToUtcInTz`) and is written as a single multi-row `INSERT` — one Postgres
+  statement, atomic per-statement, which is what makes "future-cap/cross-user rejection writes zero
+  rows" hold without needing an explicit transaction. The no-future-day cap is checked up front via
+  the existing `localDateNotAfterToday`, exactly like `food.ts`'s add/edit actions.
+  Components: `components/meals/MealForm.tsx` (create/rename, name only),
+  `components/meals/MealItemForm.tsx` (add/edit one item — **fields always visible, no progressive
+  disclosure**, per the 2026-07-19 "Progressive disclosure" decision's explicit meal-item carve-out;
+  embeds the Phase 6 `FoodLookupPanel`, add-mode only, mirroring `FoodEntryForm`'s own scoping),
+  `components/meals/MealList.tsx` (the saved-meals library: one card per meal with item
+  count/totals/protein %, expand to manage items with up/down reorder + edit/delete, rename,
+  delete-cascades-items), and `components/meals/MealsView.tsx` (client orchestrator owning the
+  RLS-scoped browser-client read + refetch-after-mutation loop, mirroring `FoodDayView`'s
+  established pattern). `app/(app)/meals/page.tsx` (CRUD only, per the design doc's module-tree
+  comment — no logging UI here) and a new "Meals" nav link. On `/food`:
+  `components/food/LogMealDialog.tsx` (pick a saved meal + `date max=today` + the existing
+  96-value quarter-hour `<select>` from `datetime.ts`, defaulting to the floor-of-now time) is
+  embedded in `FoodDayView` between `DailyTotals` and `FoodEntryForm`; a successful log updates
+  `FoodDayView`'s `lastConsumedAt` smart-default tracker to the batch's shared `consumed_at`,
+  exactly like a single manual save does, and refreshes the day. `FoodEntryList.tsx` gained a
+  small `bg-sage-pale text-ink` "From a saved meal" badge on any entry with a non-null
+  `logged_from_meal_id`, per the design doc's "meal-batch rows ... are labeled" (§3.4).
+  **Four implementation choices flagged as deviations/implicit decisions** (none pinned down to the
+  letter by the design doc's §8 Phase 7 bullet) — full reasoning in `ai-context/DECISIONS.md`'s new
+  "Phase 7 implementation choices..." entry: (1) the belt-and-suspenders explicit `user_id` filter
+  on `logMealForDay`'s meal read, on top of RLS; (2) `MealsView`/`LogMealDialog` add their own
+  client-orchestrator layer rather than a literal reading of the doc's flatter component list,
+  mirroring the already-accepted `FoodDayView` pattern; (3) `LogMealDialog` is a plain inline
+  expand/collapse panel (matching the existing `FoodLookupPanel` expander convention), not a native
+  `<dialog>`/modal — this codebase has no modal precedent; (4) `meals`/`meal_items` are fetched as
+  two independent flat queries grouped client-side via the new `groupMealItemsByMeal`, rather than
+  one PostgREST embedded select, since `meal_items`' FK to `meals` is the *composite*
+  `(meal_id, user_id)` key and embedding for composite FKs isn't exercised anywhere else in this
+  codebase.
+  **A real bug found only by manually driving the feature in a browser** (not by any automated
+  test, and not by the unit-level integration test below either): `MealsView`'s first draft
+  unmounted `MealList` on *every* refresh (swapping to a full "Loading…" placeholder), including
+  the routine refreshes `onChanged` fires after adding/editing/deleting/reordering an item or
+  renaming a meal — since `MealList` owns real local UI state (which meal card is expanded, which
+  item is mid-edit), this silently collapsed the very card the user was actively working in right
+  after they added the item they were adding. Fixed with a `hasLoadedOnce` flag scoping the big
+  loading placeholder to the true initial load only; a background refresh after a mutation now
+  keeps `MealList` mounted (and its state intact). Full writeup, including why `FoodDayView`'s
+  outwardly-similar loading-branch swap was never at risk of the same bug, is in
+  `ai-context/DECISIONS.md`.
+  **Verification**: `npm run lint` / `npx tsc --noEmit` clean; `npm test` **354/354** (326 prior +
+  28 new: 6 `meal-items.test.ts` + 22 new `validation.test.ts` cases across the three new
+  validators). `npm run build` clean, `/meals` route present alongside the existing routes.
+  Docker/local Supabase was available this round — after two `supabase db reset`s and one full
+  `npx playwright test` run each, the **only** failures observed were `Failed to create e2e test
+  user` / HTTP 502 errors from a transiently-unhealthy `supabase_auth` container in the seconds
+  right after `db reset` restarted every container (confirmed directly via `curl` against the admin
+  API returning 502 "An invalid response was received from the upstream server", and via `docker
+  ps` showing `supabase_vector` mid-restart-loop at the same moment) — an **environmental** flake,
+  not a regression: waiting ~15s (or a clean `supabase stop && supabase start`) for the containers
+  to report healthy and re-running produced a clean pass every time; not caused by, and not
+  specific to, this session's changes. With a healthy stack: a throwaway Vitest integration test
+  (`meals.throwaway.test.ts`, written, run, then deleted per the established Phase 5/6 "not part of
+  the delivered suite" precedent — qa-reviewer owns Phase 7's real acceptance tests) exercised the
+  real `lib/actions/meals.ts` functions against the real local Postgres/RLS by mocking
+  `@/lib/supabase/server`'s `createClient` to return a plain `@supabase/supabase-js` client signed
+  in as a real confirmed test user (the action code never touches anything Next-specific on the
+  `supabase` object itself) — **7/7 passed**, specifically confirming: meal CRUD (create, two items
+  in both input modes, rename, item edit recalculates the generated total, reorder, item delete,
+  meal delete cascades its remaining item at the DB level); an empty meal is rejected by
+  `logMealForDay` with zero `food_entries` rows written; a two-item meal batch-inserts exactly 2
+  rows sharing one `consumed_at`/tz/`consumed_local_date` and one exact-timestamp group, each
+  stamped with the correct `logged_from_meal_id`; the future-day cap rejects the whole batch with
+  zero rows written; **the critical cross-user case** — `logMealForDay` called with another user's
+  real, non-empty `mealId` fails with `error: 'meal_not_found'` and zero rows written for either
+  user, confirmed via a direct admin-client count before/after — plus a second cross-user check
+  that `updateMeal`/`deleteMeal`/`addMealItem` against a foreign meal id all fail or no-op
+  (RLS + the composite FK), never mutating the real owner's data; and editing/deleting a meal after
+  logging it never changes the already-logged `food_entries` row's name/calories, only nulling
+  `logged_from_meal_id` on delete (`ON DELETE SET NULL`). A second throwaway Playwright script
+  (also written, run, then deleted) manually drove the full UI flow end-to-end in a real browser
+  (create meal -> add two items in both input modes -> rename -> reorder -> log via
+  `LogMealDialog` on `/food` -> confirm both entries + the "From a saved meal" badge + updated day
+  totals -> delete the meal -> confirm the logged entries survive with the badge now gone) with
+  zero console errors, and a second cross-user browser scenario confirming user B's `/meals` and
+  `LogMealDialog` picker never show user A's meal at all — this is what caught the `hasLoadedOnce`
+  bug above (an automated assertion never pinned "the panel stays open across a background
+  refresh"). Full regression suite re-run after the `hasLoadedOnce` fix, against a freshly
+  `db reset` + confirmed-healthy stack: unit 354/354, e2e **170/170** (all pre-existing tests,
+  zero new failures), lint/typecheck/build clean.
+  **Not yet reviewed by qa-reviewer** — Phase 7's acceptance tests (per the design doc's §6 scope:
+  saved-meals CRUD, `logMealForDay` batch semantics, the cross-user `mealId` rejection, meal
+  edits/deletes not touching already-logged history, the future-cap on the batch, and re-verifying
+  RLS on `meals`/`meal_items` via the actions) are qa-reviewer's to write next.
 
 ## Up Next
-1. **Phase 5 fixed up after qa-reviewer's blocking bug — ready for Jeff's approval.** No further
+1. **Phase 7 (Saved meals) implemented — needs qa-reviewer.** Next step is qa-reviewer writing the
+   independent acceptance suite from the design doc's §6 scope (see the Phase 7 Completed entry
+   above for exactly what's already been developer-verified vs. what's still open).
+2. **Phase 5 fixed up after qa-reviewer's blocking bug — ready for Jeff's approval.** No further
    developer or qa-reviewer action required unless Jeff's own review surfaces something new.
-2. Phases 6–9 follow per §8's dependency order (only 1→2→3 and 6→7 are hard dependencies; 4–8
-   can be resequenced by priority if wanted — 4 and 5 are now done).
-3. **Visual identity qa-review fix-ups (NB-1/NB-2) and the time-`<select>` alignment fix are all
+3. **Phase 6 approved by Jeff (2026-07-27).** No further action needed.
+4. ~~Pre-existing, time-of-day-dependent bug in `supabase/seed.sql`'s third-account 90-day
+   generator~~ — **RESOLVED 2026-07-27** (see Completed above for the full root-cause writeup and
+   fix). No further action needed unless a future review surfaces a related issue.
+5. **Visual identity qa-review fix-ups (NB-1/NB-2) and the time-`<select>` alignment fix are all
    implemented (2026-07-26, developer) — see Completed below.** No further developer action needed
    on any of them unless a future review surfaces something new. The one remaining open item from
    the visual-identity qa-review is **NB-5**: `e2e/visual-identity-acceptance.spec.ts` already
    exists in the tree (written by qa-reviewer) and is green — no action needed, just noting it's
    the recommended regression coverage for this cross-cutting change and should stay in the suite.
-4. **The pre-existing `FoodDayView` `Day`-input race is still open and unfixed** (10 reproducing
+6. **The pre-existing `FoodDayView` `Day`-input race is still open and unfixed** (10 reproducing
    e2e cases now documented, see Notes below) — worth investigating on its own merits per the
    existing hypothesis (a controlled-input/native-reset interaction, same family as the
    `SettingsForm` radio bug already fixed in Phase 4).
+7. **Phase 8 (Ease-of-entry extras — copy/repeat) is next in the design doc's §8 dependency order**
+   once Phase 7 clears qa-review (6→7 was the last hard dependency; 8 has no further hard
+   prerequisites of its own).
 
 ## Notes / Things Discovered
 - 2026-07-19: `AGENTS.md`, `ai-context/PROGRESS.md`, and `ai-context/DECISIONS.md` were still
@@ -704,5 +1093,63 @@
   from an earlier session) before concluding a failure is real; and the underlying `Day` input race
   itself is still an open, unfixed bug worth investigating on its own merits (a flaky test is still
   a symptom of something).
+- 2026-07-26/27: **Nested `<form>` elements silently break: caught only by driving the Phase 6
+  lookup UI in a real browser, not by any mocked/unit-level test.** `FoodLookupPanel`'s search input
+  and `BarcodeScanner`'s manual-barcode input were each originally wrapped in their own
+  `<form onSubmit>`, both rendered inside `FoodEntryForm`'s own outer `<form>`. HTML has no concept
+  of nested forms; the browser's parser silently drops/flattens the inner `<form>` tags rather than
+  erroring, so a "submit"-type button inside one actually submits whichever `<form>` the browser
+  resolves it to — in this case the *outer* food-entry form (with a blank required Name field),
+  not the intended inner search/lookup action. Symptom looked like the lookup panel just closing
+  itself with no results and no visible error anywhere, which is exactly the kind of silent failure
+  that a Route Handler unit test (which only exercises the fetch layer, not the DOM) can't catch —
+  it took an actual Playwright run against a live dev server to notice the network request for
+  `/api/lookup/search` was never even sent. Fixed by replacing both inner `<form>`s with plain
+  `<div>`s, changing their submit buttons to `type="button"` + `onClick`, and adding an `onKeyDown`
+  Enter handler on each text input to preserve keyboard submission. **General implication for future
+  phases**: any component meant to be embedded inside an existing `<form>` (as `FoodLookupPanel`/
+  `BarcodeScanner` are inside `FoodEntryForm`, and as a future Phase 7 `MealItemForm`-embedded lookup
+  reuse would be too) must not itself render a `<form>` element — use `type="button"` + `onClick`/
+  `onKeyDown` instead, and this class of bug is specifically one that automated tests mocking the
+  network layer will not surface; only an actual rendered-DOM check (browser or a Testing-Library-
+  style render) will.
+- 2026-07-27: **`supabase/seed.sql`'s third-account 90-day generator has a real, time-of-day-
+  dependent bug** (pre-existing, from the "Seed a third account with ~90 days" commit — not
+  introduced by Phase 6, discovered only because `supabase db reset` happened to be run during the
+  affected window). It derives each day's timestamp as
+  `((current_date - day_offset)::text || ' ' || slot_time)::timestamp at time zone 'America/Chicago'`
+  — `current_date` is the database's UTC calendar date, not Chicago's. During the early hours of the
+  UTC day (observed failing at ~01:57 UTC), `current_date` has already rolled over to the *next* UTC
+  date relative to what is still "yesterday evening" in Chicago, so `day_offset = 0`'s dinner slot
+  (`18:30` Chicago) computes a UTC instant that is still in the future relative to the real current
+  moment — tripping `food_entries_not_future_day` and failing the entire `db reset`/seed step, not
+  just that one row. This is genuinely time-of-day-dependent (it will pass when run later in the UTC
+  day) rather than a deterministic bug, which is presumably why it wasn't caught when the seeding
+  feature was first built and tested. Not fixed here (out of Phase 6's scope — this is Phase 2/seed-
+  fixture territory) — worked around locally and temporarily (a one-line day-offset shift) only to
+  unblock this session's own e2e verification, then reverted (`git checkout -- supabase/seed.sql`)
+  before finishing, so no seed change is part of this delivery. The real fix is presumably deriving
+  the date from `now() at time zone 'America/Chicago'` (Chicago's own current date) rather than the
+  bare UTC `current_date`, so the generator's notion of "today" always matches the timezone the
+  timestamps are actually being constructed in.
+- 2026-07-27: **Phase 6 qa-reviewer fix-up session** — see the Completed bullet above for the full
+  per-item breakdown (B-1, N-1 through N-7). Two judgment calls worth flagging explicitly since
+  they weren't fully pinned down by the task brief: (1) N-7's rate-limit threshold (30 requests/
+  minute/user) — chosen to comfortably clear both qa-reviewer's own test file (~24 authenticated
+  calls to the two lookup routes in one file) and the developer's own `search/route.test.ts` (~6
+  calls) without needing per-test resets, while still meaningfully capping a runaway client; only
+  `/api/lookup/search` is limited (USDA's shared quota is the actual risk — see
+  `ai-context/DECISIONS.md`), `/api/lookup/barcode` (Open Food Facts, free/keyless) is not.
+  (2) N-4's rounding precision (2 decimal places) for a freshly-picked candidate's calories/protein
+  display — chosen as a sensible middle ground that kills float noise (`390.15000000000003` →
+  `390.15`) without discarding real sub-integer precision a provider might report; purely a
+  prefill-display change, doesn't touch stored values or `lib/domain/lookup.ts` itself. Also note:
+  qa-reviewer's `src/lib/domain/lookup.qa.test.ts` originally had several tests deliberately titled
+  "FINDING: ..." that asserted the *buggy* pre-fix behavior as passing (per that file's own doc
+  comment, "MUST be updated if the drop rule is tightened") — these were renamed/rewritten in place
+  to assert the corrected N-2 behavior rather than left as stale/misleading passing tests; a couple
+  of new tests were added alongside them (e.g. confirming Open Food Facts still falls back to a
+  *usable* per-100g basis when the per-serving basis is negative, rather than losing the candidate
+  entirely) to keep the fallback-vs-drop distinction from N-2's own reasoning independently covered.
 
 ---
