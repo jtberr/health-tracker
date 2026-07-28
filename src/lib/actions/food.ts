@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { localDateNotAfterToday, localInputToUtcInTz } from "@/lib/domain/datetime";
+import { isValidTimeZone, localDateNotAfterToday, localInputToUtcInTz } from "@/lib/domain/datetime";
 import { perUnitFromTotal } from "@/lib/domain/quantity";
 import { validateFoodEntryInput, type FoodEntryField } from "@/lib/domain/validation";
 import type { FoodEntry } from "@/lib/types";
@@ -189,6 +189,19 @@ function parseAndValidateFoodEntryForm(formData: FormData): ParsedFoodEntryForm 
     return {
       ok: false,
       state: { ok: false, error: "Missing time zone." },
+    };
+  }
+
+  // A tampered/garbled tz (e.g. a hostile client overwriting the hidden consumedTz field) must
+  // fail gracefully here, BEFORE it ever reaches localDateNotAfterToday/localInputToUtcInTz —
+  // both call through to Intl.DateTimeFormat internally, which throws a RangeError on an invalid
+  // timeZone. Left unchecked, that throw propagates out of this Server Action uncaught, surfacing
+  // a generic Next.js error page instead of the graceful field-level error every other validation
+  // failure in this module already returns.
+  if (!isValidTimeZone(consumedTz)) {
+    return {
+      ok: false,
+      state: { ok: false, error: "invalid_timezone" },
     };
   }
 

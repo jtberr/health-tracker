@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { localDateNotAfterToday, localInputToUtcInTz } from "@/lib/domain/datetime";
+import { isValidTimeZone, localDateNotAfterToday, localInputToUtcInTz } from "@/lib/domain/datetime";
 import { computeReorderedSortOrders } from "@/lib/domain/meal-items";
 import { perUnitFromTotal } from "@/lib/domain/quantity";
 import {
@@ -388,6 +388,17 @@ export async function logMealForDay(
 
   if (!logTz) {
     return { ok: false, error: "Missing time zone." };
+  }
+
+  // A tampered/garbled tz (e.g. a hostile client overwriting the hidden logTz field) must fail
+  // gracefully here, BEFORE it ever reaches localDateNotAfterToday/localInputToUtcInTz below —
+  // both call through to Intl.DateTimeFormat internally, which throws a RangeError on an invalid
+  // timeZone. Left unchecked, that throw propagates out of this Server Action uncaught, surfacing
+  // a generic Next.js error page instead of a graceful result — exactly the same gap
+  // `lib/actions/food.ts`'s add/edit actions had, fixed identically here (see datetime.ts's
+  // `isValidTimeZone` doc comment).
+  if (!isValidTimeZone(logTz)) {
+    return { ok: false, error: "invalid_timezone" };
   }
 
   // No-future-day cap on the whole batch (ai-context/DECISIONS.md "No logging into the future

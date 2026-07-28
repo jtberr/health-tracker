@@ -4,6 +4,7 @@ import {
   defaultConsumedAtForNextEntry,
   floorToQuarterHour,
   formatTimeLabel,
+  isValidTimeZone,
   localDateInTz,
   localDateNotAfterToday,
   localInputToUtcInTz,
@@ -262,6 +263,41 @@ describe("quarterHourOptions", () => {
       expect(label).toHaveLength(8);
       expect(label).toMatch(/^\d{2}:\d{2} (AM|PM)$/);
     }
+  });
+});
+
+describe("isValidTimeZone", () => {
+  it("accepts a real IANA zone", () => {
+    expect(isValidTimeZone("America/New_York")).toBe(true);
+  });
+
+  it("accepts UTC", () => {
+    expect(isValidTimeZone("UTC")).toBe(true);
+  });
+
+  it("accepts another real IANA zone with no DST", () => {
+    expect(isValidTimeZone("Asia/Tokyo")).toBe(true);
+  });
+
+  it("rejects garbled/tampered input", () => {
+    expect(isValidTimeZone("Not/AZone")).toBe(false);
+  });
+
+  it("rejects an empty string", () => {
+    expect(isValidTimeZone("")).toBe(false);
+  });
+
+  it("rejects a plain offset string (not an IANA zone name)", () => {
+    expect(isValidTimeZone("UTC+9")).toBe(false);
+  });
+
+  it("rejects whitespace-only input", () => {
+    expect(isValidTimeZone("   ")).toBe(false);
+  });
+
+  it("never throws, even on obviously malicious/oversized input", () => {
+    expect(() => isValidTimeZone("x".repeat(10_000))).not.toThrow();
+    expect(isValidTimeZone("x".repeat(10_000))).toBe(false);
   });
 });
 

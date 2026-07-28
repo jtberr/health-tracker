@@ -1,11 +1,11 @@
 # Progress
 # Health Tracker
 
-**Last updated**: 2026-07-27
+**Last updated**: 2026-07-28
 
 ---
 
-## Current Status: Phase 4 qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Phase 5 (trend charts) implemented, qa-reviewed (one blocking bug found), and fixed up — ready for Jeff's approval (2026-07-25). **Sage-arc motif narrowed to auth screens only (2026-07-26, Jeff's direct decision, removed from the dashboard) — see `ai-context/DECISIONS.md`.** Visual identity rollout qa-reviewed (0 blocking findings, 5 non-blocking notes) — **NB-1 (dead old-palette CSS) and NB-2 (field-border/placeholder contrast) fixed, time-`<select>` alignment implemented, and the fetch-timeout follow-up closed, all 2026-07-26 (developer) — ready for Jeff's approval.** **Jeff approved Phase 6 (food lookup: barcode + description search), 2026-07-27.** **Phase 7 (Saved meals) implemented (2026-07-27, developer) — ready for qa-reviewer.** The previously-flagged `supabase/seed.sql` time-of-day-dependent `db reset` failure has been root-caused (with a live repro) and fixed (2026-07-27, developer) — see Completed below.
+## Current Status: Phase 4 qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Phase 5 (trend charts) implemented, qa-reviewed (one blocking bug found), and fixed up — ready for Jeff's approval (2026-07-25). **Sage-arc motif narrowed to auth screens only (2026-07-26, Jeff's direct decision, removed from the dashboard) — see `ai-context/DECISIONS.md`.** Visual identity rollout qa-reviewed (0 blocking findings, 5 non-blocking notes) — **NB-1 (dead old-palette CSS) and NB-2 (field-border/placeholder contrast) fixed, time-`<select>` alignment implemented, and the fetch-timeout follow-up closed, all 2026-07-26 (developer) — ready for Jeff's approval.** **Jeff approved Phase 6 (food lookup: barcode + description search), 2026-07-27.** **Phase 7 (Saved meals) implemented (2026-07-27, developer), then qa-reviewed (2026-07-28, qa-reviewer) — verdict: ready to gate to production, no blocking findings, 8 non-blocking notes (N-1 through N-8). N-1 (ungraceful invalid-timezone crash, shared with Phase 3's `addFoodEntry`/`updateFoodEntry`), N-7 (no direct action-level test coverage for `lib/actions/meals.ts`), and N-8 (a misdiagnosed "Node 24" environment note in this file's own history) fixed 2026-07-28 (developer) — ready for Jeff's approval. N-2 through N-6 logged below in Up Next, not fixed, per Jeff's explicit instruction to defer them.** The previously-flagged `supabase/seed.sql` time-of-day-dependent `db reset` failure has been root-caused (with a live repro) and fixed (2026-07-27, developer) — see Completed below.
 
 ---
 
@@ -937,15 +937,131 @@
   refresh"). Full regression suite re-run after the `hasLoadedOnce` fix, against a freshly
   `db reset` + confirmed-healthy stack: unit 354/354, e2e **170/170** (all pre-existing tests,
   zero new failures), lint/typecheck/build clean.
-  **Not yet reviewed by qa-reviewer** — Phase 7's acceptance tests (per the design doc's §6 scope:
-  saved-meals CRUD, `logMealForDay` batch semantics, the cross-user `mealId` rejection, meal
-  edits/deletes not touching already-logged history, the future-cap on the batch, and re-verifying
-  RLS on `meals`/`meal_items` via the actions) are qa-reviewer's to write next.
+- [x] **Phase 7 qa-reviewed** (qa-reviewer). Independent acceptance suite written from the design
+  doc's §6 scope (not from the developer's throwaway test), `e2e/phase7-acceptance.spec.ts`, 29
+  tests — covering the `logged_from_meal_id` ownership invariant (cross-user and nonexistent
+  `mealId`, zero rows written, verified via a service-role admin read, not just the action's return
+  value), saved-meal CRUD through the real actions, `logMealForDay` batch semantics (shared
+  `consumed_at`/tz/local_date, exact-timestamp grouping, `daily_food_totals` reflecting the batch,
+  two logs at different times forming two groups), the empty-meal rejection, meal edits/deletes
+  never rewriting already-logged history (`ON DELETE SET NULL` on `logged_from_meal_id` only), the
+  future-day cap on the whole batch, RLS re-verified through the `meals`/`meal_item` action surface,
+  the `MealList` `hasLoadedOnce` fix surviving a post-mutation refresh, and the reused Phase 6
+  `FoodLookupPanel` inside `MealItemForm` (prefill-only, never auto-submit, offered on add but not
+  edit). **Verdict: ready to gate to production, no blocking findings.** 8 non-blocking notes
+  (N-1 through N-8), summarized here for the record (full detail was in qa-reviewer's own review,
+  not persisted as a separate file in this repo):
+  - **N-1**: a tampered/garbled `logTz` (e.g. `"Not/AZone"`) crashes `logMealForDay` with an
+    uncaught `RangeError` instead of a graceful field error — confirmed **not** a new Phase 7 defect
+    (byte-identical behavior reproduces against Phase 3's `addFoodEntry` with a tampered
+    `consumedTz`); zero rows written either way, so no data-corruption risk, purely an
+    ungraceful-error-handling gap. **Fixed — see below.**
+  - **N-2**: `reorderMealItems` isn't atomic (one `UPDATE` per item, no transaction) and doesn't
+    validate `orderedIds` against the meal's actual current items before writing. **Not fixed —
+    logged in Up Next per Jeff's explicit instruction to defer.**
+  - **N-3**: `addMealItem`'s next-`sort_order` read-then-insert has a race window (two concurrent
+    adds could compute the same `sort_order`). **Not fixed — logged in Up Next.**
+  - **N-4**: `deleteMeal`/`deleteMealItem`/`reorderMealItems` return `{ ok: true }` even when the
+    `id`/`user_id` filter matches zero rows (e.g. an already-deleted or foreign id) — indistinguishable
+    from a real deletion at the return-value level (RLS/ownership itself is not bypassed; this is
+    about the ambiguity of the response, not a security gap). **Not fixed — logged in Up Next.**
+  - **N-5**: raw Postgres/Supabase error strings (`error.message`) can reach the UI unfiltered on
+    unexpected failures, rather than being mapped to a friendly message. **Not fixed — logged in
+    Up Next.**
+  - **N-6**: `MealsView`'s refresh-after-mutation has no stale-response guard (unlike
+    `TodaySummary.tsx`, which correctly uses one) — a rapid sequence of mutations could in principle
+    render a stale response last. **Not fixed — logged in Up Next.**
+  - **N-7**: `lib/actions/meals.ts` — the security-critical file in this phase (the
+    `logged_from_meal_id` ownership invariant lives here) — shipped with zero direct/persistent
+    test coverage; only the pure domain helpers it calls into had unit tests, and the developer's own
+    real-Postgres exercise of the actions (`meals.throwaway.test.ts`, per the Phase 7 Completed entry
+    above) was written, run, and then deleted rather than kept in the suite. **Fixed — see below.**
+  - **N-8**: this file's own history (the Phase 3 qa-review completion note and the "Node version pin
+    added" note that follows it) misdiagnoses a real `npm test` crash as caused by "Node 24 vs. the
+    repo's Node 20 pin" — qa-reviewer reproduced the *exact same* crash on Node 20 from a
+    lowercase-drive-letter working directory (`/c/Sandbox/...` in Git Bash) and confirmed it
+    disappears when re-entering via the canonical-cased path (`C:/Sandbox/...`). The real root cause
+    is the path casing, not the Node version. **Corrected — see below** (the original entries are
+    left in place per this file's append-corrections convention; a new Notes entry cross-references
+    them rather than rewriting history).
+- [x] **Phase 7 qa-review fix-ups: N-1, N-7, N-8** (2026-07-28, developer). Jeff asked for these
+  three specifically; N-2 through N-6 above are deliberately **not** fixed, only logged (see Up Next).
+  - **N-1 fix**: added `isValidTimeZone(tz: string): boolean` to `src/lib/domain/datetime.ts` —
+    tries constructing `Intl.DateTimeFormat("en-US", { timeZone: tz })` in a try/catch (confirmed by
+    direct testing that this throws a `RangeError` for garbled input like `"Not/AZone"`, an empty
+    string, whitespace, a bare UTC offset like `"UTC+9"`, and oversized input, and never throws
+    itself); this is the same constructor every other tz-aware helper in that module already depends
+    on internally, so validating with it is the most reliable check available (considered but
+    rejected `Intl.supportedValuesOf("timeZone")` — newer/less universally available, and can omit
+    legitimate resolvable aliases). Wired into **both** `src/lib/actions/food.ts` (`addFoodEntry`/
+    `updateFoodEntry`, via the shared `parseAndValidateFoodEntryForm`) and `src/lib/actions/meals.ts`
+    (`logMealForDay`), immediately after each action's existing "missing tz" check and before any
+    call to `localDateNotAfterToday`/`localInputToUtcInTz` — both now return the existing
+    `error: "invalid_timezone"` shape (matching the codebase's established short-code convention:
+    `"future_date"`, `"meal_not_found"`, `"empty_meal"`) instead of throwing, with **zero rows
+    written**, confirmed the same way the rest of this codebase already confirms "zero rows written"
+    (a service-role admin read, not just the action's return value). 8 new unit tests for
+    `isValidTimeZone` in `datetime.test.ts` (real IANA zones, UTC, garbled/empty/whitespace/offset-
+    string/oversized input, and a "never throws" assertion) — unit total now **362 → 375** together
+    with N-7's tests below.
+  - **N-7 fix**: added two new, **persistent** (not throwaway) developer-owned integration test
+    files — `src/lib/actions/meals.test.ts` (13 tests) and `src/lib/actions/food.test.ts` (2 tests,
+    scoped narrowly to the N-1 fix on that file, since full `food.ts` CRUD coverage wasn't part of
+    this ask) — both exercising the real Server Action functions against a real local Postgres/RLS
+    instance, following the exact pattern the deleted `meals.throwaway.test.ts` already established
+    (mock `@/lib/supabase/server`'s `createClient` to return a REAL anon-key client already signed in
+    as a specific test user via `e2e/helpers/user-client.ts`, so `supabase.auth.getUser()` and every
+    RLS-scoped query hit real Postgres) — except this time kept in the suite rather than deleted.
+    `meals.test.ts` covers: `createMeal`/`updateMeal`/`deleteMeal` CRUD (incl. cascade and a blank-name
+    rejection with zero rows written); the `logged_from_meal_id` ownership invariant — a foreign
+    `mealId` and a nonexistent `mealId` both rejected with zero rows written anywhere (checked via a
+    service-role read across *both* users, not just the caller), and a successful log's rows verified
+    to carry the caller's own `user_id`/`logged_from_meal_id`; the empty-meal rejection; the
+    future-day cap (tomorrow rejected, today succeeds); and the N-1 fix itself
+    (`logMealForDay` with a garbled `logTz`). Requires a running local Supabase instance and skips
+    itself cleanly via Vitest's `describe.skipIf` when the required env vars aren't present — notably
+    **CI's "Unit tests" step, which deliberately runs BEFORE the ephemeral Supabase stack is started**
+    (see `.github/workflows/ci.yml`), so this doesn't turn `npm test` into a hard DB dependency.
+    Getting the skip path to actually work reliably surfaced two real `vitest.config.ts` gaps, both
+    fixed as part of this change (full detail in the new Notes entry below): (a) `@next/env`'s
+    `loadEnvConfig` silently loads nothing under Vitest's `NODE_ENV="test"` (Next's own documented
+    `.env.local`-skipped-under-test precedence) — worked around by temporarily presenting
+    `NODE_ENV="development"` for just that one call, then restoring it; (b) test files run in
+    separate worker processes that don't inherit the orchestrator process's `process.env` mutations,
+    so the Supabase vars must be forwarded explicitly via Vitest's `test.env` config option — and
+    naively forwarding `process.env.X` when `X` is `undefined` doesn't leave the var unset in the
+    worker, it sets it to the **literal string `"undefined"`** (truthy!), silently defeating the
+    `describe.skipIf(!hasSupabaseEnv)` guard; fixed with a small `definedEnvOnly()` helper that omits
+    unset keys entirely. Verified both directions directly, not just assumed: with `.env.local`
+    removed and the Vite/Vitest dep cache cleared, both new test files log a "Skipping: ... not set"
+    warning and every test shows as skipped; with `.env.local` present (Docker/local Supabase was
+    available this round), all 13 + 2 tests pass against the real stack. Unit total: **375/375**
+    (362 prior + 8 N-1 tests + 13 N-7 `meals.test.ts` tests + 2 N-7 `food.test.ts` tests = 375; note
+    362 was already inclusive of everything through the "Seed a third account" commit).
+  - **N-8 fix**: corrected, not rewritten — see the new 2026-07-28 Notes entry below, which
+    cross-references the two specific prior entries (the Phase 3 qa-review completion note and the
+    "Node version pin added" note immediately after it) that misattributed the crash to "Node 24",
+    and records qa-reviewer's actual root cause (a lowercase-drive-letter working directory in Git
+    Bash). The original entries are left in place per this file's convention of appending
+    corrections rather than silently editing history (mirrors how `ai-context/DECISIONS.md` handles
+    supersession).
+  - **Verification** (2026-07-28): `npm run lint` clean; `npx tsc --noEmit` clean; `npm test`
+    **375/375** (against a live local Supabase — the new N-7 integration tests actually ran, not
+    just skipped); `npm run build` clean (only the pre-existing `middleware`→`proxy` deprecation
+    warning). Full e2e re-verification via a clean `supabase db reset` + a *freshly started* dev
+    server (an already-running, hours-old dev server from earlier work was killed first — per this
+    file's own 2026-07-25 "reproduce against a freshly started `npm run dev`" lesson, a stale server
+    is a known source of false failures in this suite): **198/199 passed**; the one failure
+    (`phase3-acceptance.spec.ts` "day pct is calorie-weighted ratio-of-sums...") is on the
+    already-documented list of pre-existing `FoodDayView` `Day`-input-race flakes (see the
+    2026-07-25 Notes entries) — re-ran in isolation and it passed cleanly, confirming it's the known
+    flake, not a new regression. `e2e/phase7-acceptance.spec.ts` re-run standalone twice: **29/29**
+    both times.
 
 ## Up Next
-1. **Phase 7 (Saved meals) implemented — needs qa-reviewer.** Next step is qa-reviewer writing the
-   independent acceptance suite from the design doc's §6 scope (see the Phase 7 Completed entry
-   above for exactly what's already been developer-verified vs. what's still open).
+1. **Phase 7 qa-reviewed; N-1, N-7, N-8 fixed (2026-07-28) — ready for Jeff's approval.** No
+   further developer or qa-reviewer action required on those three unless Jeff's own review
+   surfaces something new. See item 8 below for the five notes Jeff explicitly asked to defer.
 2. **Phase 5 fixed up after qa-reviewer's blocking bug — ready for Jeff's approval.** No further
    developer or qa-reviewer action required unless Jeff's own review surfaces something new.
 3. **Phase 6 approved by Jeff (2026-07-27).** No further action needed.
@@ -963,8 +1079,32 @@
    existing hypothesis (a controlled-input/native-reset interaction, same family as the
    `SettingsForm` radio bug already fixed in Phase 4).
 7. **Phase 8 (Ease-of-entry extras — copy/repeat) is next in the design doc's §8 dependency order**
-   once Phase 7 clears qa-review (6→7 was the last hard dependency; 8 has no further hard
+   now that Phase 7 has cleared qa-review (6→7 was the last hard dependency; 8 has no further hard
    prerequisites of its own).
+8. **Phase 7 qa-review non-blocking notes N-2 through N-6 — logged here, deliberately NOT fixed**
+   (Jeff's explicit instruction: fix N-1/N-7/N-8 now, defer the rest). All five live in
+   `src/lib/actions/meals.ts` unless noted. Picking any of these up should start from qa-reviewer's
+   original finding, not just this summary:
+   - **N-2**: `reorderMealItems` issues one `UPDATE` per item with no surrounding transaction (a
+     partial failure mid-reorder could leave `sort_order` inconsistent), and doesn't validate that
+     the caller-supplied `orderedIds` actually matches the meal's current item set before writing.
+   - **N-3**: `addMealItem`'s "find the current max `sort_order`, then insert at +1" has a race
+     window — two concurrent adds to the same meal could read the same max and collide on
+     `sort_order`.
+   - **N-4**: `deleteMeal`/`deleteMealItem`/`reorderMealItems` return `{ ok: true }` even when the
+     `id`/`user_id` filter matched zero rows (e.g. deleting an already-deleted or a foreign id) —
+     not a security gap (RLS/ownership already prevent any actual cross-user mutation), just an
+     ambiguous success response that can't distinguish "deleted" from "matched nothing."
+   - **N-5**: raw `error.message` strings from Postgres/Supabase can reach the UI unfiltered on
+     unexpected failures in `lib/actions/meals.ts`, rather than being mapped to a friendlier message
+     (the codebase already has a "short-code error" convention — `"future_date"`, `"meal_not_found"`,
+     `"empty_meal"`, and now `"invalid_timezone"` — for the *expected* failure paths; this note is
+     about the *unexpected* ones falling through to a raw DB string).
+   - **N-6**: `MealsView`'s refresh-after-mutation has no stale-response guard, unlike
+     `TodaySummary.tsx`, which correctly has one (see the Phase 3 qa-review's similar non-blocking
+     note about `FoodDayView`'s day-switch fetch, still also open — item 6 above) — a rapid sequence
+     of mutations could in principle have an in-flight earlier refresh's response land after a later
+     one's and render stale data; self-corrects on the next refresh, no data-integrity risk.
 
 ## Notes / Things Discovered
 - 2026-07-19: `AGENTS.md`, `ai-context/PROGRESS.md`, and `ai-context/DECISIONS.md` were still
@@ -1151,5 +1291,57 @@
   of new tests were added alongside them (e.g. confirming Open Food Facts still falls back to a
   *usable* per-100g basis when the per-serving basis is negative, rather than losing the candidate
   entirely) to keep the fallback-vs-drop distinction from N-2's own reasoning independently covered.
+- 2026-07-28: **CORRECTION to two prior entries that misdiagnosed a real `npm test` crash as a
+  "Node 24" problem** — flagged by qa-reviewer as Phase 7's N-8. The two entries in question (left
+  in place, not edited, per this file's append-corrections convention) are: the Phase 3 qa-review
+  completion note's "**Environment caveat (pre-existing, not a Phase 3 issue):** `npm test` fails to
+  start under Node 24 ... but the repo has no `engines`/`.nvmrc` pin, so a contributor on Node 22+/24
+  gets a false-red `npm test` locally," and the "**Node version pin added**" note immediately after
+  it ("could not reproduce qa-reviewer's reported crash on this sandbox (Windows, Node 24.18.0) ...
+  so the failure may be platform- or exact-patch-version-specific"). **The actual root cause has
+  nothing to do with the Node version**: qa-reviewer reproduced the exact same `@vitejs/plugin-react`/
+  `vite`/`vitest` crash-at-load on **Node 20** (the repo's own pinned version) when the shell's
+  working directory used a **lowercase drive letter** (`/c/Sandbox/...`, as Git Bash on Windows will
+  happily accept), and confirmed the crash disappears when the same commands are run from the
+  **canonical-cased path** (`C:/Sandbox/...`) instead — with no other variable changed. This also
+  explains why the original "Node version pin added" entry couldn't reproduce the crash on Node
+  24.18.0 in that developer's sandbox: the pin was never the actual variable, path casing was, and
+  that session likely happened to be using (or not using) a lowercase-drive path independent of which
+  Node version was installed. **Practical takeaway for anyone hitting this again**: if `npm test`
+  throws at load with a Vite/Vitest/plugin-react-shaped error, check the working directory's drive
+  letter casing (`pwd` in Git Bash) before suspecting the Node version — `cd` to the canonical-cased
+  path and retry. The `.nvmrc`/`engines` pin added in that earlier session is still correct and
+  worth keeping (matching CI's Node 20 exactly is good practice regardless), it just wasn't fixing
+  the thing it was believed to be fixing.
+- 2026-07-28: **Vitest's `test.env` config option silently coerces an `undefined` value to the
+  three-letter STRING `"undefined"` when forwarding it into a worker's `process.env`** — discovered
+  while building Phase 7 qa-review fix N-7's new persistent integration tests
+  (`src/lib/actions/meals.test.ts`/`food.test.ts`), which need real `NEXT_PUBLIC_SUPABASE_URL`/
+  `NEXT_PUBLIC_SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY` values to run against a real local
+  Supabase instance, and were designed to skip themselves cleanly via
+  `describe.skipIf(!hasSupabaseEnv)` when those aren't set (e.g. CI's "Unit tests" step, which
+  deliberately runs before Supabase is started). The naive version —
+  `env: { NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL, ... }` in
+  `vitest.config.ts`, where the right-hand side is `undefined` whenever `.env.local` doesn't exist or
+  doesn't define that var — did NOT leave the var unset in the test worker as expected; it set it to
+  the literal string `"undefined"`, which is truthy (`!!"undefined" === true`), so
+  `hasSupabaseEnv` silently evaluated `true` and the tests tried to run anyway, failing with
+  confusing low-level errors (`Invalid supabaseUrl: Must be a valid HTTP or HTTPS URL`) instead of
+  skipping. Root-caused by direct experimentation (a debug `console.error` inside the test file
+  itself showed `JSON.stringify(process.env.NEXT_PUBLIC_SUPABASE_URL)` printing the quoted string
+  `"undefined"`, not the bare token, which only happens if the value is genuinely the string
+  `"undefined"`) — not guessed. Fixed with a small `definedEnvOnly()` helper in `vitest.config.ts`
+  that filters out any `undefined` entries before they reach `test.env`, so an unset var is truly
+  absent from the worker's `process.env` rather than present-but-wrong. Separately (and needed for
+  the same tests to actually pick up `.env.local` at all): `@next/env`'s `loadEnvConfig` — the same
+  loader `playwright.config.ts` already uses for `.env.local` — silently loads **nothing** when
+  `NODE_ENV="test"` (Next's own documented precedence: `.env.local` is deliberately skipped under
+  test, since tests are supposed to be deterministic across machines), and Vitest always sets
+  `NODE_ENV="test"` before the config file runs — worked around by temporarily presenting
+  `NODE_ENV="development"` for just the `loadEnvConfig` call, then restoring the original value
+  immediately after. **General implication for future phases**: any future developer-owned
+  integration test that needs real env vars forwarded through `vitest.config.ts`'s `test.env` should
+  reuse `definedEnvOnly()` rather than passing `process.env.X` directly — this is a Vitest-wide
+  gotcha, not specific to the Supabase vars used here.
 
 ---

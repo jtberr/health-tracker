@@ -143,6 +143,35 @@ export function localDateInTz(instant: Date, tz: string): string {
 }
 
 /**
+ * True when `tz` is a value `Intl` can actually use as an IANA time zone (e.g.
+ * "America/New_York", "UTC") — false for anything else, including an empty string and
+ * garbled/tampered input (e.g. a hostile client overwriting a hidden `consumedTz`/`logTz` form
+ * field with something like "Not/AZone"). Constructing `Intl.DateTimeFormat` with an invalid
+ * `timeZone` throws a `RangeError`; every other tz-aware helper in this module
+ * (`localDateNotAfterToday`, `localInputToUtcInTz`, `utcToLocalTime`, `localDateInTz`) relies on
+ * that same constructor internally via `formatPartsInTz`/`tzOffsetMinutesAt`, and would otherwise
+ * let that throw propagate straight out of a Server Action — surfacing a generic framework error
+ * page instead of a graceful `{ error: "invalid_timezone" }` result. Callers should check this
+ * BEFORE passing an unvalidated tz string to any of those other helpers (see
+ * `lib/actions/food.ts` / `lib/actions/meals.ts`).
+ *
+ * Uses a try/catch around the constructor rather than `Intl.supportedValuesOf("timeZone")`: the
+ * latter is a newer API (Node 18+ has it, but it's not guaranteed everywhere `Intl` itself is, and
+ * some legitimate zones — mainly interoperability aliases the runtime still resolves correctly —
+ * aren't in its list) — the constructor is the one thing every downstream helper here already
+ * depends on succeeding, so validating with the exact same call is the most reliable check.
+ */
+export function isValidTimeZone(tz: string): boolean {
+  if (!tz) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * True when `dateStr` (a YYYY-MM-DD local calendar day) is not later than "today" as of `now`,
  * in the local calendar of `tz`. Backs the no-future-day cap (§2/§4): applies to add/edit for
  * food entries here; the same helper is reused for weight/body-fat (`metricTz`) and, in a later
