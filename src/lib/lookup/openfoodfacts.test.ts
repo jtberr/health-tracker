@@ -62,4 +62,35 @@ describe("fetchOpenFoodFactsProduct", () => {
     const result = await fetchOpenFoodFactsProduct("012345678905");
     expect(result).toEqual({ ok: false });
   });
+
+  it("treats OFF's real HTTP 404 'not found' response as found:false, not a provider error", async () => {
+    // Confirmed 2026-07-29 against the live v2 API: an unknown barcode comes back as HTTP 404
+    // with a normal JSON body, not HTTP 200 as earlier testing had assumed. Before this fix,
+    // `!response.ok` short-circuited before the body was ever parsed, so every genuinely
+    // not-found barcode was misreported as a provider error (502) instead of a graceful
+    // manual-entry fallback.
+    fetchSpy.mockResolvedValue(
+      jsonResponse({ code: "00228380", status: 0, status_verbose: "product not found" }, 404)
+    );
+    const { fetchOpenFoodFactsProduct } = await import("./openfoodfacts");
+
+    const result = await fetchOpenFoodFactsProduct("228380");
+    expect(result).toEqual({ ok: true, found: false });
+  });
+
+  it("still treats a genuine 5xx as a provider error", async () => {
+    fetchSpy.mockResolvedValue(new Response("Internal Server Error", { status: 500 }));
+    const { fetchOpenFoodFactsProduct } = await import("./openfoodfacts");
+
+    const result = await fetchOpenFoodFactsProduct("012345678905");
+    expect(result).toEqual({ ok: false });
+  });
+
+  it("treats a 404 with an unparseable body as a provider error, not a silent not-found", async () => {
+    fetchSpy.mockResolvedValue(new Response("not json", { status: 404 }));
+    const { fetchOpenFoodFactsProduct } = await import("./openfoodfacts");
+
+    const result = await fetchOpenFoodFactsProduct("012345678905");
+    expect(result).toEqual({ ok: false });
+  });
 });

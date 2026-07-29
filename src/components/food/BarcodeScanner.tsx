@@ -96,8 +96,22 @@ export function BarcodeScanner({ onSubmitBarcode, disabled = false }: BarcodeSca
         const scanner = new Html5Qrcode(regionId);
         scannerRef.current = scanner;
         await scanner.start(
+          // NOTE: despite its `MediaTrackConstraints` type, html5-qrcode's runtime requires this
+          // first argument to be a plain object with EXACTLY one key (`facingMode` or
+          // `deviceId`) -- extra keys like `width`/`height` here throw synchronously
+          // ("object should have exactly 1 key"), which is why the resolution request has to go
+          // through `videoConstraints` in the config argument below instead, not here.
           { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 250, height: 150 } },
+          {
+            fps: 10,
+            qrbox: { width: 300, height: 150 },
+            // Request the highest resolution the camera offers (most default to a low ~640x480
+            // stream otherwise) -- a fixed-focus webcam that can't sharply resolve a barcode held
+            // close still benefits from more raw pixel detail per unit area to decode against.
+            // Setting this replaces (doesn't merge with) the `facingMode` above at the library's
+            // own getUserMedia call, so it's repeated here.
+            videoConstraints: { facingMode: "environment", width: { ideal: 1920 }, height: { ideal: 1080 } },
+          },
           (decodedText) => {
             setManualCode(decodedText);
             onSubmitBarcode(decodedText);

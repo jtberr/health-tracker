@@ -1105,8 +1105,90 @@
      note about `FoodDayView`'s day-switch fetch, still also open — item 6 above) — a rapid sequence
      of mutations could in principle have an in-flight earlier refresh's response land after a later
      one's and render stale data; self-corrects on the next refresh, no data-integrity risk.
+9. **Undo two local-machine-only changes made for phone-on-LAN manual testing (neither is a repo
+   file — nothing to revert in git, just local OS/machine state).** While testing Phase 6's
+   barcode scanner from a phone browser (to get a real rear camera, since a laptop webcam can't
+   reliably focus close enough on a 1D barcode), two separate LAN-reachability problems surfaced
+   and were fixed:
+   - **Windows Firewall**: Windows classifies the home Wi-Fi (`NETGEAR45-5G 2`) as a **Private**
+     network profile, but the existing "Node.js JavaScript Runtime" inbound-allow firewall rule
+     was scoped to **Public** only, so Windows silently dropped the phone's connection to port
+     3000 (confirmed via `netstat` that the dev server itself was correctly listening on
+     `0.0.0.0:3000`, and via `Get-NetFirewallRule`/`Get-NetConnectionProfile` that the
+     rule/profile mismatch was the actual cause). The same issue also applied to Supabase's API
+     gateway on port 54321. Jeff approved adding two narrow, temporary inbound rules (same
+     `DisplayName`, `"health-tracker dev server (temporary)"`, one per port), applied by Jeff
+     himself in an elevated PowerShell session since this environment isn't running as
+     Administrator. Follow-up: once local phone/LAN testing is done for good, remove both with
+     `Remove-NetFirewallRule -DisplayName "health-tracker dev server (temporary)"` (elevated
+     PowerShell — this removes every rule with that display name, i.e. both ports at once).
+   - **`.env.local`'s `NEXT_PUBLIC_SUPABASE_URL`**: was `http://127.0.0.1:54321`, which gets baked
+     into the browser bundle at dev-server-start — correct for a browser on the *same machine* as
+     the server, but meaningless from a phone (127.0.0.1 there means the phone itself, not the
+     laptop), which is why login (a Server Action, runs server-side) worked from the phone but
+     `TodaySummary`'s browser-side Supabase read ("Today so far") hung forever. Changed to the
+     laptop's LAN IP, `http://192.168.1.58:54321` (Supabase's API gateway was already confirmed
+     listening on `0.0.0.0:54321`, i.e. all interfaces, so only the URL and the firewall were the
+     blockers), and the dev server was restarted (`NEXT_PUBLIC_*` vars are inlined at server-start,
+     not hot-reloaded). Follow-up: this is fine to leave as the LAN IP indefinitely for continued
+     phone testing, but if the laptop's LAN IP ever changes (different network, DHCP lease
+     renewal) it'll need updating again, or revert to `127.0.0.1:54321` if phone testing is no
+     longer needed. `.env.local` is gitignored, so this was never at risk of being committed.
 
 ## Notes / Things Discovered
+- 2026-07-29: **Real bugs and environment gotchas found manually testing Phase 6/7 from a phone
+  on the LAN** (not from the automated suite — this is exactly the kind of thing manual browser
+  testing catches that tests don't). Four distinct, independent issues, each masking the next
+  once fixed:
+  1. **Open Food Facts' live v2 API returns HTTP 404 (not HTTP 200 with `status: 0`) for a
+     genuinely unknown barcode.** `src/lib/lookup/openfoodfacts.ts`'s `!response.ok` check
+     short-circuited before the body was ever parsed, so every real not-found barcode was
+     misreported as `provider_error` (502) → the UI's "Barcode lookup is unavailable right now"
+     message, instead of a graceful not-found fallback. This directly contradicts what Phase 6's
+     qa-review had asserted it verified live ("an unknown code returns HTTP 200 with `status: 0`,
+     not a 404") — worth flagging as a caution about trusting even a qa-reviewer's own "verified
+     against the live API" claims without re-checking, since provider behavior (or the reviewer's
+     test barcode) can differ. Fixed: 404 with a parseable body is now treated as a valid
+     not-found response; genuine 5xx/unparseable-body cases still correctly return `provider_error`.
+     Regression tests added to `openfoodfacts.test.ts`.
+  2. **`html5-qrcode`'s `Html5Qrcode.start()` first argument is typed as `MediaTrackConstraints`
+     but its actual runtime only accepts an object with exactly one key** (`facingMode` or
+     `deviceId`) — passing `{facingMode, width, height}` to request a higher-resolution camera
+     stream (attempted to help a fixed-focus laptop webcam decode a barcode) throws synchronously
+     ("object should have exactly 1 key"), surfacing as "Couldn't start the camera." The resolution
+     request has to go through the separate `videoConstraints` field on the *second* config
+     argument instead (which **replaces**, not merges with, the first argument's derived
+     constraints at the library's own `getUserMedia` call — so `facingMode` has to be repeated
+     inside `videoConstraints` too). This is a real type/runtime mismatch in the installed
+     `html5-qrcode@2.3.8` `.d.ts` — worth remembering if this library version is touched again.
+  3. **`allowedDevOrigins` (Next.js 15.3+/16) blocks cross-origin dev-server requests by
+     default**, including — critically — enough of the client bundle/HMR machinery that a client
+     component's `useEffect` **silently never fires at all** when the page is loaded from a
+     non-allowlisted origin (e.g. a phone hitting the dev server's LAN IP instead of `localhost`).
+     This looked exactly like a hung Supabase query (indefinite "Loading…", no network request
+     ever visible) but was actually a total client-hydration no-op — the giveaway was a step-by-
+     step debug tracer (temporarily added to `TodaySummary.tsx`, since reverted) showing the
+     effect's own `setTimeout` watchdog never firing either. The real signal was in the **dev
+     server's own terminal log**, not the browser console: `⚠ Blocked cross-origin request to
+     Next.js dev resource ... add it to "allowedDevOrigins" in next.config.js`. Fixed by adding
+     `allowedDevOrigins: ["192.168.1.58"]` to `next.config.ts` (dev-only; no effect on `next
+     build`/`next start`). **If this laptop's LAN IP ever changes, this needs updating too** (see
+     the `.env.local` `NEXT_PUBLIC_SUPABASE_URL` note in Up Next item 9, same underlying cause).
+  4. **`getUserMedia` (camera access) requires a secure context** — HTTPS or `localhost` — and a
+     plain `http://<lan-ip>:3000` origin doesn't qualify, so `BarcodeScanner.tsx`'s
+     `cameraSupported` feature-detection correctly resolves `false` on a phone hitting the dev
+     server over LAN, hiding the "Scan with camera" button entirely (not a bug — the code is
+     behaving exactly as designed). Worked around for testing via Chrome's
+     `chrome://flags/#unsafely-treat-insecure-origin-as-secure` (add the exact origin, e.g.
+     `http://192.168.1.58:3000`) on the phone itself — no app or server change. A more permanent
+     alternative for future phone testing would be `next dev --experimental-https`, not set up
+     here.
+  Also reconfirmed the existing "stale webpack cache defeats env var changes" gotcha from
+  scratch: after editing `.env.local`'s `NEXT_PUBLIC_SUPABASE_URL`, a plain server restart still
+  served the **old** value (confirmed by grepping the compiled chunk directly) because of Next's
+  persistent `.next/cache` — only `rm -rf .next` + restart actually picked up the change. Anyone
+  changing a `NEXT_PUBLIC_*` var during local dev should expect to need a full cache clear, not
+  just a restart.
 - 2026-07-19: `AGENTS.md`, `ai-context/PROGRESS.md`, and `ai-context/DECISIONS.md` were still
   unfilled template placeholders when this feature work started (except the "Health Tracker"
   project title and Jeff's dev-background note, already set). `AGENTS.md` has since been fully

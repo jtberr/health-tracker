@@ -30,6 +30,12 @@ export type OpenFoodFactsLookupResult =
  * identity, per AGENTS.md's Absolute Rules. Distinguishes "not found" (`status !== 1` in Open
  * Food Facts' own response envelope) from a genuine transport/provider failure so the caller can
  * surface the right message (manual-entry fallback vs. "lookup unavailable").
+ *
+ * Confirmed against the live v2 API (2026-07-29): an unknown barcode comes back as HTTP 404 with
+ * a normal JSON body (`{status: 0, status_verbose: "product not found"}`), not HTTP 200 as
+ * earlier testing had assumed — 404 is Open Food Facts' genuine "not found" response, not a
+ * provider failure, so it must still be parsed rather than short-circuited by `!response.ok`.
+ * Anything else non-ok (5xx, etc.) is treated as a real transport/provider failure.
  */
 export async function fetchOpenFoodFactsProduct(barcode: string): Promise<OpenFoodFactsLookupResult> {
   try {
@@ -39,11 +45,17 @@ export async function fetchOpenFoodFactsProduct(barcode: string): Promise<OpenFo
       signal: lookupTimeoutSignal(),
     });
 
-    if (!response.ok) {
+    if (!response.ok && response.status !== 404) {
       return { ok: false };
     }
 
-    const body = (await response.json()) as { status?: unknown; product?: unknown };
+    let body: { status?: unknown; product?: unknown };
+    try {
+      body = (await response.json()) as { status?: unknown; product?: unknown };
+    } catch {
+      return { ok: false };
+    }
+
     if (body.status !== 1 || !body.product) {
       return { ok: true, found: false };
     }
