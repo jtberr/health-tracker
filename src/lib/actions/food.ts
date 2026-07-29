@@ -181,7 +181,7 @@ function parseAndValidateFoodEntryForm(formData: FormData): ParsedFoodEntryForm 
     for (const e of validation.errors) fieldErrors[e.field] = e.message;
     return {
       ok: false,
-      state: { ok: false, error: "Please fix the errors below.", fieldErrors },
+      state: { ok: false, error: "Please fix the highlighted errors.", fieldErrors },
     };
   }
 

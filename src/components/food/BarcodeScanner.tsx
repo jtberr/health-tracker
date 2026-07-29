@@ -143,7 +143,10 @@ export function BarcodeScanner({ onSubmitBarcode, disabled = false }: BarcodeSca
           the *outer* food-entry form) -- confirmed by hand in a real browser, not just inferred.
           Enter-to-submit is preserved via onKeyDown instead. */}
       <div className="flex items-end gap-2">
-        <div className="flex flex-1 flex-col gap-1">
+        {/* min-w-0 overrides the flex item default of min-width:auto, which otherwise refuses to
+            shrink below the <input>'s natural content width and pushes the "Look up" button
+            outside the card on narrow (phone) viewports. */}
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
           <label htmlFor={`${idPrefix}-barcode`} className={labelClass}>
             Barcode (UPC/EAN)
           </label>

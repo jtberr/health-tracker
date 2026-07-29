@@ -85,7 +85,7 @@ export async function updateGoals(
   if (!validation.ok) {
     const fieldErrors: Partial<Record<GoalsField, string>> = {};
     for (const e of validation.errors) fieldErrors[e.field] = e.message;
-    return { ok: false, error: "Please fix the errors below.", fieldErrors };
+    return { ok: false, error: "Please fix the highlighted errors.", fieldErrors };
   }
 
   // `user_goals` is a "settings row" per user (ensure-row pattern above), so this write is always

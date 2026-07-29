@@ -57,7 +57,7 @@ export async function upsertDailyMetric(
   if (!validation.ok) {
     const fieldErrors: Partial<Record<DailyMetricField, string>> = {};
     for (const e of validation.errors) fieldErrors[e.field] = e.message;
-    return { ok: false, error: "Please fix the errors below.", fieldErrors };
+    return { ok: false, error: "Please fix the highlighted errors.", fieldErrors };
   }
 
   if (!metricTz) {

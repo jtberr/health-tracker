@@ -1134,6 +1134,34 @@
      phone testing, but if the laptop's LAN IP ever changes (different network, DHCP lease
      renewal) it'll need updating again, or revert to `127.0.0.1:54321` if phone testing is no
      longer needed. `.env.local` is gitignored, so this was never at risk of being committed.
+10. **Design follow-up (Jeff, 2026-07-29, discuss-only so far — no code changed): the per-unit/
+    total mode question in `FoodEntryForm`/`MealItemForm`'s "add detail" section reads as
+    confusing right after a successful barcode/search lookup.** The control ("Are the
+    calories/protein above per unit, or a total for this quantity?") is phrased as an open
+    question, but a lookup pick has already silently resolved it (mode set to per-unit, real
+    provider values filled in) before the section auto-expands — so the UI re-presents a
+    already-decided question at exactly the moment ("it just worked") where that reads as
+    friction/doubt rather than confirmation. Likely direction discussed: not removing the
+    control (it still carries real meaning if the user adjusts quantity afterward — how the
+    calorie field's math recalculates depends on knowing per-unit vs. total), but reframing it
+    from an active question to a passive, already-answered/overridable label once a lookup has
+    resolved it (e.g. "Per unit ✓," still tappable to change). Since this revises the recorded
+    2026-07-19 "Progressive disclosure" decision in `ai-context/DECISIONS.md`, it should go
+    through the architect first, same as the time-picker alignment change — not a quick tweak.
+    **Second, related observation (Jeff, same date): on a plain manual entry (mode defaults to
+    `"total"`, not from a lookup), the calorie/protein field labels above the toggle already read
+    "Total calories"/"Total protein"** (`caloriesLabel`/`proteinLabel` in both `FoodEntryForm.tsx`
+    and `MealItemForm.tsx` switch on `mode`, per the existing, confirmed-correct code) — so by the
+    time a user reaches the toggle, the labels have already implicitly stated "these are totals,"
+    making the still-open-sounding question underneath them read as redundant/confusing in the
+    *manual-entry* case too, not just the post-lookup case. Two separate architect-worthy angles
+    on the same control now: (a) the post-lookup case, where the question is confusing because the
+    app already silently answered it; (b) this manual-entry case, where the question is confusing
+    because the field labels above it already imply the answer before the user even reaches the
+    toggle. **Confirmed not a functional bug**: Jeff verified a lookup pick does correctly set
+    `mode` to `"perUnit"` (labels correctly read "Calories per unit"/"Protein per unit (g)" in that
+    case) — this note is about wording/framing only, nothing to fix in the mode-setting logic
+    itself.
 
 ## Notes / Things Discovered
 - 2026-07-29: **Real bugs and environment gotchas found manually testing Phase 6/7 from a phone

@@ -169,7 +169,10 @@ export function FoodLookupPanel({ onPick }: FoodLookupPanelProps) {
         // *outer* food-entry form instead of running this search) -- confirmed by hand in a
         // real browser, not just inferred. Enter-to-search is preserved via onKeyDown instead.
         <div className="flex items-end gap-2">
-          <div className="flex flex-1 flex-col gap-1">
+          {/* min-w-0 overrides the flex item default of min-width:auto, which otherwise refuses
+              to shrink below the <input>'s natural content width and pushes the Search button
+              outside the card on narrow (phone) viewports. */}
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
             <label htmlFor="food-lookup-query" className={labelClass}>
               Search by description
             </label>

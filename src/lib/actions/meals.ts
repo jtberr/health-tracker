@@ -79,7 +79,7 @@ export async function createMeal(
   if (!validation.ok) {
     const fieldErrors: Partial<Record<MealField, string>> = {};
     for (const e of validation.errors) fieldErrors[e.field] = e.message;
-    return { ok: false, error: "Please fix the errors below.", fieldErrors };
+    return { ok: false, error: "Please fix the highlighted errors.", fieldErrors };
   }
 
   const { data, error } = await supabase
@@ -117,7 +117,7 @@ export async function updateMeal(
   if (!validation.ok) {
     const fieldErrors: Partial<Record<MealField, string>> = {};
     for (const e of validation.errors) fieldErrors[e.field] = e.message;
-    return { ok: false, error: "Please fix the errors below.", fieldErrors };
+    return { ok: false, error: "Please fix the highlighted errors.", fieldErrors };
   }
 
   // `.eq("user_id", user.id)` is belt-and-suspenders alongside RLS, same convention as every
@@ -196,7 +196,7 @@ function parseAndValidateMealItemForm(formData: FormData): ParsedMealItemForm {
     for (const e of validation.errors) fieldErrors[e.field] = e.message;
     return {
       ok: false,
-      state: { ok: false, error: "Please fix the errors below.", fieldErrors },
+      state: { ok: false, error: "Please fix the highlighted errors.", fieldErrors },
     };
   }
 
@@ -383,7 +383,7 @@ export async function logMealForDay(
   if (!validation.ok) {
     const fieldErrors: Partial<Record<LogMealField, string>> = {};
     for (const e of validation.errors) fieldErrors[e.field] = e.message;
-    return { ok: false, error: "Please fix the errors below.", fieldErrors };
+    return { ok: false, error: "Please fix the highlighted errors.", fieldErrors };
   }
 
   if (!logTz) {

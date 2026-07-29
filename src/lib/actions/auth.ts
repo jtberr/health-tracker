@@ -28,7 +28,7 @@ export async function signIn(
 
   const validation = validateLoginInput({ email, password });
   if (!validation.ok) {
-    return { error: "Please fix the errors below.", fieldErrors: toFieldErrors(validation.errors) };
+    return { error: "Please fix the highlighted errors.", fieldErrors: toFieldErrors(validation.errors) };
   }
 
   const supabase = await createClient();
@@ -51,7 +51,7 @@ export async function signUp(
 
   const validation = validateSignupInput({ email, password, confirmPassword });
   if (!validation.ok) {
-    return { error: "Please fix the errors below.", fieldErrors: toFieldErrors(validation.errors) };
+    return { error: "Please fix the highlighted errors.", fieldErrors: toFieldErrors(validation.errors) };
   }
 
   const supabase = await createClient();
