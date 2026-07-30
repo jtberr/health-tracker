@@ -817,4 +817,190 @@ the kind of bug the project's own convention flags as one automated tests are un
 because the phase was actually driven by hand in a real browser per the developer role's own
 verification bar, not because a test caught it.
 
+### Saving an already-logged meal group as a Saved Meal: a copy-by-value, read-only-on-`food_entries` operation via one `createMealFromEntries` action — its own Phase 7b, ahead of Phase 8
+**Date**: 2026-07-30
+**Decision**: Close the one-directional gap between the two existing meal concepts. Until now, an
+exact-`consumed_at` **meal group** (derived, presentational — `lib/domain/entry-grouping.ts`) could
+only ever be *read*, and a **Saved Meal** (`meals` + `meal_items`) could only ever be built from
+scratch in `/meals` and then logged *forward* into `food_entries`. A user who had just logged a meal
+by hand had no way to keep it except retyping every item. New surface: a **"Save as meal"** control
+on each `FoodEntryList` group header, opening an inline expander
+(`components/food/SaveGroupAsMealDialog.tsx`) that takes a name and calls one new Server Action,
+`createMealFromEntries(prevState, formData)` in `lib/actions/meals.ts` — the exact mirror of
+`logMealForDay`, deliberately shaped like it so the two directions are reviewable against each other.
+Load-bearing specifics:
+- **Input is entry *ids*, never entry *values*.** The action re-reads the `food_entries` rows itself
+  through the RLS-scoped server client (never service-role), exactly as `logMealForDay` re-reads
+  `meal_items` rather than trusting a client-supplied item list. Ownership is `.in('id', entryIds)
+  .eq('user_id', user.id)` on top of RLS, plus a **count check**: if fewer rows come back than ids
+  were requested, the whole request is rejected (`entries_not_found`).
+- **Copy-by-value, per-unit only**: `name`, `quantity`, `unit`, `calories_per_unit`,
+  `protein_g_per_unit`, plus a fresh `sort_order` of `0..N-1`. The generated `calories`/`protein_g`
+  are never copied (they can't be — they're STORED generated columns).
+- **Strictly read-only on `food_entries`**: no UPDATE, no DELETE, no relink. The source entries'
+  `logged_from_meal_id` is *not* repointed at the new meal, so the "From a saved meal" badge on a
+  group reads exactly as it did before.
+- **No provenance column in either direction** — no `meal_items.from_food_entry_id`, no
+  `food_entries.saved_into_meal_id`. **No schema change at all.**
+- The action **does not require the ids to share one `consumed_at`** — the group is a UI-level
+  selection, exactly as `copyFoodEntries(entryIds, …)` is already id-list-based and group-agnostic.
+- Sequenced as **its own "Phase 7b", running next, before Phase 8**, and numbered 7b rather than
+  renumbering 8/9.
+**Why**: Jeff called this "a critical ease-of-use function," so it gets a real per-phase checkpoint
+rather than being appended to a phase that has already shipped. It is deliberately **not** folded
+into Phase 7 (implemented, qa-reviewed, verdict on record — reopening its scope would invalidate a
+review already done) and **not** folded into Phase 8 (bundling would block shipping this until
+copy/repeat is also finished, and would blur Phase 8's qa scope across two independent features);
+7b runs *before* 8 because the two share the `FoodEntryList` group-header surface, so doing 7b first
+means Phase 8 adds a button to an action bar that already exists rather than retrofitting one.
+Numbering 7b keeps every existing "Phase 8" reference in the design doc, `ai-context/*`, and the test
+suite correct. Re-reading the entries server-side rather than accepting values from the browser is
+what makes ownership checkable at all — client-supplied nutrition values would be unverifiable, and
+the count check matters specifically because without it a mixed own/foreign id set would silently
+produce a *partial* meal, which is worse than an error because it looks like it worked. Copying only
+the per-unit inputs yields a genuinely useful invariant: `meal_items.calories`/`protein_g` and
+`food_entries.calories`/`protein_g` are computed by the *same* `round(quantity × per-unit)`
+generated expression, so **the new meal's totals equal the source group's totals by construction** —
+the totals are never copied, so they can never be copied wrongly. Rejecting a provenance column is the
+same reasoning that made Saved Meals copy-by-value in the first place (see "Saved meals: items scoped
+per-meal, logged by copying values…"): a `derived_from` reference would make a meal's meaning depend
+on rows the user is free to edit or delete afterwards, and would need its own `ON DELETE` semantics,
+ownership story, and "what does a dangling one mean" answer — all to store provenance nothing in the
+product reads. Keeping the action id-list-based (not group-shaped) keeps exact-timestamp grouping
+purely derived and means Phase 8's multi-select can drive the same action with no change. `sort_order`
+comes from `created_at`-then-`id` order because a group's entries share an identical `consumed_at` by
+definition, so that column **cannot** break the tie. **Accepted tradeoffs**: saving the same group
+twice, or saving a group that was itself logged from an existing meal, produces similar duplicate
+meals — correct behaviour for a value-copy (no nesting, no reference chain, no way for one to affect
+the other), and the user renames or deletes; and the "read-only on `food_entries`" property is **not
+enforceable by the database**, so it is an app-layer invariant held by code review plus an acceptance
+test asserting the source rows are byte-identical (including `updated_at`) before and after — the same
+enforcement posture, and the same reasoning, as `logged_from_meal_id`'s write invariant.
+
+### `createMealFromEntries` atomicity: a compensating delete, NOT a Postgres RPC — the empty-meal residual state is knowingly accepted
+**Date**: 2026-07-30
+**Decision**: `createMealFromEntries` needs two statements (`INSERT INTO meals … RETURNING`, then one
+multi-row `INSERT INTO meal_items`) and supabase-js exposes no cross-statement transaction, so the
+residual failure mode is "meal created, items failed." **Handled by a compensating delete**: on
+item-insert failure the action deletes the just-created meal (`.eq('id', …).eq('user_id', user.id)`)
+and returns the error. This is **part of the action's contract, not a nice-to-have** — qa-reviewer
+confirms the code path exists (by review, if fault injection proves impractical in this suite, and
+says so explicitly rather than silently skipping it). A Postgres function
+(`create_meal_from_entries`, `SECURITY INVOKER` so RLS still applies) would be genuinely atomic in
+one statement and was evaluated as the "most correct" answer — **Jeff considered and rejected it**.
+In the doubly-unlucky case where the compensating delete also fails, the residual state is a named,
+empty meal: **knowingly accepted**, to be re-raised only if actually observed in practice, not
+pre-emptively.
+**Why**: the RPC needs a migration (new architect-owned schema surface) and would be the codebase's
+**first and only RPC**, against the project's standing bias toward the pattern already proven
+elsewhere — every mutation in this app is a Server Action, and DB functions exist only as triggers.
+Disproportionate for the failure it prevents, which degrades to a **benign, self-evident,
+one-click-deletable empty meal** rather than data loss or a corrupt row — and `logMealForDay` already
+refuses to log an empty meal (`empty_meal`), so the residual state cannot propagate anywhere
+downstream. Consistent with this codebase's existing posture on the same question:
+`reorderMealItems` already issues N untransacted `UPDATE`s (qa-reviewer's deferred Phase 7 N-2), so
+requiring strict cross-statement atomicity here alone would be an inconsistent bar. Noted for the
+record only: were this ever revisited, swapping in the RPC changes the action's *internals*, not its
+signature, so nothing else in the design is betting on the choice.
+
+### The save-as-meal name field starts **blank** — no prefill from the group's first item
+**Date**: 2026-07-30
+**Decision**: `SaveGroupAsMealDialog`'s name input opens **empty and autofocused**, with a
+`placeholder` for shape only (matching `MealForm`'s existing convention). A placeholder is never a
+value, so submitting untouched is a `validateMealInput` field error, not a silently-accepted default.
+The name is prompted **before** the copy executes (so a cancel writes zero rows, and one submit = one
+action call = the atomicity story above). **No `defaultMealNameFromEntries` helper is added** — with
+no prefill there is nothing pure to derive or unit-test. The architect's initial recommendation was
+to prefill the group's first item name, autofocused and pre-selected; **Jeff overruled it.**
+**Why**: on any multi-item group a first-item prefill is actively wrong — "Eggs" for eggs + toast +
+coffee — and a prefilled field is precisely the one a user accepts without reading. So the failure
+mode isn't "no name," it's a *library full of confidently mislabelled meals*, which is worse and only
+discovered months later. A Saved Meal is a long-lived object picked from a list long after it was
+created; unlike the everyday food-entry path (where prefills and smart defaults are exactly right and
+remain so), its name is worth one deliberate keystroke sequence. Also rejected: concatenating every
+item name (unreadable past two items), and a time-of-day-derived suggestion like
+"Breakfast"/"Lunch"/"Dinner" — rejected twice over, since meal *categories* are explicitly out of
+scope **and** it would need exactly the arbitrary hour-boundary heuristic Jeff already rejected for
+meal grouping. **Accepted tradeoff**: two or three extra seconds on a save that is itself far rarer
+than logging — and the feature is a large *net* keystroke saving regardless, since the alternative is
+retyping every item by hand in `/meals`.
+
+### The `FoodDayView` `hasLoadedOnce` fix ships **inside** Phase 7b, as a prerequisite — not as a separate change
+**Date**: 2026-07-30
+**Decision**: Phase 7b gives `FoodDayView.tsx` the same `hasLoadedOnce` treatment `MealsView` already
+carries — scope the full-size "Loading…" placeholder to the **initial** load only, and keep
+`FoodEntryList` mounted through background refreshes. Jeff's call: this ships **as part of Phase 7b**,
+not split out into its own change or deferred.
+**Why**: `FoodEntryList` gains real local UI state for the first time in Phase 7b (which group's
+expander is open, and its in-flight name), while `FoodDayView` currently swaps the whole list out for
+a placeholder on **every** `refresh(...)` — so any other action refreshing the day underneath would
+unmount the expander mid-typing. That is the identical bug class already recorded in this file's
+Phase 7 entry, where `MealsView` collapsed the meal card a user was actively working in. Splitting the
+fix out would mean deliberately landing a known-broken interaction and repairing it afterwards; it is
+a prerequisite of Phase 7b's own correctness, not an independent improvement. Recorded here (and
+called out ahead of time in the design doc, §3.4 and §8) specifically because last time this bug class
+was caught **only** by driving the UI by hand in a real browser — no automated assertion anywhere pins
+"the expander stays open across a background refresh," so the design doc also carries an explicit
+manual-browser check for it rather than relying on the suite.
+
+### `lastConsumedAt` (the smart same-sitting default) only advances on an **added** entry, never on an edit
+**Date**: 2026-07-30
+**Decision**: `FoodDayView.handleSaved` now updates the tracked `lastConsumedAt` only when the save
+that just succeeded was an **add** (`editingEntry === null` at the time of the save); saving an
+**edit** to an existing entry leaves `lastConsumedAt` untouched, regardless of how recent that
+entry's own `consumed_at` is. This amends design doc §3.4's edge-case bullet, which previously said
+plainly "on submit `lastConsumedAt` updates to the just-saved `consumed_at`" with no add/edit
+distinction.
+**Why**: Jeff reported the real symptom directly — after editing an older entry (e.g. fixing a typo)
+and saving, the *next new* entry's smart-defaulted time snapped backward to the just-edited entry's
+time instead of continuing forward from whatever was actually most recently added. Concretely: add
+entries at 9:00 and 9:03 (correctly sharing 9:03 via the freshness window), then edit the 9:00 entry
+— under the old behavior this reset the tracker to 9:00, so the *next* new entry would default back
+to 9:00 instead of continuing at 9:03, silently un-grouping it from the sitting actually in progress.
+The smart default exists so items *actively being added* in one sitting share a timestamp; an edit
+(however recent the entry) isn't "the next thing being added," so it shouldn't move that reference
+point. Confirmed directly with Jeff before implementing (he agreed this was a bug relative to the
+feature's own intent, not a case where the original design just doesn't fit). Covered by a new e2e
+test, `e2e/food-logging.spec.ts` "editing an existing entry does not move the smart same-sitting
+default backward for the next new entry" (seeds an old-but-still-fresh entry via direct insert,
+edits it, and asserts the next new entry still groups with the *other* recently-added entry, not the
+edited one).
+
+### "Clear" resets to the viewed day's current time, bypassing the smart same-sitting default entirely
+**Date**: 2026-07-30
+**Decision**: A new "Clear" button on `FoodEntryForm` (add mode only, next to "Add entry") resets
+every field back to the fast-entry defaults — including date/time, which resets to the **viewed
+day's floor-of-now quarter-hour**, not a re-application of `defaultConsumedAtForNextEntry`'s
+same-sitting reuse. Implemented via a `resetToNow` flag threaded from `FoodDayView` into
+`computeInitialDateTime`, set only for the remount triggered by a "Clear" click (a `resetReason`
+state distinguishes a Clear-triggered remount from a post-save one, read once at the moment the
+freshly-keyed instance mounts).
+**Why**: Jeff's call, confirmed directly — "Clear" is an explicit "start over" action, and silently
+falling back to whatever the smart default would have produced (potentially an old reused timestamp
+from earlier in the sitting) defeats the point of a reset. The smart default is specifically for the
+*implicit*, no-action-taken case (opening the form fresh after a save); an *explicit* user action
+asking for a blank slate should give the most neutral answer — today, right now — not resume a
+grouping context the user may be deliberately abandoning. This is unrelated to and does not change
+`lastConsumedAt` itself (see the entry above) — Clear only affects what the *current, about-to-be-
+replaced* form instance shows; it doesn't retroactively alter the tracker other new adds will still
+see.
+
+### `FoodEntryList` group-header times now render in 12-hour AM/PM (amends the 2026-07-26 time-`<select>` entry)
+**Date**: 2026-07-30
+**Decision**: Meal-group headers in `FoodEntryList.tsx` now format their time via the existing
+`formatTimeLabel` helper (the same one the time `<select>` uses), e.g. "09:00 AM" instead of the bare
+24-hour "09:00". This **amends** (does not replace) this file's 2026-07-26 entry, "Time-`<select>`
+option labels are zero-padded...", which explicitly noted at the time: *"`FoodEntryList`'s meal-group
+headers already render times as raw 24-hour `HH:MM` from `utcToLocalTime`... The list's lack of AM/PM
+is a separate pre-existing inconsistency; deliberately **out of scope** here, not silently changed."*
+That inconsistency is now deliberately closed, on the record, rather than left as a known gap.
+**Why**: Jeff asked for it directly, pointing out the mismatch between the AM/PM-labeled time picker
+used to log an entry and the bare 24-hour time shown for that same entry afterward in the day's list.
+Reusing `formatTimeLabel` (already exported, already unit-tested for all 96 quarter-hour values) rather
+than writing a second formatter keeps exactly one source of truth for this label shape, per the
+project's "no duplicate logic" bias. Purely presentational — `groupByConsumedAt`'s grouping key is
+still the raw `consumed_at` string; only the rendered label changed. Existing e2e assertions
+(`toContainText("12:30")`) still pass unchanged, since AM/PM is an appended suffix, not a
+reformatting of the digits themselves.
+
 ---

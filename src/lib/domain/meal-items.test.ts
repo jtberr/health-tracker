@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { computeReorderedSortOrders, groupMealItemsByMeal } from "./meal-items";
-import type { MealItem } from "@/lib/types";
+import { computeReorderedSortOrders, groupMealItemsByMeal, mealItemsFromEntries } from "./meal-items";
+import type { FoodEntry, MealItem } from "@/lib/types";
 
 function makeItem(overrides: Partial<MealItem>): MealItem {
   return {
@@ -83,5 +83,110 @@ describe("computeReorderedSortOrders", () => {
       { id: "a", sortOrder: 1 },
       { id: "c", sortOrder: 2 },
     ]);
+  });
+});
+
+function makeEntry(overrides: Partial<FoodEntry>): FoodEntry {
+  return {
+    id: "entry-1",
+    user_id: "user-1",
+    name: "Eggs",
+    quantity: 1,
+    unit: null,
+    calories_per_unit: 70,
+    protein_g_per_unit: 6,
+    calories: 70,
+    protein_g: 6,
+    consumed_at: "2026-07-30T12:00:00Z",
+    consumed_tz: "America/Chicago",
+    consumed_local_date: "2026-07-30",
+    logged_from_meal_id: null,
+    created_at: "2026-07-30T12:00:00Z",
+    updated_at: "2026-07-30T12:00:00Z",
+    ...overrides,
+  };
+}
+
+describe("mealItemsFromEntries", () => {
+  it("copies exactly name/quantity/unit/per-unit calories and protein, and nothing else", () => {
+    const entries = [
+      makeEntry({
+        id: "a",
+        name: "Toast",
+        quantity: 2,
+        unit: "slice",
+        calories_per_unit: 80,
+        protein_g_per_unit: 3,
+        calories: 160,
+        protein_g: 6,
+        created_at: "2026-07-30T12:00:00Z",
+      }),
+    ];
+    const drafts = mealItemsFromEntries(entries);
+
+    expect(drafts).toEqual([
+      {
+        name: "Toast",
+        quantity: 2,
+        unit: "slice",
+        caloriesPerUnit: 80,
+        proteinGPerUnit: 3,
+        sortOrder: 0,
+      },
+    ]);
+    // Explicitly confirm nothing else leaks through: no id/user_id/consumed_*/logged_from_meal_id,
+    // and no generated calories/protein_g total (the DB recomputes those from quantity x per-unit).
+    const draft = drafts[0] as Record<string, unknown>;
+    expect(draft.id).toBeUndefined();
+    expect(draft.user_id).toBeUndefined();
+    expect(draft.consumed_at).toBeUndefined();
+    expect(draft.consumed_tz).toBeUndefined();
+    expect(draft.consumed_local_date).toBeUndefined();
+    expect(draft.logged_from_meal_id).toBeUndefined();
+    expect(draft.calories).toBeUndefined();
+    expect(draft.protein_g).toBeUndefined();
+  });
+
+  it("orders drafts by created_at then id, regardless of input order (a group shares one consumed_at)", () => {
+    // All three share the identical consumed_at, as a real exact-timestamp group would --
+    // consumed_at therefore cannot break the tie; created_at must.
+    const shared = "2026-07-30T12:00:00Z";
+    const first = makeEntry({ id: "b", name: "First", consumed_at: shared, created_at: "2026-07-30T11:59:58Z" });
+    const second = makeEntry({ id: "a", name: "Second", consumed_at: shared, created_at: "2026-07-30T11:59:59Z" });
+    const third = makeEntry({ id: "c", name: "Third", consumed_at: shared, created_at: "2026-07-30T12:00:00Z" });
+
+    // Feed in shuffled order -- the function must not trust it.
+    const drafts = mealItemsFromEntries([third, first, second]);
+
+    expect(drafts.map((d) => d.name)).toEqual(["First", "Second", "Third"]);
+    expect(drafts.map((d) => d.sortOrder)).toEqual([0, 1, 2]);
+  });
+
+  it("breaks an identical created_at tie by id", () => {
+    const sameInstant = "2026-07-30T12:00:00Z";
+    const entries = [
+      makeEntry({ id: "zeta", name: "Zeta", created_at: sameInstant }),
+      makeEntry({ id: "alpha", name: "Alpha", created_at: sameInstant }),
+    ];
+    const drafts = mealItemsFromEntries(entries);
+    expect(drafts.map((d) => d.name)).toEqual(["Alpha", "Zeta"]);
+  });
+
+  it("a single entry produces one draft with sortOrder 0", () => {
+    const drafts = mealItemsFromEntries([makeEntry({ id: "only", name: "Solo" })]);
+    expect(drafts).toEqual([
+      {
+        name: "Solo",
+        quantity: 1,
+        unit: null,
+        caloriesPerUnit: 70,
+        proteinGPerUnit: 6,
+        sortOrder: 0,
+      },
+    ]);
+  });
+
+  it("an empty list produces an empty list", () => {
+    expect(mealItemsFromEntries([])).toEqual([]);
   });
 });

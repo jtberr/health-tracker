@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useId, useState } from "react";
+import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { addFoodEntry, updateFoodEntry, type FoodEntryActionState } from "@/lib/actions/food";
 import {
@@ -50,10 +50,14 @@ export type FoodEntryFormProps = {
   lastConsumedAt?: string | null;
   /** The day being logged for (YYYY-MM-DD); the form's date field defaults to this. */
   selectedDate: string;
+  /** True right when this instance mounts from a "Clear" click — see `computeInitialDateTime`. */
+  resetToNow?: boolean;
   /** Phase 6 seam (unused this phase) — see file doc comment. */
   prefill?: FoodCandidatePrefill | null;
   onSaved: (entry: FoodEntry) => void;
   onCancelEdit?: () => void;
+  /** Add-mode only: clears the entry fields without saving. See the "Clear" button below. */
+  onClear?: () => void;
 };
 
 function SubmitButton({ label, pendingLabel }: { label: string; pendingLabel: string }) {
@@ -80,10 +84,13 @@ function computeInitialDateTime(params: {
   lastConsumedAt: string | null;
   selectedDate: string;
   tz: string;
+  /** "Clear" wants a true blank slate (today's real clock time), not the same-sitting smart
+      default -- passing this bypasses `lastConsumedAt` entirely, as if this were the first entry. */
+  resetToNow?: boolean;
 }): { date: string; time: string } {
-  const { editingEntry, lastConsumedAt, selectedDate, tz } = params;
+  const { editingEntry, lastConsumedAt, selectedDate, tz, resetToNow = false } = params;
   if (editingEntry) return utcToLocalTime(editingEntry.consumed_at, editingEntry.consumed_tz);
-  const defaultIso = defaultConsumedAtForNextEntry(lastConsumedAt, new Date());
+  const defaultIso = defaultConsumedAtForNextEntry(resetToNow ? null : lastConsumedAt, new Date());
   return { date: selectedDate, time: utcToLocalTime(defaultIso, tz).time };
 }
 
@@ -91,9 +98,11 @@ export function FoodEntryForm({
   editingEntry = null,
   lastConsumedAt = null,
   selectedDate,
+  resetToNow = false,
   prefill = null,
   onSaved,
   onCancelEdit,
+  onClear,
 }: FoodEntryFormProps) {
   const isEditing = editingEntry !== null;
   const action = isEditing ? updateFoodEntry : addFoodEntry;
@@ -126,11 +135,26 @@ export function FoodEntryForm({
   });
 
   const [consumedDate, setConsumedDate] = useState(
-    () => computeInitialDateTime({ editingEntry, lastConsumedAt, selectedDate, tz }).date,
+    () => computeInitialDateTime({ editingEntry, lastConsumedAt, selectedDate, tz, resetToNow }).date,
   );
   const [consumedTime, setConsumedTime] = useState(
-    () => computeInitialDateTime({ editingEntry, lastConsumedAt, selectedDate, tz }).time,
+    () => computeInitialDateTime({ editingEntry, lastConsumedAt, selectedDate, tz, resetToNow }).time,
   );
+
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // Clicking "Edit" on an entry lower down the entries list (FoodEntryList, rendered below this
+  // form) updates state correctly but otherwise leaves the page scrolled wherever it already was
+  // -- the user has no visual cue the form above just changed to editing their entry. Scroll it
+  // into view once, right when this instance mounts in edit mode. FoodDayView remounts this
+  // component (a fresh key) every time the edit target changes, so a plain mount-only effect
+  // (empty deps) fires exactly once per "Edit" click, not on every keystroke/re-render.
+  useEffect(() => {
+    if (isEditing) {
+      formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // On a successful save, just notify the parent — it's the parent's responsibility (via a `key`
   // change on this component; see FoodDayView) to give the next "add" form a fresh mount rather
@@ -177,6 +201,7 @@ export function FoodEntryForm({
 
   return (
     <form
+      ref={formRef}
       action={formAction}
       className="flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5"
       noValidate
@@ -404,6 +429,11 @@ export function FoodEntryForm({
         {isEditing && (
           <Button type="button" variant="secondary" onClick={onCancelEdit}>
             Cancel
+          </Button>
+        )}
+        {!isEditing && onClear && (
+          <Button type="button" variant="secondary" onClick={onClear}>
+            Clear
           </Button>
         )}
       </div>

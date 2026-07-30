@@ -1,8 +1,9 @@
-import type { MealItem } from "@/lib/types";
+import type { FoodEntry, MealItem } from "@/lib/types";
 
 /**
- * Pure, framework-free helpers for saved-meal items (Phase 7 — "Saved meals"). No Next.js/React/
- * Supabase imports — primary unit-test target per AGENTS.md.
+ * Pure, framework-free helpers for saved-meal items (Phase 7 — "Saved meals"; `mealItemsFromEntries`
+ * added in Phase 7b — "Save a logged meal group as a Saved Meal"). No Next.js/React/Supabase
+ * imports — primary unit-test target per AGENTS.md.
  */
 
 /**
@@ -33,4 +34,50 @@ export function groupMealItemsByMeal(items: MealItem[]): Record<string, MealItem
  */
 export function computeReorderedSortOrders(orderedIds: string[]): { id: string; sortOrder: number }[] {
   return orderedIds.map((id, index) => ({ id, sortOrder: index }));
+}
+
+/**
+ * The by-value copy from a logged `food_entries` group into draft `meal_items` rows (design doc
+ * §3.3 "createMealFromEntries"; Phase 7b — "Save a logged meal group as a Saved Meal"). Copies
+ * ONLY the five value columns a saved-meal item actually needs — `name`, `quantity`, `unit`, and
+ * the per-unit calorie/protein figures — plus a freshly assigned `sortOrder` of `0..N-1`.
+ *
+ * Deliberately drops everything else an entry carries: `id`, `user_id`, `consumed_at`/
+ * `consumed_tz`/`consumed_local_date` (a saved-meal item has no notion of when it was eaten — only
+ * `logMealForDay` stamps a time, at *log* time), `logged_from_meal_id` (this operation is strictly
+ * read-only on `food_entries` — see §3.2/§3.3 — so a source entry's own meal back-reference is left
+ * untouched, not repointed at the new meal), and the generated `calories`/`protein_g` totals (the
+ * DB recomputes those from `quantity × per-unit` on insert — see §3.2 — so copying them would be
+ * both redundant and, if the DB's rounding ever differs from a naive copy, wrong).
+ *
+ * Orders by `created_at` then `id` (ties broken by the immutable, unique `id`) rather than trusting
+ * the caller's input order — a real meal *group*'s entries share one identical `consumed_at` by
+ * definition (exact-timestamp grouping, `entry-grouping.ts`), so `consumed_at` itself cannot be
+ * used to recover the order the items were actually logged in; `created_at` (the row-insert
+ * timestamp) can.
+ */
+export type MealItemDraft = {
+  name: string;
+  quantity: number;
+  unit: string | null;
+  caloriesPerUnit: number;
+  proteinGPerUnit: number;
+  sortOrder: number;
+};
+
+export function mealItemsFromEntries(entries: FoodEntry[]): MealItemDraft[] {
+  const sorted = [...entries].sort((a, b) => {
+    const createdAtDiff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+    if (createdAtDiff !== 0) return createdAtDiff;
+    return a.id.localeCompare(b.id);
+  });
+
+  return sorted.map((entry, index) => ({
+    name: entry.name,
+    quantity: entry.quantity,
+    unit: entry.unit,
+    caloriesPerUnit: entry.calories_per_unit,
+    proteinGPerUnit: entry.protein_g_per_unit,
+    sortOrder: index,
+  }));
 }

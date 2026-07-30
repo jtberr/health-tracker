@@ -10,7 +10,7 @@ import { DailyTotals } from "./DailyTotals";
 import { FoodEntryForm } from "./FoodEntryForm";
 import { FoodEntryList } from "./FoodEntryList";
 import { LogMealDialog } from "./LogMealDialog";
-import type { DailyFoodTotals, FoodEntry } from "@/lib/types";
+import type { DailyFoodTotals, FoodEntry, Meal } from "@/lib/types";
 
 /**
  * Client-side orchestrator for the `/food` day log (design doc §3.1 `food/page.tsx`). Owns:
@@ -25,6 +25,16 @@ import type { DailyFoodTotals, FoodEntry } from "@/lib/types";
  * manages is itself client state — see the developer's Phase 3 report for the full reasoning.
  * Mutations remain real Server Actions (`lib/actions/food.ts`), resolving `user_id` from the
  * server-side session only, per AGENTS.md's Absolute Rules.
+ *
+ * **`hasLoadedOnce`** (Phase 7b prerequisite fix — mirrors the identical fix already made to
+ * `MealsView.tsx` in Phase 7, see ai-context/DECISIONS.md "The `FoodDayView` `hasLoadedOnce`
+ * fix..."). `FoodEntryList` now holds real local UI state of its own for the first time (which
+ * group's "Save as meal" expander is open, and its in-flight name) — without this flag, the big
+ * "Loading…" placeholder below would swap `FoodEntryList` out on *every* `refresh()` call,
+ * including the ones triggered by an unrelated add/edit/delete elsewhere on this same day,
+ * silently collapsing whatever expander the user had open mid-typing. The placeholder is now
+ * scoped to the true *initial* load only; a background refresh keeps `FoodEntryList` mounted (and
+ * its state intact) throughout.
  */
 export function FoodDayView() {
   const supabase = useMemo(() => createClient(), []);
@@ -34,10 +44,30 @@ export function FoodDayView() {
   const [entries, setEntries] = useState<FoodEntry[]>([]);
   const [totals, setTotals] = useState<DailyFoodTotals | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [lastConsumedAt, setLastConsumedAt] = useState<string | null>(null);
   const [editingEntry, setEditingEntry] = useState<FoodEntry | null>(null);
   const [, startTransition] = useTransition();
+  // Forces a fresh mount of the "add" FoodEntryForm — both after a successful save (so the fields
+  // clear even when two entries in a row share the same smart-defaulted consumed_at, which used to
+  // leave the key, and therefore the form, unchanged — see handleSaved) and on an explicit "Clear".
+  const [addFormResetNonce, setAddFormResetNonce] = useState(0);
+  // Distinguishes *why* the add form is remounting, since the two cases want different starting
+  // date/times: a post-save remount should still offer the same-sitting smart default (so adding
+  // several items in a row keeps grouping together), while a "Clear" click means "start over" and
+  // should show today's real time on the day being viewed, not resume whatever was just cleared.
+  // Read only once, at the moment the freshly-keyed instance mounts (see FoodEntryForm's
+  // `resetToNow` prop), so there's no need to reset it back after either case.
+  const [resetReason, setResetReason] = useState<"save" | "clear">("save");
+  const [savedMessage, setSavedMessage] = useState<string | null>(null);
+
+  // Auto-dismiss the save confirmation after a few seconds.
+  useEffect(() => {
+    if (!savedMessage) return;
+    const timeout = setTimeout(() => setSavedMessage(null), 4000);
+    return () => clearTimeout(timeout);
+  }, [savedMessage]);
 
   const refresh = useCallback(
     async (date: string) => {
@@ -68,6 +98,7 @@ export function FoodDayView() {
         setLoadError(true);
       } finally {
         setLoading(false);
+        setHasLoadedOnce(true);
       }
     },
     [supabase],
@@ -92,13 +123,30 @@ export function FoodDayView() {
     // in the event handler (not an effect) since it's a direct response to the user's own action.
     setLastConsumedAt(null);
     setEditingEntry(null);
+    setSavedMessage(null);
     setSelectedDate(date);
   }
 
   function handleSaved(entry: FoodEntry) {
-    setLastConsumedAt(entry.consumed_at);
+    const wasEditing = editingEntry !== null;
+    // Only an *added* entry should move the "same sitting" smart-default forward -- editing an
+    // existing entry (however old) isn't a new eating occasion, and letting it overwrite
+    // lastConsumedAt could snap the next new entry's default time backward to whatever was just
+    // edited, undoing forward progress from actual adds made earlier in the sitting.
+    if (!wasEditing) {
+      setLastConsumedAt(entry.consumed_at);
+    }
     setEditingEntry(null);
+    setResetReason("save");
+    setAddFormResetNonce((n) => n + 1);
+    setSavedMessage(wasEditing ? "Changes saved." : "Entry added.");
     refresh(selectedDate);
+  }
+
+  function handleClear() {
+    setResetReason("clear");
+    setAddFormResetNonce((n) => n + 1);
+    setSavedMessage(null);
   }
 
   function handleDelete(entry: FoodEntry) {
@@ -106,6 +154,13 @@ export function FoodDayView() {
       await deleteFoodEntry(entry.id);
       refresh(selectedDate);
     });
+  }
+
+  // Phase 7b: saving a logged group as a meal is strictly read-only on food_entries (§3.3), so
+  // there is nothing on this day to refetch -- just surface the existing transient confirmation,
+  // the same mechanism a save/edit/meal-log already uses.
+  function handleGroupSavedAsMeal(meal: Meal) {
+    setSavedMessage(`Saved as "${meal.name}".`);
   }
 
   // Phase 7: logging a saved meal shares one `consumed_at` across its whole batch (already an
@@ -117,6 +172,7 @@ export function FoodDayView() {
       setLastConsumedAt(entries[0].consumed_at);
     }
     setEditingEntry(null);
+    setSavedMessage("Meal logged.");
     refresh(selectedDate);
   }
 
@@ -140,16 +196,24 @@ export function FoodDayView() {
 
       <LogMealDialog selectedDate={selectedDate} today={today} tz={tz} onLogged={handleMealLogged} />
 
+      {savedMessage && (
+        <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-sage-pale px-3 py-1 text-xs font-medium text-ink">
+          {savedMessage}
+        </p>
+      )}
+
       <FoodEntryForm
-        key={editingEntry ? `edit-${editingEntry.id}` : `add-${selectedDate}-${lastConsumedAt ?? "none"}`}
+        key={editingEntry ? `edit-${editingEntry.id}` : `add-${selectedDate}-${addFormResetNonce}`}
         editingEntry={editingEntry}
         lastConsumedAt={lastConsumedAt}
         selectedDate={selectedDate}
+        resetToNow={resetReason === "clear"}
         onSaved={handleSaved}
         onCancelEdit={() => setEditingEntry(null)}
+        onClear={handleClear}
       />
 
-      {loading ? (
+      {!hasLoadedOnce && loading ? (
         <p className="text-sm text-stone-500">Loading…</p>
       ) : loadError ? (
         <div className="flex items-center gap-3">
@@ -163,7 +227,12 @@ export function FoodDayView() {
           </button>
         </div>
       ) : (
-        <FoodEntryList entries={entries} onEdit={setEditingEntry} onDelete={handleDelete} />
+        <FoodEntryList
+          entries={entries}
+          onEdit={setEditingEntry}
+          onDelete={handleDelete}
+          onGroupSavedAsMeal={handleGroupSavedAsMeal}
+        />
       )}
     </div>
   );

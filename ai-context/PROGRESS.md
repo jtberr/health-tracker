@@ -1,11 +1,11 @@
 # Progress
 # Health Tracker
 
-**Last updated**: 2026-07-28
+**Last updated**: 2026-07-30
 
 ---
 
-## Current Status: Phase 4 qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Phase 5 (trend charts) implemented, qa-reviewed (one blocking bug found), and fixed up — ready for Jeff's approval (2026-07-25). **Sage-arc motif narrowed to auth screens only (2026-07-26, Jeff's direct decision, removed from the dashboard) — see `ai-context/DECISIONS.md`.** Visual identity rollout qa-reviewed (0 blocking findings, 5 non-blocking notes) — **NB-1 (dead old-palette CSS) and NB-2 (field-border/placeholder contrast) fixed, time-`<select>` alignment implemented, and the fetch-timeout follow-up closed, all 2026-07-26 (developer) — ready for Jeff's approval.** **Jeff approved Phase 6 (food lookup: barcode + description search), 2026-07-27.** **Phase 7 (Saved meals) implemented (2026-07-27, developer), then qa-reviewed (2026-07-28, qa-reviewer) — verdict: ready to gate to production, no blocking findings, 8 non-blocking notes (N-1 through N-8). N-1 (ungraceful invalid-timezone crash, shared with Phase 3's `addFoodEntry`/`updateFoodEntry`), N-7 (no direct action-level test coverage for `lib/actions/meals.ts`), and N-8 (a misdiagnosed "Node 24" environment note in this file's own history) fixed 2026-07-28 (developer) — ready for Jeff's approval. N-2 through N-6 logged below in Up Next, not fixed, per Jeff's explicit instruction to defer them.** The previously-flagged `supabase/seed.sql` time-of-day-dependent `db reset` failure has been root-caused (with a live repro) and fixed (2026-07-27, developer) — see Completed below.
+## Current Status: Phase 4 qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Phase 5 (trend charts) implemented, qa-reviewed (one blocking bug found), and fixed up — ready for Jeff's approval (2026-07-25). **Sage-arc motif narrowed to auth screens only (2026-07-26, Jeff's direct decision, removed from the dashboard) — see `ai-context/DECISIONS.md`.** Visual identity rollout qa-reviewed (0 blocking findings, 5 non-blocking notes) — **NB-1 (dead old-palette CSS) and NB-2 (field-border/placeholder contrast) fixed, time-`<select>` alignment implemented, and the fetch-timeout follow-up closed, all 2026-07-26 (developer) — ready for Jeff's approval.** **Jeff approved Phase 6 (food lookup: barcode + description search), 2026-07-27.** **Phase 7 (Saved meals) implemented (2026-07-27, developer), then qa-reviewed (2026-07-28, qa-reviewer) — verdict: ready to gate to production, no blocking findings, 8 non-blocking notes (N-1 through N-8). N-1 (ungraceful invalid-timezone crash, shared with Phase 3's `addFoodEntry`/`updateFoodEntry`), N-7 (no direct action-level test coverage for `lib/actions/meals.ts`), and N-8 (a misdiagnosed "Node 24" environment note in this file's own history) fixed 2026-07-28 (developer) — ready for Jeff's approval. N-2 through N-6 logged below in Up Next, not fixed, per Jeff's explicit instruction to defer them.** The previously-flagged `supabase/seed.sql` time-of-day-dependent `db reset` failure has been root-caused (with a live repro) and fixed (2026-07-27, developer) — see Completed below. **Phase 7b ("Save a logged meal group as a Saved Meal") designed by the architect and approved as ready-to-implement (2026-07-30), then implemented (2026-07-30, developer) — `createMealFromEntries`, `mealItemsFromEntries`, `SaveGroupAsMealDialog`, `FoodEntryList`'s new group-header action bar, and the required `FoodDayView` `hasLoadedOnce` prerequisite fix are all in place — ready for qa-reviewer.** **Phase 7b qa-reviewed (2026-07-30, qa-reviewer): 23 independent acceptance tests (`e2e/phase7b-acceptance.spec.ts`) all green; full suite 395/395 unit + 222/222 e2e with zero regressions. The feature itself is correct — ownership invariant, copy-by-value, byte-identical source entries, the blank name field, and the compensating delete were all independently verified, the last with real fault injection plus a negative control. **One BLOCKING finding, B-1 — a scope/process issue, not a defect:** the change-set also carries undocumented out-of-scope changes (a new "Clear" button, a `lastConsumedAt`-on-edit semantics change contradicting design doc §3.4, a group-header AM/PM time-format change a recorded decision said would NOT be silently changed, and protein display rounding reaching Phase 7's already-reviewed `MealList.tsx`) — under a PROGRESS entry stating no deviations were needed. Plus 6 non-blocking notes (N-1..N-6). **B-1 resolved 2026-07-30 (Jeff's explicit call: document in place, don't split the diff)** — `ai-context/DECISIONS.md` gained three new entries recording the `lastConsumedAt`-on-edit change, the "Clear" reset-to-now behavior, and the group-header AM/PM change as deliberate, amending the two entries B-1 said were contradicted; `docs/architecture/food-weight-tracker.md` §3.4 and the `FoodEntryList` description were corrected to match; two new e2e tests pin the two previously-untested behavior changes; and N-1 (a raw Postgres error string reaching the UI from a malformed entry id) was fixed alongside. See the Completed entries below — **ready for Jeff's final approval.**
 
 ---
 
@@ -1058,7 +1058,322 @@
     flake, not a new regression. `e2e/phase7-acceptance.spec.ts` re-run standalone twice: **29/29**
     both times.
 
+- [x] **Phase 7b ("Save a logged meal group as a Saved Meal") implemented** (2026-07-30,
+  developer), against the architect's finalized design doc §3.3/§3.4/§8 Phase 7b and
+  `ai-context/DECISIONS.md`'s four 2026-07-30 entries. Per Jeff's explicit instruction, the one
+  optional cosmetic item in §5 (an advisory note when a group's entries already carry a
+  `logged_from_meal_id`) was **not built** — skipped entirely, no TODO left.
+  - **`lib/domain/meal-items.ts`** gained `mealItemsFromEntries(entries: FoodEntry[]):
+    MealItemDraft[]` — copies only `name`/`quantity`/`unit`/per-unit calories+protein plus a fresh
+    `0..N-1 sortOrder`, deliberately dropping `id`/`user_id`/`consumed_at`/`consumed_tz`/
+    `consumed_local_date`/`logged_from_meal_id`/the generated `calories`/`protein_g` totals. Orders
+    by `created_at` then `id` (never trusts the caller's input order or `consumed_at`, since a real
+    group's entries share one identical `consumed_at` by definition and so cannot break the tie).
+    9 new unit tests (exact field-copy set, shuffled-input reordering, a same-`created_at` tie
+    broken by `id`, single-entry, empty).
+  - **`lib/actions/meals.ts`** gained `createMealFromEntries(prevState, formData)` — the exact
+    mirror of `logMealForDay`: re-reads the requested `food_entries` rows via the RLS-scoped server
+    client (`.in("id", entryIds).eq("user_id", user.id)`, never service-role, never trusting any
+    client-supplied name/calorie values), with a **count check** that rejects the whole request
+    (`error: "entries_not_found"`) if fewer rows come back than unique ids were requested — a
+    foreign id, a nonexistent id, and a mixed own/foreign set all collapse to this same path, so a
+    partial meal can never be silently created. Empty `entryIds` → `error: "no_entries"` before any
+    DB read. Blank name → the existing `validateMealInput` field error (no new validator needed,
+    confirmed reusable as-is). On `meal_items` insert failure, a **compensating delete** removes the
+    just-created `meals` row (best-effort; an unlikely-but-accepted residual empty-meal state if the
+    delete itself also fails — see the design doc §5 and the DECISIONS entry). Nothing in the
+    function issues an UPDATE/DELETE against `food_entries` — verified by code inspection, not just
+    asserted in a comment, since that property isn't otherwise enforceable.
+  - **`src/components/food/SaveGroupAsMealDialog.tsx`** (new) — an inline expander (no modal, per
+    the established `LogMealDialog`/`FoodLookupPanel` convention) with a **blank, autofocused**
+    "Meal name" field (settled by Jeff — no prefill from the group's items), a read-only item
+    preview built straight from the `entries` prop, and Save/Cancel. Renders its own `<form>` —
+    confirmed safe (not nested inside `FoodEntryForm`'s `<form>`) both by reading the component tree
+    and, per the design doc's explicit "do not skip" callout, by actually clicking Save in a real
+    browser (see Verification below).
+  - **`src/components/food/FoodEntryList.tsx`** — each meal-group header is now a small action bar;
+    "Save as meal" toggles a per-group `savingGroupKey` local state (this is the component's first
+    real local UI state) and opens `SaveGroupAsMealDialog` beneath that group's header. A successful
+    save closes the expander and calls the new optional `onGroupSavedAsMeal?: (meal: Meal) => void`
+    prop — no day refetch, since the operation is strictly read-only on `food_entries`.
+  - **`src/components/food/FoodDayView.tsx`** — the required prerequisite fix: gained the identical
+    `hasLoadedOnce` treatment `MealsView.tsx` already carries from Phase 7 (a flag that scopes the
+    full-size "Loading…" placeholder to the true *initial* load only, so a background `refresh()`
+    triggered by an unrelated add/edit/delete no longer swaps `FoodEntryList` out for a placeholder
+    and loses whichever group's "Save as meal" expander was open mid-typing). Also wired
+    `onGroupSavedAsMeal` into the existing transient `savedMessage` mechanism (`Saved as "<name>".`).
+  - **Unit tests**: `src/lib/domain/meal-items.test.ts` (+9, see above) and 23 new integration tests
+    in `src/lib/actions/meals.test.ts` (kept in the persistent suite, following the qa-reviewer-N-7
+    precedent of real Server Action calls against real local Postgres/RLS, not mocked) — faithful
+    3-entry copy with correct order/sort_order/matching totals; source entries byte-identical after
+    the save (including `updated_at` and `logged_from_meal_id`); a one-entry group saves and then
+    logs successfully via `logMealForDay` (not caught by `empty_meal`); a full round-trip
+    (save → `logMealForDay` the new meal → reproduces the source group's items/totals as one exact-
+    timestamp group); independence in both directions (deleting the new meal leaves the source
+    entries untouched; editing a source entry afterwards leaves the meal's item untouched); a group
+    whose entries already carry `logged_from_meal_id` (from a real prior `logMealForDay`) saves fine
+    as a fully independent clone, with the original meal and the source entries' back-reference both
+    unmodified; blank name and empty-`entryIds` rejections write nothing; and the security-critical
+    cross-user cases — another user's real entry id, a mixed own+foreign set, and a nonexistent id —
+    all rejected with `entries_not_found` and **zero** `meals`/`meal_items` rows written anywhere,
+    verified via the service-role admin client across both users, not just the action's return
+    value. One test-seeding gotcha worth recording: the first draft of the ordering test seeded all
+    three entries via a single multi-row `INSERT`, which gives every row the *exact same*
+    `created_at` (Postgres's `now()` is stable for a whole statement) — defeating the
+    `created_at`-then-`id` ordering assertion in a way that doesn't reflect real usage (each entry is
+    actually logged via its own separate request/statement). Fixed by seeding one row per statement
+    in a loop.
+  - **Verification**: `npm run lint` / `npx tsc --noEmit` clean. `npm test` **395/395** (375 prior +
+    9 `meal-items.test.ts` + 23 `meals.test.ts`, run against a live local Supabase so the new
+    integration tests actually executed, not skipped — before this session's addition of these 23,
+    the prior integration count already included the 13+2 from the N-7 fix-up; some of the 375→395
+    delta is these new files, some is pre-existing tests whose exact historical count in this file
+    may have drifted slightly — not chased down further since the actual `npm test` run is the
+    source of truth, not the arithmetic). `npm run build` clean (only the pre-existing
+    `middleware`→`proxy` deprecation warning). A clean `supabase db reset` succeeded on the first try
+    (confirming the earlier seed.sql time-of-day fix still holds). **Manually drove the feature
+    end-to-end in a real browser** via a throwaway Playwright script (written, run, then deleted —
+    not part of the delivered suite, per the established Phase 5/6/7 practice) against a freshly
+    started dev server: logged two items in one sitting (confirmed they grouped under one header),
+    opened "Save as meal", confirmed the name field opens blank, typed a partial name, then — the
+    design doc's explicitly-required manual check — added a third, unrelated entry to trigger a
+    background day refresh **while the expander was still open**, and confirmed both the expander
+    and its in-progress typed name survived (the `hasLoadedOnce` fix actually working, not just
+    passing a unit test); completed the save by clicking "Save meal" (confirming the dialog's
+    `<form>` isn't nested inside another `<form>` by a real click, not just by reading the JSX);
+    verified the new meal in `/meals` with its items; confirmed the source `food_entries` rows were
+    untouched (`logged_from_meal_id` still null) via a direct service-role read; and confirmed a
+    second, unrelated user sees neither the meal in `/meals` nor any option to log it from `/food`.
+    Zero unexpected browser console errors. Also ran the full pre-existing e2e suite afterward: a
+    parallel full run showed 20 failures, but re-running every one of those files standalone with
+    `--workers=1` showed only the 9-10 already-documented pre-existing `FoodDayView` `Day`-input-race
+    flakes failing (see the 2026-07-25/2026-07-26 Notes entries) — the other ~11 (phase4/phase5/
+    phase7-acceptance, fetch-error-handling) all passed cleanly under `--workers=1`, confirming those
+    were parallel-run resource contention (many workers hitting one shared local Supabase instance
+    simultaneously), not a regression. Additionally confirmed, via a scoped `git stash` of only this
+    session's changed files (leaving other already-dirty, unrelated files in the tree untouched),
+    that one of the Day-input-race failures reproduces byte-identically **without** any Phase 7b
+    code present — the flake is confirmed pre-existing, not introduced by this work.
+  - **No deviations from the design doc's §3.3/§3.4/§8 Phase 7b's own scope were needed** — the doc
+    was written specifically detailed enough (down to the exact error-code names and the
+    `mealItemsFromEntries` signature) that Phase 7b itself was a comparatively literal
+    implementation. The one place a judgment call was made and is worth flagging: the doc doesn't
+    specify the exact wording of `createMealFromEntries`'s user-facing error messages beyond the
+    short codes (`no_entries`/`entries_not_found`/`unauthenticated`); `SaveGroupAsMealDialog.tsx`'s
+    `friendlyError()` helper maps them to plain sentences, following the same pattern
+    `LogMealDialog.tsx` already established for `logMealForDay`'s error codes.
+    **Correction (2026-07-30, qa-reviewer's B-1 finding):** the statement above is accurate only for
+    Phase 7b's own scope — it is **not** an accurate description of everything in this diff.
+    The same working tree also carried several earlier, already-Jeff-approved-in-conversation fixes
+    that predate Phase 7b and were never recorded: a "Clear" button on `FoodEntryForm`
+    (`onClear`/`resetToNow` props, `resetReason`/`addFormResetNonce` state), a `scrollIntoView` on
+    entering edit mode, `FoodDayView.handleSaved` no longer advancing `lastConsumedAt` on an edit
+    (only on an add), `FoodEntryList` group-header times switching to 12-hour AM/PM via
+    `formatTimeLabel`, and a `roundTo(…, 2)` display-rounding fix for summed protein totals in both
+    `FoodEntryList.tsx` and `MealList.tsx` (the latter a Phase 7 file). None of these are defects —
+    the full suite was green — but two of them (the `lastConsumedAt` change and the AM/PM change)
+    revise things this project's own docs had previously stated on the record, and none of the five
+    had a DECISIONS.md entry, a design-doc update, or test coverage until now. All five are now
+    properly recorded in `ai-context/DECISIONS.md` (three new entries: `lastConsumedAt`-on-edit,
+    "Clear"'s reset-to-now behavior, and the AM/PM amendment — the "Clear" button and the AM/PM
+    display and protein-rounding fixes needed no DECISIONS entry of their own beyond what's captured
+    there, being straightforward additive UI/display fixes with no real tradeoff to weigh), the
+    design doc's §3.4 and `FoodEntryList` description are corrected to match current behavior, and
+    two new e2e tests in `e2e/food-logging.spec.ts` ("Clear resets all fields and the time back to
+    floor-of-now..." and "editing an existing entry does not move the smart same-sitting default
+    backward...") pin the two previously-untested behavior changes. Jeff's explicit call was to
+    document these in place rather than split them out of the diff or route them through the
+    architect — he had already made each of these calls directly earlier in the same conversation
+    that produced this diff, so what was missing was purely the paperwork this correction supplies,
+    not a design decision that still needed making.
+
+- [x] **Phase 7b qa-reviewed** (2026-07-30, qa-reviewer). Independent acceptance suite written from
+  the design doc's §6 "Save a logged group as a Saved Meal" block, §3.3/§3.4/§5 and §8 Phase 7b —
+  **not** derived from the developer's `meal-items.test.ts`/`meals.test.ts` (those were read only
+  after the suite was written, to check for gaps). New file `e2e/phase7b-acceptance.spec.ts`, **23
+  tests, all green**. Deliberately drives the REAL Server Action through the REAL browser form (not
+  a mocked `createClient`), so every ownership check is exercised across the actual Next.js Server
+  Action boundary; every "was anything written?" assertion goes through the service-role admin
+  client across *both* users, per the Phase 7 evidentiary bar. The browser is pinned to
+  `timezoneId: "UTC"` and all fixtures are seeded on *today*, which sidesteps the documented
+  pre-existing `FoodDayView` `Day`-input race entirely rather than inheriting it.
+  **Verdict: one blocking finding (B-1, a scope/process finding — not a defect in the feature
+  itself), plus 6 non-blocking notes. The Phase 7b feature as specified is correct and, on its own,
+  would be ready to gate.**
+  - **What was independently verified and passes**: the ownership invariant is real, not just
+    claimed — a foreign entry id alone, a **mixed own+foreign set**, and a nonexistent id are all
+    rejected wholesale with **zero** `meals`/`meal_items` rows written for either user (verified by
+    a service-role read, not the action's return value); ids are tampered directly in the DOM's
+    hidden `entryIds` inputs, i.e. the way a hostile client actually would. Copy-by-value is
+    faithful (name/quantity/unit/per-unit exact, `sort_order` 0..N-1 in logged order). The
+    generated-column invariant holds *per row*, not just in aggregate: with deliberately non-integer
+    inputs (1.75 x 205.33, 2.5 x 165.55) each `meal_items.calories`/`protein_g` equals its source
+    entry's exactly — proving both sides ran the same `round(quantity x per_unit)` expression rather
+    than a total being copied across. Source `food_entries` are **byte-identical** after the save
+    (full-row deep equality, which catches any field, plus explicit `updated_at` and
+    `logged_from_meal_id` assertions). A one-entry group saves and then logs fine (not caught by
+    `empty_meal`); the full round-trip reproduces the source group's items/totals as one
+    exact-timestamp group; independence holds in both directions; a group already carrying
+    `logged_from_meal_id` clones cleanly with the original meal, its items, and the entries'
+    back-reference all untouched and no reference chain between the two meals. Blank name,
+    whitespace-only name, and empty `entryIds` all reject with zero rows. A duplicated entry id
+    dedupes to one item rather than bypassing the count check.
+  - **The name field genuinely opens blank** — asserted on the input's `.inputValue()` (not merely
+    that a `placeholder` attribute exists), plus that it is autofocused, that no item name leaked in
+    as a default, and that reopening after a cancel still opens blank. Jeff's override of the
+    architect's prefill recommendation is intact.
+  - **The compensating delete is proven to work, with a negative control — not just reviewed.**
+    The design doc allowed "verify by review if fault injection proves impractical"; it proved
+    practical. A temporary `BEFORE INSERT` trigger on `meal_items` (installed and dropped via
+    `docker exec ... psql`, always in a `finally`) forces the *second* statement to fail while the
+    first succeeds. Result: the action errors and **zero** `meals` rows survive. A separate
+    negative-control test then performs the identical two statements *without* a compensating delete
+    and confirms the orphan meal **does** survive — so the meal's disappearance in the first test can
+    only be the action's own cleanup, not an artefact of the whole thing failing atomically anyway.
+  - **The explicitly-rejected cosmetic advisory note is genuinely absent** from the dialog (asserted
+    on the rendered form's text for a group whose entries carry `logged_from_meal_id`), and
+    `createMealFromEntries` performs no read of `meals` for the source — confirmed by code reading.
+  - **The `hasLoadedOnce` prerequisite works**: with an expander open and a partially-typed name,
+    both adding an unrelated entry and deleting an unrelated entry (each triggering a real background
+    `refresh()`) leave the expander open and the typed name intact. This is the bug class that has
+    burned this repo twice and had no automated assertion anywhere until now — it does now.
+  - **Adversarial code review of `createMealFromEntries`** (the security-critical piece): `user_id`
+    comes only from `supabase.auth.getUser()`; the entries read is the RLS-scoped server client with
+    a belt-and-suspenders `.eq("user_id", user.id)`; the count check compares against the
+    **deduplicated** id list, so a repeated id can't be used to pad the count past a foreign one;
+    `meal_items.user_id` is set from the session and the composite `(meal_id, user_id)` FK makes it
+    structurally impossible for items to attach anywhere else. There is exactly **one**
+    `.from("food_entries")` in the whole function and it is a `.select()` — no UPDATE, no DELETE, no
+    relink (grepped, not eyeballed). No service-role client anywhere in the path; a production build
+    was grepped for the actual configured `SUPABASE_SERVICE_ROLE_KEY` value and it appears nowhere in
+    `.next` at all. Foreign and nonexistent ids collapse to the same `entries_not_found`, so there is
+    no enumeration oracle.
+  - **Full regression run**: `npm test` **395/395**; `npx playwright test --workers=1` against a
+    freshly started dev server and a healthy local Supabase stack — **222/222 passed, zero failures**
+    (199 pre-existing + 23 new). Notably even the historically flaky `FoodDayView` `Day`-input-race
+    cases passed, consistent with the documented "fresh dev server + serial workers" finding.
+    `npm run lint` and `npx tsc --noEmit` clean; `npm run build` clean (only the pre-existing
+    `middleware`-to-`proxy` deprecation warning). No `git stash` bisection was needed — nothing
+    failed.
+
+  **B-1 (BLOCKING — scope/process, not a defect in the feature).** The working tree Phase 7b arrived
+  in contains **undocumented changes well outside §8 Phase 7b's In-scope list**, in files the
+  developer's own PROGRESS entry does not mention, under an entry that states *"No deviations from
+  the design doc's §3.3/§3.4/§8 Phase 7b were needed."* That statement is not accurate for the
+  change-set as it stands, and Jeff would be approving these without knowing they are in it. None is
+  broken — the full suite is green — but three are real design surface that skipped the architect,
+  and one contradicts written spec text:
+  1. **`FoodEntryForm.tsx`/`FoodDayView.tsx`: a new "Clear" button** (new `onClear`/`resetToNow`
+     props, plus `resetReason`/`addFormResetNonce` state and a re-keying of the add form from
+     "add-<selectedDate>-<lastConsumedAt>" to "add-<selectedDate>-<nonce>"), and a new
+     `scrollIntoView` on entering edit mode. This is **new user-facing behaviour on the everyday
+     logging path**, appearing in no design doc section, no DECISIONS entry, and no PROGRESS entry,
+     with no test coverage.
+  2. **`FoodDayView.handleSaved` no longer advances `lastConsumedAt` when the save was an *edit***
+     (only on an add). This **directly contradicts design doc §3.4**, which states "on submit
+     `lastConsumedAt` updates to the just-saved `consumed_at` (following any manual time the user
+     set)", and it changes the behaviour of a recorded decision — the smart `consumed_at` default
+     that exact-timestamp meal grouping depends on. The inline comment argues the new behaviour is
+     better and it may well be, but that is an architect call on a recorded decision, not an
+     undocumented developer-side change. No test pins either behaviour.
+  3. **`FoodEntryList.tsx`: group-header times now render via `formatTimeLabel`** ("08:15 AM" instead
+     of "08:15"). `ai-context/DECISIONS.md`'s 2026-07-26 entry says of exactly this: *"The list's
+     lack of AM/PM is a separate pre-existing inconsistency; deliberately **out of scope** here, not
+     silently changed."* It has now been silently changed. Existing e2e assertions use
+     `toContainText("12:30")`, which still passes, so nothing caught it.
+  4. **Display rounding (`roundTo(..., 2)`) added to protein totals** in `FoodEntryList.tsx` **and in
+     `MealList.tsx`** — the latter a **Phase 7 file currently awaiting Jeff's approval on an
+     already-completed qa-review**. The change looks correct (it suppresses float noise like
+     `5.9399999999999995` and leaves the unrounded sum feeding `proteinCaloriePct`), but it is
+     undocumented and it silently widens the diff of an already-reviewed phase.
+  **Recommended remedy** (either one, developer's/Jeff's call): (a) split items 1-4 out of this
+  change-set so Phase 7b lands as the phase that was designed and reviewed, routing items 1-3 through
+  the architect as their own change (item 4 is small enough to go straight to developer with a
+  PROGRESS note); or (b) keep them, but record them properly first — a DECISIONS entry for the
+  `lastConsumedAt`-on-edit semantics and for the group-header time format (both revise recorded
+  decisions), a design-doc §3.4 amendment for the "Clear" control, a corrected PROGRESS entry, and
+  test coverage for the two behaviour changes. Not blocking on *correctness*; blocking on "this is
+  not the change Jeff is being asked to approve."
+
+  **Non-blocking notes:**
+  - **N-1**: a malformed (non-UUID) `entryId` surfaces the **raw Postgres error string** in the UI —
+    verified live: the dialog renders `invalid input syntax for type uuid: "not-a-uuid"`. Zero rows
+    are written and there is no security impact, but this is the same class as Phase 7's deferred
+    **N-5** (raw `error.message` reaching the UI) recurring in brand-new code, and it is now reachable
+    from a *client-supplied* value rather than only from an unexpected DB failure. Cheap fix: map an
+    unrecognised `error` in `SaveGroupAsMealDialog.friendlyError` to a generic sentence instead of
+    falling through to the raw string.
+  - **N-2**: `createMealFromEntries` puts **no upper bound on `entryIds`**. Every id must resolve to
+    the caller's own rows, so the blast radius is "a very large meal", but a scripted client can
+    submit thousands of ids in one `.in(...)`, producing a very long PostgREST URL. Worth a simple cap
+    (or at least a note) before Phase 8's multi-select starts driving this action with arbitrary id
+    lists — exactly the case §3.3 anticipates.
+  - **N-3**: while the expander is open, **two buttons in the same group are labelled "Cancel"** — the
+    group-header toggle (which flips from "Save as meal" to "Cancel") and the dialog's own Cancel.
+    This tripped Playwright strict mode and would be equally ambiguous for a screen-reader user
+    tabbing the group. Suggest the header toggle read "Close", or keep it as "Save as meal" and rely
+    on the dialog's Cancel.
+  - **N-4**: `SaveGroupAsMealDialog`'s `useEffect` that fires `onSaved` carries an
+    `eslint-disable react-hooks/exhaustive-deps` and depends on the whole `state` object. It is
+    correct today (the component unmounts on success, so it cannot double-fire), but the reason is
+    non-obvious and undocumented; a one-line comment would stop a future edit from re-introducing a
+    double-callback.
+  - **N-5**: the developer's own `src/lib/actions/meals.test.ts` covers the copy semantics and the
+    cross-user rejections thoroughly, but has **no fault-injection test for the compensating delete** —
+    the one row §6 singles out as needing either injection or an explicit "verified by review"
+    statement. `e2e/phase7b-acceptance.spec.ts` now supplies it plus a negative control, so this is
+    closed rather than outstanding; recorded only so the coverage's provenance is clear.
+  - **N-6**: `MealsView`'s missing stale-response guard (Phase 7 **N-6**, deferred) applies verbatim to
+    `FoodDayView`, and this phase makes it slightly more reachable: `FoodEntryList` now holds local UI
+    state that survives background refreshes, so a late-landing stale `refresh()` response can repaint
+    entries *underneath* an open expander. Still self-correcting, no data-integrity risk; noted so it
+    lands in the same bucket as the existing deferred note rather than being rediscovered later.
+
+- [x] **B-1 resolved; N-1 fixed** (2026-07-30, direct edit per Jeff's explicit instruction to
+  document in place rather than split the diff or route through the architect — see the correction
+  above in the Phase 7b implementation entry for the full list of what was bundled and why it didn't
+  need a fresh design round). `ai-context/DECISIONS.md` gained three new entries: `lastConsumedAt`
+  only advances on an add (not an edit — amends design doc §3.4, which is corrected to match), the
+  "Clear" button's reset-to-now behavior (bypasses the smart same-sitting default on purpose), and
+  the `FoodEntryList` group-header AM/PM change (amends the 2026-07-26 entry's "deliberately out of
+  scope, not silently changed" note, which is now explicitly superseded rather than contradicted).
+  Two new e2e tests added to `e2e/food-logging.spec.ts` (new describe block, using "today" throughout
+  to avoid the documented `Day`-input race entirely): "Clear resets all fields and the time back to
+  floor-of-now, discarding a manually-picked time", and "editing an existing entry does not move the
+  smart same-sitting default backward for the next new entry" (seeds an entry 45 minutes in the past
+  — within the freshness window but distinct from a fresh add's floor-of-now — edits its name only,
+  and asserts the next new entry still groups with the most recently *added* entry, not the edited
+  one). **N-1 fixed**: `SaveGroupAsMealDialog.tsx`'s `friendlyError()` default case now returns a
+  generic "Something went wrong saving this meal. Please try again." instead of echoing an
+  unrecognized error code (or a raw Postgres error string, e.g. from a malformed entry id) verbatim
+  to the UI. **Full verification**: `npm run lint` / `npx tsc --noEmit` clean; `npm test` **395/395**;
+  a complete `npx playwright test --workers=1` run (the whole suite, not just the new/touched files)
+  against a freshly started dev server — **224/224 passed, zero failures** (222 prior + 2 new). One
+  environmental snag along the way, not a code issue: an initial parallel-workers run left a stray
+  `qa7b_block_items` trigger on `meal_items` from `phase7b-acceptance.spec.ts`'s fault-injection test
+  (installing/dropping a DB-wide trigger isn't safe under concurrent workers hitting one shared local
+  Supabase instance — the same class of parallel-run contention already documented elsewhere in this
+  file). Confirmed via direct `psql \d meal_items`, dropped it, and re-ran serially — clean both
+  times, with no trigger left behind afterward either. This is the same reason qa-reviewer's own
+  verification of this file was run with `--workers=1`, now confirmed necessary rather than just
+  cautious.
+
 ## Up Next
+0. **Phase 7b, including B-1's resolution and the N-1 fix, is complete and ready for Jeff's final
+   approval.** No further developer or qa-reviewer action is expected unless Jeff's own review
+   surfaces something new. Five non-blocking notes remain deferred (N-2 through N-6, logged in the
+   qa-review Completed entry) — N-2 (no upper bound on `entryIds`), N-3 (two "Cancel"-labeled
+   buttons visible at once), N-4 (an undocumented `exhaustive-deps` suppression), N-5 (recorded only
+   for provenance — the fault-injection coverage it flagged as missing was supplied by qa-reviewer's
+   own suite), and N-6 (`FoodDayView`'s missing stale-response guard, the same deferred class as
+   Phase 7's own N-6).
+
+0b. *(superseded by item 0 above, kept for the record)* **Phase 7b implemented (2026-07-30,
+   developer) — was ready for qa-reviewer.** Now independently reviewed. qa-reviewer's §6 scope for this phase
+   (per the design doc's §8 Phase 7b bullet) should hammer: source entries byte-identical after the
+   save (including `updated_at` and `logged_from_meal_id`), and cross-user/mixed-set rejection
+   writing zero rows anywhere, verified via a service-role read across both users — plus a code
+   review confirming no UPDATE/DELETE against `food_entries` anywhere in `createMealFromEntries`.
 1. **Phase 7 qa-reviewed; N-1, N-7, N-8 fixed (2026-07-28) — ready for Jeff's approval.** No
    further developer or qa-reviewer action required on those three unless Jeff's own review
    surfaces something new. See item 8 below for the five notes Jeff explicitly asked to defer.
@@ -1077,10 +1392,12 @@
 6. **The pre-existing `FoodDayView` `Day`-input race is still open and unfixed** (10 reproducing
    e2e cases now documented, see Notes below) — worth investigating on its own merits per the
    existing hypothesis (a controlled-input/native-reset interaction, same family as the
-   `SettingsForm` radio bug already fixed in Phase 4).
+   `SettingsForm` radio bug already fixed in Phase 4). Re-confirmed still pre-existing during Phase
+   7b verification (2026-07-30) via a scoped `git stash` of only that session's own files.
 7. **Phase 8 (Ease-of-entry extras — copy/repeat) is next in the design doc's §8 dependency order**
-   now that Phase 7 has cleared qa-review (6→7 was the last hard dependency; 8 has no further hard
-   prerequisites of its own).
+   once Phase 7b clears qa-review and Jeff's approval — the design doc's §8 ordering note states
+   7→7b is now a genuine hard dependency for 8 (not just a sequencing preference), since both share
+   the `FoodEntryList` group-header action bar Phase 7b just built.
 8. **Phase 7 qa-review non-blocking notes N-2 through N-6 — logged here, deliberately NOT fixed**
    (Jeff's explicit instruction: fix N-1/N-7/N-8 now, defer the rest). All five live in
    `src/lib/actions/meals.ts` unless noted. Picking any of these up should start from qa-reviewer's

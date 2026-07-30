@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { deleteMeal, deleteMealItem, reorderMealItems } from "@/lib/actions/meals";
 import { proteinCaloriePct } from "@/lib/domain/nutrition";
 import { sumEntries } from "@/lib/domain/totals";
+import { roundTo } from "@/lib/domain/units";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { MealForm } from "./MealForm";
@@ -104,8 +105,9 @@ export function MealList({ meals, itemsByMeal, onChanged }: MealListProps) {
                 <div>
                   <p className="font-serif text-lg font-semibold text-ink">{meal.name}</p>
                   <p className="text-sm text-stone-500">
+                    {/* Round only for display -- see the identical note in FoodEntryList.tsx. */}
                     {items.length} item{items.length === 1 ? "" : "s"} · {totals.calories} kcal ·{" "}
-                    {totals.proteinG}g protein
+                    {roundTo(totals.proteinG, 2)}g protein
                     {pct !== null && ` · ${pct}% from protein`}
                   </p>
                 </div>

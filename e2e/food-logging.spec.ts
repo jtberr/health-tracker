@@ -335,3 +335,121 @@ test.describe("Phase 3 — protein % and ratio-of-sums (DB-seeded fixtures)", ()
     await expect(group.locator("header")).toContainText("40% from protein");
   });
 });
+
+/**
+ * Coverage for two 2026-07-30 fixes made directly (not part of a numbered phase) after Jeff
+ * reported real issues driving the app: (1) a "Clear" button that resets the add form, including
+ * its date/time back to the viewed day's current quarter-hour rather than whatever was manually
+ * picked or left over; (2) `FoodDayView`'s smart same-sitting default (`lastConsumedAt`) must only
+ * advance when a NEW entry is added, never when an existing entry is merely edited — otherwise
+ * editing an old entry (to fix a typo, say) could snap the next new entry's default time backward,
+ * grouping it with the old entry instead of continuing forward from the most recent real add. Both
+ * are recorded in ai-context/DECISIONS.md. Uses "today" throughout (no `Day` input navigation), to
+ * avoid the documented pre-existing `FoodDayView` `Day`-input race entirely rather than inheriting
+ * it (see food-offgrid-edit.spec.ts and the Notes entries in ai-context/PROGRESS.md).
+ */
+test.describe("Food entry form — Clear button and edit/smart-default isolation (2026-07-30 fixes)", () => {
+  let user: TestUser;
+
+  test.beforeEach(async ({ page }) => {
+    user = await createConfirmedTestUser();
+    await logIn(page, user);
+    await page.goto("/food");
+    await expect(page.getByRole("heading", { name: "Food log" })).toBeVisible();
+  });
+
+  test.afterEach(async () => {
+    await deleteTestUser(user.id);
+  });
+
+  test("Clear resets all fields and the time back to floor-of-now, discarding a manually-picked time", async ({
+    page,
+  }) => {
+    await page.getByLabel("Name").fill("Half-typed snack");
+    await page.getByLabel("Total calories").fill("999");
+    await page.getByLabel("Total protein (g)").fill("99");
+    await page.getByLabel("Time").selectOption("01:00");
+
+    await page.getByRole("button", { name: "Clear" }).click();
+
+    await expect(page.getByLabel("Name")).toHaveValue("");
+    await expect(page.getByLabel("Total calories")).toHaveValue("");
+    await expect(page.getByLabel("Total protein (g)")).toHaveValue("");
+
+    // Resets to floor-of-now -- not the manually-picked 01:00, and not just whatever was showing
+    // before Clear (this is the same floor-of-now assertion style as the Phase 3 default-time test
+    // above, accepting the same small, already-established real-clock dependency).
+    const value = await page.getByLabel("Time").inputValue();
+    const [h, m] = value.split(":").map(Number);
+    const inputMinutesSinceMidnight = h * 60 + m;
+    const now = new Date();
+    const nowMinutesSinceMidnight = now.getHours() * 60 + now.getMinutes();
+    expect(inputMinutesSinceMidnight).toBeLessThanOrEqual(nowMinutesSinceMidnight + 1);
+  });
+
+  test("editing an existing entry does not move the smart same-sitting default backward for the next new entry", async ({
+    page,
+  }) => {
+    const client = await createUserClient(user);
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    // Within the 120-minute freshness window relative to "now" at test time, but distinct from
+    // whatever a fresh add's floor-of-now resolves to -- this is what lets the test tell apart
+    // "the tracker correctly still points at Fresh1" from "the tracker wrongly snapped back to the
+    // edited entry's own (still-recent) time". Floored to the 15-minute grid: submitting the edit
+    // below without touching the time field resubmits this exact value, and an off-grid time is
+    // rejected server-side (see food-offgrid-edit.spec.ts) -- that's a real, separate invariant,
+    // just not the one this test is trying to exercise.
+    const oldRaw = new Date(Date.now() - 45 * 60_000);
+    oldRaw.setSeconds(0, 0);
+    oldRaw.setMinutes(Math.floor(oldRaw.getMinutes() / 15) * 15);
+    const oldInstant = oldRaw.toISOString();
+    const seeded = await client
+      .from("food_entries")
+      .insert({
+        user_id: user.id,
+        name: "OldEntry",
+        quantity: 1,
+        calories_per_unit: 50,
+        protein_g_per_unit: 1,
+        consumed_at: oldInstant,
+        consumed_tz: tz,
+      })
+      .select()
+      .single();
+    expect(seeded.error).toBeNull();
+
+    await page.reload();
+    await expect(page.getByText("OldEntry")).toBeVisible();
+
+    // Add a brand-new entry via the ordinary smart-default flow (no explicit time change) -- this
+    // becomes the tracker's reference point going forward.
+    await page.getByLabel("Name").fill("Fresh1");
+    await page.getByLabel("Total calories").fill("10");
+    await page.getByLabel("Total protein (g)").fill("1");
+    await page.getByRole("button", { name: "Add entry" }).click();
+    await expect(page.getByText("Fresh1")).toBeVisible();
+
+    // Edit the OLD entry -- change only its name, never its time.
+    await page.locator("li", { hasText: "OldEntry" }).getByRole("button", { name: "Edit" }).click();
+    await page.getByLabel("Name").fill("OldEntryRenamed");
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await expect(page.getByText("OldEntryRenamed")).toBeVisible();
+
+    // Add a second brand-new entry via the default flow again. If editing the old entry had
+    // incorrectly moved the smart default backward to its (still-within-window) time, this would
+    // default to -- and group with -- OldEntryRenamed instead of continuing to group with Fresh1.
+    await page.getByLabel("Name").fill("Fresh2");
+    await page.getByLabel("Total calories").fill("10");
+    await page.getByLabel("Total protein (g)").fill("1");
+    await page.getByRole("button", { name: "Add entry" }).click();
+    await expect(page.getByText("Fresh2")).toBeVisible();
+
+    const fresh1Group = page.locator("section", { hasText: "Fresh1" });
+    const oldGroup = page.locator("section", { hasText: "OldEntryRenamed" });
+
+    // Fresh1 and Fresh2 land in the same group (same consumed_at) ...
+    await expect(fresh1Group).toContainText("Fresh2");
+    // ... and that is a DIFFERENT group than the edited old entry's.
+    await expect(oldGroup).not.toContainText("Fresh2");
+  });
+});

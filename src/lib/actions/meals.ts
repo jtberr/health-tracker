@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { isValidTimeZone, localDateNotAfterToday, localInputToUtcInTz } from "@/lib/domain/datetime";
-import { computeReorderedSortOrders } from "@/lib/domain/meal-items";
+import { computeReorderedSortOrders, mealItemsFromEntries } from "@/lib/domain/meal-items";
 import { perUnitFromTotal } from "@/lib/domain/quantity";
 import {
   validateLogMealInput,
@@ -33,6 +33,16 @@ import type { FoodEntry, Meal, MealItem } from "@/lib/types";
  * exactly the generic error this returns, with zero `food_entries` rows written. This is what
  * makes every `logged_from_meal_id` value same-owner *by construction*: there is no code path in
  * this file that inserts a row referencing a meal that wasn't just proven to be the caller's own.
+ *
+ * **`createMealFromEntries`** (Phase 7b — "Save a logged meal group as a Saved Meal") is the exact
+ * mirror in the other direction: instead of trusting a client-supplied meal id, it re-reads the
+ * `food_entries` rows it's asked to copy through the same RLS-scoped client, with a count check
+ * that rejects the whole request (rather than silently writing a partial meal) if any requested id
+ * doesn't resolve to one of the caller's own rows. It is strictly read-only on `food_entries` — no
+ * UPDATE, no DELETE, no relink of `logged_from_meal_id` — by there simply being no such statement
+ * in its code path (see ai-context/DECISIONS.md and the design doc's §3.3/§5 for the full
+ * reasoning, including why a failed item-insert is handled with a compensating delete rather than
+ * a database transaction).
  */
 
 export type MealActionState = {
@@ -156,6 +166,112 @@ export async function deleteMeal(id: string): Promise<MealsActionResult> {
   }
 
   return { ok: true, error: null };
+}
+
+// -------------------------------------------------------------------------------------------
+// createMealFromEntries — the entries→meal direction (Phase 7b, 2026-07-30). The exact mirror
+// of logMealForDay below: that action resolves a *meal* through the RLS-scoped client before
+// ever trusting it as a source of truth; this one resolves *entries* the same way before ever
+// trusting them as the source of a new meal. See ai-context/DECISIONS.md "Saving an already-
+// logged meal group as a Saved Meal..." and docs/architecture/food-weight-tracker.md §3.3.
+// -------------------------------------------------------------------------------------------
+
+export async function createMealFromEntries(
+  _prevState: MealActionState,
+  formData: FormData,
+): Promise<MealActionState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { ok: false, error: "unauthenticated" };
+  }
+
+  const name = String(formData.get("name") ?? "").trim();
+  const validation = validateMealInput({ name });
+  if (!validation.ok) {
+    const fieldErrors: Partial<Record<MealField, string>> = {};
+    for (const e of validation.errors) fieldErrors[e.field] = e.message;
+    return { ok: false, error: "Please fix the highlighted errors.", fieldErrors };
+  }
+
+  // Dedupe (the design doc's "unique(entryIds)") and drop any blank values a hostile/garbled
+  // client might submit — neither should count toward the below count check.
+  const entryIds = Array.from(
+    new Set(formData.getAll("entryIds").map((v) => String(v)).filter((id) => id.length > 0)),
+  );
+  if (entryIds.length === 0) {
+    return { ok: false, error: "no_entries" };
+  }
+
+  // --- Ownership re-check (see file doc comment / logMealForDay below for the same pattern):
+  // resolve the entries via the RLS-scoped `supabase` client already bound to this request's
+  // session — never the service-role client, never the client-supplied name/calorie values a
+  // browser might have sent alongside the ids (those are display-only; only what's re-read here
+  // ever reaches a write). RLS's `food_entries_select_own` policy means a foreign or nonexistent
+  // id simply doesn't come back. The extra `.eq("user_id", user.id)` is belt-and-suspenders on
+  // top of RLS, matching this file's other mutations.
+  const { data: rows, error: entriesError } = await supabase
+    .from("food_entries")
+    .select("*")
+    .in("id", entryIds)
+    .eq("user_id", user.id);
+
+  if (entriesError) {
+    return { ok: false, error: entriesError.message };
+  }
+
+  // A foreign id, a nonexistent id, or a mixed own/foreign set all collapse to "fewer rows came
+  // back than ids were requested" — reject the WHOLE request rather than silently creating a
+  // partial meal from just the caller's own ids, which would look like it worked.
+  if (!rows || rows.length !== entryIds.length) {
+    return { ok: false, error: "entries_not_found" };
+  }
+
+  const drafts = mealItemsFromEntries(rows as FoodEntry[]);
+
+  const { data: meal, error: mealError } = await supabase
+    .from("meals")
+    .insert({ user_id: user.id, name })
+    .select()
+    .single();
+
+  if (mealError || !meal) {
+    return { ok: false, error: mealError?.message ?? "Couldn't create the meal." };
+  }
+
+  const { error: itemsError } = await supabase.from("meal_items").insert(
+    drafts.map((draft) => ({
+      meal_id: (meal as Meal).id,
+      user_id: user.id,
+      name: draft.name,
+      quantity: draft.quantity,
+      unit: draft.unit,
+      calories_per_unit: draft.caloriesPerUnit,
+      protein_g_per_unit: draft.proteinGPerUnit,
+      sort_order: draft.sortOrder,
+    })),
+  );
+
+  if (itemsError) {
+    // Compensating delete (ai-context/DECISIONS.md "createMealFromEntries atomicity...") — part
+    // of this action's contract, not a nice-to-have. supabase-js exposes no cross-statement
+    // transaction, so on item-insert failure we clean up the meal row we just created rather than
+    // leaving it orphaned. If this delete itself also fails, the residual state is a named, empty,
+    // user-deletable meal — knowingly accepted (same decision entry); `logMealForDay` already
+    // refuses to log an empty meal, so it cannot propagate anywhere downstream. Its own result is
+    // intentionally not awaited-and-checked further — there is nothing more useful to do with a
+    // failure here than what's already been decided.
+    await supabase.from("meals").delete().eq("id", (meal as Meal).id).eq("user_id", user.id);
+    return { ok: false, error: itemsError.message };
+  }
+
+  // Nothing above ever issues an UPDATE or DELETE against food_entries — this action is strictly
+  // read-only on that table by construction (no such statement exists in this function), which is
+  // what makes "the source entries are byte-identical before and after" true regardless of what a
+  // future edit here might be tempted to add (see the design doc's §5 risk on this).
+  return { ok: true, error: null, meal: meal as Meal };
 }
 
 // -------------------------------------------------------------------------------------------
