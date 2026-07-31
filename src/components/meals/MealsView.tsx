@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { queryTimeoutSignal } from "@/lib/supabase/query-timeout";
 import { groupMealItemsByMeal } from "@/lib/domain/meal-items";
+import { filterMealsByName, sortMealsByName } from "@/lib/domain/meals";
+import { inputClass, labelClass } from "@/components/ui/styles";
 import { MealForm } from "./MealForm";
 import { MealList } from "./MealList";
 import type { Meal, MealItem } from "@/lib/types";
@@ -41,6 +43,10 @@ export function MealsView() {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [creating, setCreating] = useState(false);
+  // Transient view state, deliberately not a URL param (unlike /trends' `?range=`, which is a
+  // server-rendered shareable view) -- design doc §3.4 Phase 7c. Typing never refetches; it only
+  // narrows the rows already in `meals`.
+  const [filterQuery, setFilterQuery] = useState("");
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -50,7 +56,10 @@ export function MealsView() {
         supabase
           .from("meals")
           .select("*")
-          .order("created_at", { ascending: true })
+          // Deterministic base order from the DB (Phase 7c) -- belt-and-suspenders alongside
+          // `sortMealsByName` below, which remains the actual authority so `/meals` and
+          // `LogMealDialog`'s picker can't disagree over case-insensitive/tie-break semantics.
+          .order("name", { ascending: true })
           .abortSignal(queryTimeoutSignal()),
         supabase
           .from("meal_items")
@@ -82,6 +91,18 @@ export function MealsView() {
   }, [refresh]);
 
   const itemsByMeal = groupMealItemsByMeal(items);
+
+  // sortMealsByName is the single authoritative order (design doc §3.4 Phase 7c) -- applied here
+  // regardless of the DB's own `.order("name")` above, so this screen and LogMealDialog's picker
+  // can never disagree over case-insensitive/tie-break semantics. filterMealsByName then narrows
+  // the already-sorted, already-fetched rows in memory -- no refetch, no debounce, no loading state.
+  const sortedMeals = sortMealsByName(meals);
+  const isFiltering = filterQuery.trim().length > 0;
+  const visibleMeals = filterMealsByName(sortedMeals, filterQuery);
+  // Distinguishes "genuinely zero saved meals" (MealList's own empty state fires below) from "has
+  // meals, but none match the filter" (MealsView's own message, MealList not rendered at all) --
+  // getting these confused is the most likely defect in this phase (design doc §6).
+  const noMatches = meals.length > 0 && visibleMeals.length === 0;
 
   return (
     <div className="flex flex-col gap-6">
@@ -117,7 +138,38 @@ export function MealsView() {
           </button>
         </div>
       ) : (
-        <MealList meals={meals} itemsByMeal={itemsByMeal} onChanged={refresh} />
+        <div className="flex flex-col gap-3">
+          {meals.length > 0 && (
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div className="flex flex-col gap-1 sm:max-w-xs sm:flex-1">
+                <label htmlFor="meal-filter" className={labelClass}>
+                  Filter meals
+                </label>
+                <input
+                  id="meal-filter"
+                  type="search"
+                  value={filterQuery}
+                  onChange={(event) => setFilterQuery(event.target.value)}
+                  placeholder="e.g. chicken"
+                  className={inputClass}
+                />
+              </div>
+              <p className="text-sm text-stone-500">
+                {isFiltering
+                  ? `Showing ${visibleMeals.length} of ${meals.length}`
+                  : `${meals.length} saved meal${meals.length === 1 ? "" : "s"}`}
+              </p>
+            </div>
+          )}
+
+          {noMatches ? (
+            <div className="rounded-2xl border border-dashed border-stone-300 px-4 py-8 text-center text-sm text-stone-500">
+              No meals match &quot;{filterQuery.trim()}&quot;.
+            </div>
+          ) : (
+            <MealList meals={visibleMeals} itemsByMeal={itemsByMeal} onChanged={refresh} />
+          )}
+        </div>
       )}
     </div>
   );

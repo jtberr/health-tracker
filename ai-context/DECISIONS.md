@@ -985,6 +985,76 @@ grouping context the user may be deliberately abandoning. This is unrelated to a
 replaced* form instance shows; it doesn't retroactively alter the tracker other new adds will still
 see.
 
+### Saved-meals list scaling is a **findability** problem, not a data-volume one: client-side alphabetical sort + a name filter + a visible count, over a still-fully-fetched list — no pagination, no server-side search, no cap, no combobox, no migration (Phase 7c)
+**Date**: 2026-07-30
+**Decision**: Both surfaces that list saved meals — `/meals` (`MealsView` → `MealList`) and `/food`'s
+`LogMealDialog` picker — keep fetching **every** saved meal and every meal item exactly as they do today. What
+changes is only how those already-fetched rows are ordered, narrowed and counted:
+- A new pure module `lib/domain/meals.ts` (meal-level, deliberately **not** added to the item-level
+  `meal-items.ts`): `sortMealsByName(meals)` — case-insensitive alphabetical, ties broken by `created_at` then
+  `id`, returns a new array — and `filterMealsByName(meals, query)` — case-insensitive, AND-of-whitespace-
+  separated-tokens **substring** match on `meal.name` only, with an empty/whitespace-only query returning the
+  input unchanged (identity, **not** "no results").
+- `sortMealsByName` is the single authoritative order for **both** surfaces, so a meal sits in the same place in
+  the library and the picker, independent of the database's collation. The two Supabase queries also move
+  `.order("created_at")` → `.order("name")` as a deterministic base order — belt-and-suspenders, the same
+  posture as this codebase's redundant `.eq('user_id')` filters, with the pure function remaining the authority.
+- `MealsView` owns a `<input type="search">` filter box (real `<label>`, local `useState`, hidden only when the
+  user has zero meals) and a count readout ("40 saved meals" / "Showing 3 of 40"), applies sort-then-filter, and
+  passes the result to `MealList`. **Typing never refetches** — no debounce, no loading state, no new network
+  path.
+- **The two empty states must stay distinct**: `MealList`'s existing "No saved meals yet…" fires only for a
+  genuinely empty library; a non-empty library whose filter matches nothing gets its own message from
+  `MealsView`, which does not render `MealList` at all in that case.
+- `LogMealDialog`'s picker stays a **plain native `<select>`**, gaining only the shared order. Implementation
+  invariant: each option's label must keep the **meal name first**, before the `(450 kcal, 3 items)`
+  parenthetical, because native type-ahead prefix-matches the rendered option text.
+- **No migration, no index, no extension.** Sequenced as its own small **Phase 7c**; it shares no files with
+  Phase 8, so 7c-before-8 is a recommendation, not a dependency.
+**Why**: Jeff asked, while manually testing Phase 7b, "is there any limit to the number of meals we display on
+the meals page? It seems like that could get out of control." That question has two readings with different
+answers, and separating them is most of this decision. **As a data-volume question it is a non-problem, and the
+honest answer is to say so**: saved meals are created one at a time by hand (in `/meals`, or one per "Save as
+meal" click) — there is no import, no sync, no automatic creation path, so no runaway mechanism exists at all. A
+`meals` row is ~100 bytes; even a heavy 200-meal library with ~5 items each is ~1000 `meal_items` rows / low
+hundreds of KB, returned by an already-indexed `user_id` lookup and rendered in one pass without a browser
+noticing. **As a findability question it is real now**, at a size Jeff can plausibly reach this year: 40 meals
+in an unfiltered, uncounted list ordered by `created_at ascending` is genuinely hard to use, and that order is
+the worst available one (the meals just created are furthest from the top). So the fix targets ordering,
+filtering and orientation, and deliberately leaves the fetch strategy alone, because the fetch is not what
+hurts. **Rejected, each for a specific reason rather than as a blanket "too complex":** (a) **server-side
+search/pagination** — it would be the first pagination pattern anywhere in this codebase (every other screen
+fetches a bounded window and renders it whole) and interacts badly with the existing two-flat-query read, since
+each card's totals come from `sumEntries(items)`, so paginating `meals` forces a page-keyed `meal_items` fetch,
+refetch-on-page-change and a stale-response guard — real coordinated machinery to speed up a tens-of-rows query;
+server-side `ILIKE '%…%'` additionally wants a `pg_trgm` GIN index, i.e. a new extension and an architect-owned
+migration, to accelerate a sequential scan over tens of rows. (b) **A hard cap or a silent `.limit()`** —
+there is no runaway path to defend against, and the failure mode is severe and silent (a meal the user
+deliberately saved simply isn't in their own library, with no explanation); a *visible count* delivers the
+awareness Jeff actually asked for without ever hiding data. This is a different question from Phase 7b's
+unbounded-`entryIds` note (qa N-2), which concerns an untrusted client-supplied list in one request. (c) **A
+searchable combobox for the picker** — settled by direct precedent rather than fresh judgment: the 2026-07-25/26
+time-picker decisions chose a plain native `<select>` of **96** options over a custom combobox, explicitly
+because a combobox "violates the conventional-default bias and adds JS/accessibility surface for no benefit over
+`<select>` at this option count." A meals library will be well under 96 for a long time, on a less-used control,
+so building one here would contradict a decision this project made about a harder version of the same problem
+five days earlier — and alphabetical order plus name-first labels is precisely what turns the `<select>`'s free
+built-in type-ahead into the search feature a combobox would have been built to provide. (d) **Matching item
+names as well as meal names** — genuinely useful and the data is already in memory, but a match with no visible
+cause needs a "matched on: chicken" affordance to not read as a bug; deferred deliberately, not overlooked.
+(e) **Fuzzy matching** (a scoring library for a list of tens) and **URL-persisted filter state** (`/trends`'
+`?range=` is in the URL because it is a server-rendered shareable view; this is transient state on a client
+orchestrator). **Two things recorded as tripwires rather than solved**: the filter is only correct *because*
+the list is fully fetched, so anyone introducing pagination later must move search server-side in the same
+change or it silently searches one page while appearing to search everything; and the revisit trigger is
+concrete (~200 meals, or perceptible `/meals` load time) with a deliberate escalation order — trim
+`LogMealDialog`'s label-only items fetch, then recency-of-use ordering (needs schema surface, hence not in 7c),
+then server-side search+pagination together. **Explicitly left to Jeff, not decided here**: `MealList` expands
+every meal's items by default (his own 2026-07-30 call), which is the visible form of this same problem at 40
+meals — Phase 7c does not reverse a three-day-old explicit decision, and the filter addresses the same pain from
+the other side; if it still feels unwieldy afterwards, collapsing-above-a-threshold is a behaviour-changes-at-a-
+magic-number design that deserves its own architect round.
+
 ### `FoodEntryList` group-header times now render in 12-hour AM/PM (amends the 2026-07-26 time-`<select>` entry)
 **Date**: 2026-07-30
 **Decision**: Meal-group headers in `FoodEntryList.tsx` now format their time via the existing
@@ -1002,5 +1072,44 @@ project's "no duplicate logic" bias. Purely presentational — `groupByConsumedA
 still the raw `consumed_at` string; only the rendered label changed. Existing e2e assertions
 (`toContainText("12:30")`) still pass unchanged, since AM/PM is an appended suffix, not a
 reformatting of the digits themselves.
+
+### `MealList` shows a meal's items by default, not behind a "Manage items" click
+**Date**: 2026-07-30
+**Decision**: `MealList.tsx`'s per-meal item list is now expanded on first paint for every meal card,
+not collapsed. Implemented by inverting the tracked state from `expandedMealId: string | null`
+(single accordion slot, default nothing expanded) to `collapsedMealIds: Set<string>` (default empty
+set) — `isExpanded` is `!collapsedMealIds.has(meal.id)`, so a meal is expanded unless the user has
+explicitly clicked to hide it, and a newly created meal is expanded by default too with no
+special-casing needed. The toggle button's existing label logic (`isExpanded ? "Hide items" :
+"Manage items"`) was kept as-is, so on a fresh page load the button now reads "Hide items" rather
+than "Manage items" — this is the load-bearing, test-visible symptom of the change.
+**Why**: Jeff's direct call while manually testing the just-shipped Saved Meals feature: "I feel like
+the meals should default to showing their ingredients on the Meals page." A saved meal's whole point
+is checking what's in it before deciding whether to log it or edit it — hiding that behind a click on
+every single visit to `/meals` was the wrong default, confirmed by a live screenshot comparison before
+and after (the "Breakfast staple" card went from a bare name+totals summary to showing "3 egg — Egg"/
+"2 slice — Toast" immediately). Tracking *collapsed* ids rather than *expanded* ones was chosen
+specifically so the fix generalizes correctly as the meal list grows (see the separate Phase 7c
+"findability" work started the same day) — an expanded-id allowlist would need every newly-created or
+newly-fetched meal added to it to also default open, while a collapsed-id denylist gets that for free.
+**Process note (why this is being recorded after the fact rather than at implementation time)**: this
+was made as a direct, un-delegated edit mid-conversation while responding to Jeff's live testing
+feedback, verified at the time with lint/typecheck/the unit suite (395/395) and a manual browser
+screenshot — but **not** against the e2e suite, and not recorded in this file or in
+`ai-context/PROGRESS.md`. `e2e/phase7-acceptance.spec.ts` (written before this change, when
+"Manage items" was the default state) had 13 places that clicked "Manage items" to reach the expanded
+state before interacting with items — since items are now expanded by default, that click became
+unnecessary and, on the four tests asserting `"Hide items"` was visible afterward, the click would
+have instead *collapsed* the already-open list, inverting the assertion. This surfaced as qa-reviewer's
+Phase 7c review B-1 (found while reviewing an unrelated, later change — Phase 7c's meal-search
+filtering — that never touched `MealList.tsx` at all; qa-reviewer confirmed via `git stash` that
+reverting only this change restores the suite to 29/29, proving Phase 7c's own code was not at fault).
+Same lesson as Phase 7b's own B-1 one phase earlier: a real, wanted UI change made directly rather than
+through the full architect/developer/qa-reviewer loop still needs its decision recorded and its
+downstream tests updated in the same sitting, even when — especially when — it's small enough to feel
+like it doesn't need the paperwork. **Fixed 2026-07-30**: this entry, plus removing the now-redundant
+13 `"Manage items"`-click lines from `e2e/phase7-acceptance.spec.ts` (the four `"Hide items"`
+visibility assertions right after them are left in place and still meaningful — they now additionally
+prove the list is expanded *from page load*, not just *after* a click).
 
 ---

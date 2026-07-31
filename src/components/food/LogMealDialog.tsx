@@ -7,6 +7,7 @@ import { queryTimeoutSignal } from "@/lib/supabase/query-timeout";
 import { logMealForDay, type LogMealActionState } from "@/lib/actions/meals";
 import { floorToQuarterHour, quarterHourOptions } from "@/lib/domain/datetime";
 import { groupMealItemsByMeal } from "@/lib/domain/meal-items";
+import { sortMealsByName } from "@/lib/domain/meals";
 import { sumEntries } from "@/lib/domain/totals";
 import { Button } from "@/components/ui/Button";
 import { errorTextClass, inputClass, labelClass } from "@/components/ui/styles";
@@ -75,7 +76,10 @@ export function LogMealDialog({ selectedDate, today, tz, onLogged }: LogMealDial
           supabase
             .from("meals")
             .select("*")
-            .order("created_at", { ascending: true })
+            // Deterministic base order from the DB (Phase 7c) -- belt-and-suspenders alongside
+            // `sortMealsByName` below, which remains the actual authority so this picker and
+            // `/meals` can't disagree over case-insensitive/tie-break semantics.
+            .order("name", { ascending: true })
             .abortSignal(queryTimeoutSignal()),
           supabase
             .from("meal_items")
@@ -87,7 +91,9 @@ export function LogMealDialog({ selectedDate, today, tz, onLogged }: LogMealDial
         if (mealsRes.error || itemsRes.error) {
           setLoadError(true);
         } else {
-          setMeals((mealsRes.data ?? []) as Meal[]);
+          // Shared ordering with /meals (design doc §3.4 Phase 7c) -- a meal sits in the same
+          // place in both surfaces, independent of the database's own collation.
+          setMeals(sortMealsByName((mealsRes.data ?? []) as Meal[]));
           setItemsByMeal(groupMealItemsByMeal((itemsRes.data ?? []) as MealItem[]));
         }
       } catch {
@@ -116,13 +122,9 @@ export function LogMealDialog({ selectedDate, today, tz, onLogged }: LogMealDial
 
   if (!open) {
     return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="self-start text-sm font-medium text-sage-deep hover:text-sage-deep/80"
-      >
+      <Button type="button" variant="secondary" onClick={() => setOpen(true)} className="self-start">
         Log a saved meal
-      </button>
+      </Button>
     );
   }
 

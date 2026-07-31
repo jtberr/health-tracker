@@ -88,7 +88,9 @@ Developer can implement directly against it.
   per item (copy-by-value, **one shared `consumed_at`/tz for the batch** — so a logged meal already forms a
   single exact-timestamp group with no extra work; subject to the no-future-day cap), each independently
   editable and carrying an optional back-reference to the meal. Editing/deleting a meal never alters entries
-  already logged from it.
+  already logged from it. **The library must stay findable as it grows:** both places meals are listed (the
+  `/meals` library and the log-a-meal picker) present them in one shared, predictable alphabetical order, show
+  how many there are, and `/meals` offers a name filter. No meal is ever hidden or capped (3.4/4).
 - **Save a logged meal group as a Saved Meal (2026-07-30 addition — closes the one-directional gap):** from
   any exact-timestamp **meal group** in the day's log, the user can capture that group as a **new named
   Saved Meal in one step**, instead of re-typing it in `/meals`. Each entry in the group becomes one
@@ -144,6 +146,10 @@ Developer can implement directly against it.
   meal grouping is derived and stores nothing); macro tracking beyond calories + protein.
 - A cross-meal reusable "food library" (meal items are scoped to their meal — see 4); contributing to the
   external food database; **unit conversion/normalization** between food units (free text, verbatim).
+- Server-side search/pagination/virtualization of the saved-meals library, and any cap on how many meals a
+  user may keep; fuzzy matching; recency-of-use or favourites ordering (see 4/5 — the saved-meals list is
+  sorted, filtered and counted **client-side** over a fully-fetched list, by design and with a documented
+  revisit trigger).
 - Sub-15-minute time-of-day precision on food logging (the input is snapped to a 15-minute grid — see 3.4);
   Height / body units (cm/in); a user-facing time-zone picker; social/sharing/export/import; native app;
   custom SMTP (see 5); OAuth/social login; password reset beyond Supabase defaults.
@@ -179,6 +185,7 @@ src/
     food/LogMealDialog.tsx        ← pick a saved meal + date/time (max=today, 15-min grid) → logMealForDay (client)
     food/SaveGroupAsMealDialog.tsx ← name a logged group → createMealFromEntries; inline expander, not a modal (client)
     food/DailyTotals.tsx          ← day sum + day-level protein % (ratio-of-sums)
+    meals/MealsView.tsx           ← client orchestrator: reads meals+items, owns the name-filter box + counts (client)
     meals/MealList.tsx / MealForm.tsx / MealItemForm.tsx  ← meal CRUD; MealItemForm keeps qty/unit/per-unit always visible
     metrics/MetricForm.tsx / settings/SettingsForm.tsx
     trends/WeightChart.tsx / IntakeChart.tsx / RangeSelector.tsx
@@ -189,6 +196,7 @@ src/
     domain/nutrition.ts           ← pure: proteinCaloriePct((protein×4)/calories×100); used per entry, per group, per day
     domain/entry-grouping.ts      ← pure: groupByConsumedAt — exact-timestamp grouping of logged entries (NOT saved meals)
     domain/meal-items.ts          ← pure: groupMealItemsByMeal; computeReorderedSortOrders; mealItemsFromEntries (entries → meal-item drafts)
+    domain/meals.ts               ← pure: sortMealsByName; filterMealsByName — meal-level (not item-level) library ordering/filtering
     domain/quantity.ts            ← pure: lineTotal(qty×perUnit); perUnitFromTotal(total÷qty)
     domain/datetime.ts            ← pure: local↔UTC (tz-aware), browser tz, future-day cap, smart-default consumed_at, quarter-hour floor, validate
     domain/validation.ts / domain/units.ts / domain/trends.ts / domain/lookup.ts
@@ -226,6 +234,16 @@ The `consumed_at` **time-of-day input is restricted to 15-minute intervals** (:0
 stores with `:00` seconds), so storage, indexing, the local-day trigger, and exact-match grouping are all
 unchanged. No DB constraint enforces the grid (it is a UI affordance for ease of entry, not an invariant);
 any legacy/off-grid instant still groups and sums correctly.
+
+**Saved-meals list scaling adds no schema either (2026-07-30, Phase 7c).** Finding a meal in a growing library
+is handled entirely client-side over rows the app already fetches (§3.4), so there is **no migration in that
+phase — no new column, no new index, no new extension.** The existing `meals_user_id_idx (user_id)` already
+serves the only query involved (RLS-scoped `select * from meals where user_id = …`), and at this app's scale
+that read returns tens of rows. Two indexes were considered and **deliberately not added**: a `(user_id, name)`
+index (a sort over tens of rows is free — Postgres would very likely ignore it anyway) and a `pg_trgm` GIN
+index for `ILIKE '%…%'` search (needs a new extension and a real migration to accelerate a query the app does
+not make). Both become worth revisiting **only if** server-side search or pagination is ever adopted — see the
+tripwire in §5.
 
 **Derived, non-stored (this round):** per-entry protein % and the exact-timestamp meal grouping are computed
 in `lib/domain/*` at read/render time — deliberately not persisted. Grouping keys off the already-indexed
@@ -325,6 +343,18 @@ export function mealItemsFromEntries(entries: FoodEntry[]): MealItemDraft[];
 // NOTE: there is deliberately no `defaultMealNameFromEntries` helper — the name field starts blank
 // (§3.4, settled 2026-07-30), so there is no prefill to derive and nothing pure to test here.
 // (existing) groupMealItemsByMeal / computeReorderedSortOrders
+
+// lib/domain/meals.ts — 2026-07-30 addition (Phase 7c): meal-LEVEL ordering/filtering, kept out of
+// meal-items.ts (which is item-level, per its own doc comment). Pure — no query, no fetch.
+// One shared ordering for BOTH surfaces (/meals list and LogMealDialog's picker), so a meal sits in
+// the same place in both. Case-insensitive by name; ties broken by created_at then id, because
+// duplicate meal names are explicitly legitimate (§5) and an unstable sort would make rows jump
+// between renders.
+export function sortMealsByName(meals: Meal[]): Meal[];               // returns a new array; does not mutate
+// Case-insensitive AND-of-whitespace-separated-tokens substring match on `meal.name` only.
+// Empty/whitespace-only query → returns the input order unchanged (identity, not "no results").
+// Substring, not prefix, so "rice" finds "Chicken and rice"; no fuzzy/trigram matching (§4).
+export function filterMealsByName(meals: Meal[], query: string): Meal[];
 ```
 
 **Shared copy primitive** (unchanged shape; requirement (c) now supplies an exact-timestamp group's ids):
@@ -493,12 +523,58 @@ existing bar instead of retrofitting one.
   recorded in `ai-context/DECISIONS.md`'s Phase 7 entry — it is being called out ahead of time here precisely
   because last time it was only caught by driving the UI by hand.
 
+**Finding a meal in a growing saved-meals library (2026-07-30 addition, Phase 7c).** Both surfaces that list
+saved meals — `/meals` (`MealsView` → `MealList`) and the `LogMealDialog` picker on `/food` — currently fetch
+and render **every** saved meal with no filter, no ordering by anything a human would predict (`created_at`
+ascending, i.e. oldest first), and no count. Nothing breaks at 5 meals; at 40 both become hard to scan, and the
+picker's oldest-first order actively buries the meals most recently added. **The problem is findability, not
+data volume** — see §4 for why that distinction decides the whole design — so the fix is ordering + filtering
+over the rows already in memory, not pagination.
+
+- **One shared ordering, alphabetical by name, for both surfaces.** `sortMealsByName` (§3.3) is the single
+  authoritative order, applied client-side so `/meals` and the picker cannot disagree and so the result is
+  independent of the database's collation. The Supabase queries also change their `.order("created_at")` to
+  `.order("name")` — belt-and-suspenders (a deterministic base order from the DB, the same posture as the
+  redundant `.eq('user_id')` filters elsewhere in this codebase), with the pure function remaining the
+  authority. Ties (duplicate names are legitimate, §5) break on `created_at` then `id`, mirroring
+  `mealItemsFromEntries`.
+- **`/meals` gains a filter box, owned by `MealsView`.** A single `<input type="search">` ("Filter meals") with
+  a real `<label>` (`labelClass`), held in `MealsView` local state — it is transient view state on a client
+  orchestrator, deliberately **not** a URL param (unlike `/trends`' `?range=`, which is a server-rendered,
+  shareable view). `MealsView` applies `filterMealsByName` and passes the **already-filtered, already-sorted**
+  array to `MealList`, which stays a renderer of what it is given. Typing **never refetches** — it filters rows
+  already in memory, so there is no debounce, no loading state, and no new network path.
+- **The two empty states must stay distinguishable.** `MealList`'s existing "No saved meals yet. Create one
+  above to get started." must fire **only** when the user genuinely has zero meals. When `meals.length > 0` but
+  the filter matches nothing, `MealsView` renders its own distinct message (e.g. `No meals match "chick".`)
+  and does not render `MealList` at all. Showing the create-your-first-meal copy to someone with 40 meals and a
+  typo'd filter would be actively misleading.
+- **A count readout for orientation**, in `MealsView` beside the filter: the total ("40 saved meals") when no
+  filter is active, and "Showing 3 of 40" when one is. This is the cheapest possible answer to Jeff's actual
+  question ("could this get out of control?") — it makes the size of the library visible instead of implied by
+  scroll length.
+- **The filter box is hidden when `meals.length === 0`** (nothing to filter). No other threshold: the control
+  does not appear/disappear at some magic library size, because a UI that behaves differently at 9 items than
+  at 10 is a surprise, not a feature.
+- **`LogMealDialog`'s picker stays a plain native `<select>`** — no combobox, no filter box, no custom widget
+  (§4). It gains only the shared alphabetical order. **Implementation invariant: the meal name must remain the
+  FIRST text in each option's label**, before the `(450 kcal, 3 items)` parenthetical, because native `<select>`
+  type-ahead prefix-matches the option's rendered text — that name-first shape plus alphabetical order is what
+  makes typing "c" jump to the chicken meals. This is the same lesson the zero-padded time labels taught: for a
+  `<select>`, the label *text* is a functional contract, not decoration.
+- **Not changed here:** the two-flat-queries + `groupMealItemsByMeal` read strategy (Phase 7's recorded choice);
+  `LogMealDialog` still fetches items only while open, and still only to render the kcal/item-count in each
+  label. That items query is the heavier of the two and is the first thing to trim if load time ever becomes
+  perceptible — noted, not pre-emptively done.
+
 **`DailyTotals`** shows the day's total calories/protein and the **day-level protein %** using the same
 ratio-of-sums function on the day's summed totals (from `daily_food_totals`). The dashboard shows the same
 for today.
 
 Other components unchanged: `CopyDayDialog`, `LogMealDialog` (its date/time picker is likewise a
-`date max=today` + the same 96-value quarter-hour time `<select>`), `MealList`/`MealForm`, `MealItemForm`
+`date max=today` + the same 96-value quarter-hour time `<select>`; its *meal* picker gains only the shared
+alphabetical order — see the Phase 7c block above), `MealList`/`MealForm` (`MealList` receives an
+already-filtered, already-sorted array; the filter itself lives in `MealsView`), `MealItemForm`
 (fields always visible — and note it has **no** time field at all: saved-meal items carry no `consumed_at`;
 time-of-day is chosen only at log time in `LogMealDialog`, so this control change doesn't touch it),
 `MetricForm` (date max=today, no time field, sends `metricTz`), `SettingsForm`, `RangeSelector`,
@@ -507,8 +583,8 @@ Installability via `app/manifest.ts` (+ icons), `display:'standalone'`, **no ser
 
 **State:** server state is Supabase; client state is in-flight form values (incl. expander state,
 `lastConsumedAt` for the smart default, quantity/unit, picked candidate, multi-select set, the open
-save-as-meal expander + its in-flight name), optimistic updates, chart range (URL), display-unit prop. No
-global store.
+save-as-meal expander + its in-flight name, the `/meals` filter query), optimistic updates, chart range (URL),
+display-unit prop. No global store.
 
 ## 4. Alternatives Considered
 
@@ -572,6 +648,52 @@ global store.
   exactly right, and remain so) its name is worth one deliberate keystroke sequence. Accepted tradeoff: two or
   three extra seconds on a save that is itself far rarer than logging — and this is a *net* keystroke saving
   regardless, since the alternative to the whole feature is retyping every item by hand in `/meals`.
+- **Saved-meals list scaling: client-side sort + filter over a fully-fetched list (chosen) vs. server-side
+  search/pagination (rejected) vs. a hard cap (rejected) vs. a combobox picker (rejected).** The question Jeff
+  actually asked — "is there any limit to the number of meals we display? That could get out of control" — has
+  two possible readings, and they have different answers. **As a data-volume question it is a non-problem, and
+  saying so plainly is most of the design.** Saved meals are created one at a time by hand (in `/meals`, or one
+  per "Save as meal" click); there is no import, no sync, no automatic creation path, so there is no runaway
+  mechanism at all. A `meals` row is ~100 bytes; a realistic heavy user reaching 200 meals × ~5 items is on the
+  order of 1000 `meal_items` rows / low hundreds of KB — well inside what one browser fetch and one flat render
+  handle without noticing, and returned by an already-indexed `user_id` lookup. **As a findability question it
+  is real today**, at a library size Jeff can reach this year: an unsorted-by-anything-meaningful, unfiltered,
+  uncounted list of 40 meals is genuinely hard to use, and `created_at ascending` is the worst available order
+  (the meals you just made are furthest from the top). So the fix targets findability — ordering, a filter, and
+  a count — and deliberately does **not** touch the fetch strategy, because the fetch is not what hurts.
+  - **Server-side search/pagination was rejected on cost, not on principle.** It would introduce the first
+    pagination pattern anywhere in this codebase (every other screen — `/food`, `/metrics`, `/trends` — fetches
+    a bounded window and renders it whole), and it interacts badly with the existing two-flat-queries read:
+    each meal card's totals come from `sumEntries(items)`, so paginating `meals` forces a matching paginated
+    `meal_items` fetch keyed to the visible page, plus refetch-on-page-change, plus a stale-response guard —
+    real machinery, coordinated across two surfaces, to make a tens-of-rows query faster than it already is.
+    Server-side `ILIKE '%…%'` search additionally wants a `pg_trgm` GIN index to avoid a sequential scan, i.e.
+    a new extension and an architect-owned migration, to accelerate a scan over tens of rows. This is the
+    "infrastructure this app doesn't otherwise have" case, and it is the one to say no to.
+  - **A hard cap (or a silent `.limit()`) was rejected outright.** There is no runaway path to defend against
+    (above), and the failure mode is severe and silent: a meal the user deliberately saved simply would not
+    appear in their own library, with no indication why. A *visible* count (§3.4) gives Jeff the awareness he
+    was actually asking for without ever hiding data. Note this is a different question from Phase 7b's
+    unbounded `entryIds` note (qa N-2) — that is an untrusted, client-supplied list in a single request; this
+    is the user's own row count accumulated over years.
+  - **The `LogMealDialog` picker stays a native `<select>`; a searchable combobox was rejected.** This is
+    settled by direct precedent rather than fresh judgment: the 2026-07-25/26 time-picker decisions chose a
+    plain native `<select>` of **96** options over a custom combobox, explicitly because a combobox "violates
+    the conventional-default bias and adds JS/accessibility surface for no benefit over `<select>` at this
+    option count." A saved-meals library will be well under 96 for a long time, on a *less* frequently used
+    control than the everyday time picker, so building a combobox here would contradict a decision this project
+    made about a harder version of the same problem three days earlier. Native `<select>` also brings
+    type-ahead, keyboard navigation, and platform pickers on mobile for free — and alphabetical ordering plus
+    name-first labels (§3.4) is what turns that built-in type-ahead from useless into the actual search feature.
+    A second filter box above the picker was also rejected, as a second control on the fast logging path for
+    something type-ahead already does.
+  - **Filtering on meal *name* only (chosen) vs. also matching item names (deferred).** Matching item names
+    ("chicken" finding a meal called "Tuesday dinner") is genuinely useful and the items are already in memory
+    — but a match with no visible cause needs a "matched on: chicken" affordance to not read as a bug, which is
+    more UI than this problem warrants right now. Deferred deliberately, not overlooked.
+  - **Also rejected: fuzzy/typo-tolerant matching** (a scoring library for a list of tens is unjustifiable) and
+    **URL-persisted filter state** (transient view state on a client orchestrator; `/trends`' `?range=` is in
+    the URL because it is a server-rendered, shareable view — this is not).
 - **The new meal keeps no link to its source entries (chosen) vs. a provenance column (rejected).** See §3.2 —
   a `derived_from` reference would recreate the reference-vs-value coupling copy-by-value exists to prevent,
   and nothing in the product reads it.
@@ -619,6 +741,27 @@ global store.
   deletable in one click, and `logMealForDay` already refuses it (`empty_meal`), so it cannot propagate. This
   is a **knowingly accepted** loose end: the Postgres-RPC alternative would close it outright and was weighed
   and declined (§4). Worth re-raising only if it is ever actually observed in practice, not pre-emptively.
+- **The `/meals` filter is only correct because the list is fully fetched — that coupling is a tripwire.**
+  `filterMealsByName` searches rows already in memory. That is exactly right today (every meal is fetched), but
+  it means **the day anyone introduces server-side pagination or a `.limit()` on the meals query, the filter
+  silently becomes wrong** — it would quietly search only the fetched page while looking like it searched
+  everything, which is worse than not having it. If pagination is ever added, search must move server-side in
+  the same change. Recorded here so a future change has to trip over it.
+- **When to revisit (concrete trigger, not "someday").** Revisit if a single user's `meals` count passes ~200,
+  or if `/meals` initial load becomes perceptibly slow in real use. The escalation order is deliberate:
+  (1) trim `LogMealDialog`'s all-items fetch (it exists only to label options); (2) order by recency-of-use
+  rather than name — the genuinely better ordering, but it needs either a new `meals.last_logged_at` column or
+  a `food_entries.logged_from_meal_id` aggregate, i.e. schema/design surface, which is why it is not in Phase
+  7c; (3) only then, server-side search + pagination together. Nothing before ~200 meals justifies step 3.
+- **Open question for Jeff — the expand-by-default interaction (deliberately not decided here).** `MealList`
+  currently expands every meal's items by default (Jeff's 2026-07-30 call: "a saved meal's whole point is
+  checking what's in it"). That decision was made at a handful of meals; at 40 it means 40 cards × ~5 item rows
+  rendered at once, which is the *visible* form of the problem being solved here. Phase 7c deliberately does
+  **not** reverse it — it is three days old, it is Jeff's explicit call, and the filter box addresses the same
+  pain from the other direction (a filtered list is short again). If the fully-expanded list still feels
+  unwieldy after 7c ships, the next lever is collapsing items by default once the library exceeds some size —
+  but that is a behaviour-changes-at-a-magic-number design, so it should be Jeff's call with an architect
+  round, not a developer tweak folded into this phase.
 - **The "read-only on `food_entries`" property is not enforceable by the database.** Nothing in the schema
   prevents a future edit to `createMealFromEntries` from adding an UPDATE against `food_entries` (e.g. a
   well-meaning "link the entries to the new meal"). It is an app-layer invariant held by code review and by
@@ -653,6 +796,15 @@ global store.
   of one group share an identical `consumed_at`, so that column cannot break the tie — feed the test entries in
   shuffled order and assert the output order); a single entry → one draft with `sortOrder: 0`; empty → empty.
   (No name-derivation tests — the name field starts blank, so there is no prefill helper to cover.)
+- `meals.ts` (Phase 7c): `sortMealsByName` orders case-insensitively (`"apple"` before `"Banana"`, not after —
+  i.e. it is not a raw codepoint sort), breaks ties on `created_at` then `id` for duplicate names (feed two
+  meals with the identical name and assert a deterministic, repeatable order), returns a **new** array and does
+  not mutate the input. `filterMealsByName`: an empty **and** a whitespace-only query returns every meal in the
+  input order (identity — not "no results", the bug that would blank the page on focus); matching is
+  case-insensitive; it is a **substring** match, not a prefix one (`"rice"` matches `"Chicken and rice"`);
+  multi-token queries are **AND**-ed (`"chick rice"` matches `"Chicken and rice"`, `"chick beef"` does not);
+  surrounding/repeated whitespace is tolerated; no match → empty array; item names are **not** searched (assert
+  explicitly, so the deferred behaviour in §4 can't be added by accident).
 - `quantity.ts` / `totals.ts` / `units.ts` / `lookup.ts` / `validation.ts` / `trends.ts`: as previously
   specified (validation still rejects empty `entryIds` / future `toDate` for `copyFoodEntries`;
   `validateMealInput` is reused unchanged for the save-as-meal name — no new validator).
@@ -708,6 +860,28 @@ global store.
   - *Code review, not an automated row:* confirm `createMealFromEntries` contains no UPDATE/DELETE against
     `food_entries`, reads entries only via the RLS-scoped client (never service-role), and takes `user_id`
     solely from the session.
+- **Saved-meals library ordering, filtering and counts (2026-07-30 addition, Phase 7c):**
+  - *Shared ordering:* with several meals whose names sort differently from their creation order, `/meals` and
+    `LogMealDialog`'s picker list them in the **same** alphabetical order — assert both surfaces, since "a meal
+    is in the same place in both" is the point.
+  - *Picker labels stay name-first:* each `<option>`'s text **starts with** the meal name (the kcal/item-count
+    parenthetical follows), which is what makes native type-ahead usable. Assert on the rendered option text.
+  - *Filter narrows without refetching:* typing narrows the rendered list to matching meals only; assert
+    case-insensitivity and a mid-word (substring) match; clearing the box restores the full list. Assert **no
+    Supabase request is issued while typing** (the list is filtered in memory) — e.g. by counting network calls
+    to the meals endpoint across the interaction.
+  - *The two empty states are distinct (the one to hammer):* a user with **zero** meals sees the "No saved
+    meals yet" create-your-first copy; a user **with** meals whose filter matches nothing sees the distinct
+    no-match message and **not** the create-your-first copy. Getting these confused is the most likely defect
+    in this phase.
+  - *Counts are accurate:* the unfiltered readout equals the number of meals actually returned; a filtered
+    readout reports matches-of-total and agrees with the number of cards rendered.
+  - *Nothing else regressed:* create/rename/delete a meal and add/reorder an item **while a filter is active**
+    — the mutation succeeds, the refresh preserves the filter, and (per Phase 7b's `hasLoadedOnce` fix) the
+    expanded card the user was working in stays open. A newly created meal appears if it matches the active
+    filter and does not if it doesn't.
+  - *No data is hidden:* with a deliberately large fixture library (e.g. 60 meals seeded via the admin client),
+    every one is present with the filter cleared — proving no cap or `.limit()` crept in.
 - **Copy a meal group = exact subset:** "Copy this group" copies exactly the entries sharing that
   `consumed_at` (not the whole day, not other groups), and the copied entries share one new `consumed_at` so
   they remain a group on the target day.
@@ -743,6 +917,11 @@ No structural change to `.github/workflows/ci.yml`. Action items:
 - **Save-a-group-as-a-meal (Phase 7b) needs nothing new from CI** — no secret, no provider, no migration, no
   clock/timezone dependency (it copies values between two tables and never computes a date). It runs on the
   same ephemeral local Supabase stack every other phase's e2e already uses.
+- **Saved-meals list scaling (Phase 7c) needs nothing new from CI either** — no secret, no provider, no
+  migration, no clock/timezone dependency. It is pure client-side sorting/filtering plus one changed `.order()`
+  clause; its unit tests are framework-free and its acceptance tests run on the same ephemeral local Supabase
+  stack every other phase already uses. The only fixture addition is a larger seeded meals library for the
+  "nothing is hidden" row (§6).
 - No new pipeline stages, runners, or build steps otherwise.
 
 ## 8. Implementation Plan (phased)
@@ -911,6 +1090,49 @@ rather than the reverse.
   confirm the expander and its typed name survive; and confirm the dialog's `<form>` isn't nested inside
   another `<form>` by actually clicking Save in a browser, not just by reading the JSX.
 
+### Phase 7c — Saved-meals library: ordering, filtering, and counts (2026-07-30 addition)
+
+**Why its own phase, and why here.** Raised by Jeff while manually testing Phase 7b ("is there any limit to the
+number of meals we display on the meals page? It seems like that could get out of control"). It is **small** —
+one new pure module, a filter box and count in `MealsView`, and a changed `.order()` on two queries — but it is
+**not trivial**: it changes what a user sees on two screens, adds a control with its own empty-state semantics,
+and answers a scaling question with a documented "no" that deserves to be on the record rather than in a chat
+message. It is deliberately **not folded into Phase 8**: the two share **no files at all** (7c touches
+`meals/*` and `food/LogMealDialog.tsx`; Phase 8 touches `food/FoodEntryList.tsx`, `FoodDayView`, and
+`copyFoodEntries`), so bundling would buy nothing and would blur Phase 8's qa scope across two unrelated
+features — the same reasoning §8 Phase 7b used for not folding *itself* into Phase 8. **Numbered 7c** so every
+existing "Phase 8"/"Phase 9" reference in this doc, `ai-context/*`, and the test suite stays correct.
+
+**Sequencing: recommended before Phase 8, but this is a preference, not a dependency.** There is no technical
+ordering constraint in either direction — Jeff can flip them freely. The weak arguments for first: it is a
+live annoyance already being felt in real use, it is genuinely small next to Phase 8, and Phase 8's optional
+"save the selected entries as a meal" wiring makes meals easier to create, so the library grows faster
+afterwards. The argument for second is simply that copy/repeat is the more valuable feature and has waited
+through 7 and 7b.
+
+- **In:** `lib/domain/meals.ts` (`sortMealsByName`, `filterMealsByName` — pure, unit-tested per §6);
+  `MealsView` gains the `<input type="search">` filter box (with a real `<label>`), the local filter state, the
+  count readout, the **distinct no-match message**, and applies sort-then-filter before handing the array to
+  `MealList`; `MealList` renders what it is given (its existing "No saved meals yet" empty state now fires only
+  for a genuinely empty library); `LogMealDialog`'s meal picker adopts the same shared ordering and keeps its
+  name-first option labels; both surfaces' `meals` queries change `.order("created_at")` → `.order("name")`.
+- **Out — say no to all of these explicitly:** any migration, index, or extension (§3.2); server-side search,
+  pagination, infinite scroll, or list virtualization (§4); any `.limit()` or hard cap on how many meals a user
+  may have or see (§4); a combobox/custom dropdown for the picker, or a second filter box on it (§4); fuzzy
+  matching; matching against **item** names rather than meal names (deferred, §4); URL-persisted filter state;
+  meal categories/tags/folders/favourites/pinning (already out of scope project-wide — this phase must not be
+  the door they come in through); recency-of-use ordering (needs schema surface — §5); archiving or
+  soft-deleting meals; any change to the two-flat-queries + `groupMealItemsByMeal` read strategy; any change to
+  `MealList`'s expand-items-by-default behaviour (§5 open question — Jeff's call, not this phase's);
+  and anything at all on `/food`'s day list, which is bounded by day and has no equivalent problem.
+- **§6 scope for qa-reviewer:** unit — `meals.ts` (both functions, all listed cases). Acceptance — the whole
+  *"Saved-meals library ordering, filtering and counts"* block in §6, with the two rows to hammer being
+  **(1) the two empty states are distinct** (never show "create your first meal" to someone with 40 meals and a
+  typo) and **(2) no data is hidden** (a 60-meal fixture library renders all 60 with the filter cleared — proof
+  that no cap or `.limit()` crept in while "handling scale"). Carried-forward Phase 7 and 7b rows must keep
+  passing: meal CRUD, item reorder, `logMealForDay`, and "Save as meal" are all untouched by this phase, so a
+  regression there means it reached somewhere it shouldn't have.
+
 ### Phase 8 — Ease-of-entry extras (copy/repeat)
 - **In:** `copyFoodEntries` (the shared primitive) and its three callers — copy-day (`CopyDayDialog`),
   per-entry "Log again", and copy-group (from `FoodEntryList` group headers / multi-select).
@@ -1027,11 +1249,13 @@ wants the barcode scanner or charts sooner — only Phases 1→2→3, 6→7, and
 (3) **Phase 7b (2026-07-30) is a genuine new hard dependency on 7, not a resequencing option** — it writes
 `meals`/`meal_items` rows, so the tables and CRUD must exist first. It is placed *before* Phase 8 by choice
 rather than necessity: the two share the `FoodEntryList` group-header surface, and doing 7b first means Phase 8
-adds a button to an action bar that already exists.
+adds a button to an action bar that already exists. (4) **Phase 7c (2026-07-30) depends on 7 and on nothing
+else** — it restyles how Phase 7's saved-meals surfaces list and find meals. It shares **no files** with Phase
+8, so 7c↔8 is a free ordering choice; 7c-before-8 is a recommendation only (see Phase 7c above for both sides).
 
 ---
 **Definition of Done for this feature:**
-All 10 phases in §8 (1–9 plus 7b) implemented and individually approved through their per-phase checkpoint
+All 11 phases in §8 (1–9 plus 7b and 7c) implemented and individually approved through their per-phase checkpoint
 (developer implementation + unit tests → qa-reviewer's independent acceptance tests for that
 phase → Jeff's review and approval); the full §6 acceptance-test suite green in CI; and Jeff has
 used the app for real day-to-day food and weight logging for several days with no data loss and

@@ -282,7 +282,6 @@ test.describe("Phase7 QA: saved-meal CRUD through the actions", () => {
     await page.getByRole("button", { name: "Create meal" }).click();
     await expect(page.getByText("QA Breakfast")).toBeVisible();
 
-    await page.getByRole("button", { name: "Manage items" }).click();
     // 2 units x 70 kcal / 6 g  ->  140 kcal / 12 g
     await addItemViaUi(page, { name: "Eggs", quantity: "2", calories: "70", protein: "6", perUnit: true });
     await expect(page.getByText("Eggs")).toBeVisible();
@@ -331,7 +330,6 @@ test.describe("Phase7 QA: saved-meal CRUD through the actions", () => {
     await page.goto("/meals");
     await expect(page.getByText("1 item", { exact: false })).toContainText("300 kcal");
 
-    await page.getByRole("button", { name: "Manage items" }).click();
     await page.getByRole("button", { name: "Edit" }).click();
     await page.getByLabel("Quantity", { exact: true }).fill("5");
     await page.getByRole("button", { name: "Save item" }).click();
@@ -351,7 +349,6 @@ test.describe("Phase7 QA: saved-meal CRUD through the actions", () => {
     ]);
 
     await page.goto("/meals");
-    await page.getByRole("button", { name: "Manage items" }).click();
     await page
       .getByRole("listitem")
       .filter({ hasText: "DropMe" })
@@ -372,7 +369,6 @@ test.describe("Phase7 QA: saved-meal CRUD through the actions", () => {
     ]);
 
     await page.goto("/meals");
-    await page.getByRole("button", { name: "Manage items" }).click();
     await expect(page.getByRole("listitem")).toHaveCount(3);
 
     await page.getByRole("button", { name: "Move Third up" }).click();
@@ -392,7 +388,9 @@ test.describe("Phase7 QA: saved-meal CRUD through the actions", () => {
 
     await page.goto("/meals");
     page.on("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "Delete" }).click();
+    // Items now show by default (2026-07-30), so each item row has its own "Delete" button too --
+    // the meal-level one is the first "Delete" in DOM order (card header, above the item list).
+    await page.getByRole("button", { name: "Delete" }).first().click();
     await expect(page.getByText("Doomed")).toHaveCount(0);
 
     // RLS-scoped read: the meal is genuinely gone, not just hidden by client state.
@@ -630,7 +628,6 @@ test.describe("Phase7 QA: meal edits never rewrite logged history", () => {
     expect(before).toHaveLength(2);
 
     await page.goto("/meals");
-    await page.getByRole("button", { name: "Manage items" }).click();
     await page
       .getByRole("listitem")
       .filter({ hasText: "HistA" })
@@ -653,7 +650,6 @@ test.describe("Phase7 QA: meal edits never rewrite logged history", () => {
     const before = snapshot(await logSeededMeal(page, meal.id, "PruneA"));
 
     await page.goto("/meals");
-    await page.getByRole("button", { name: "Manage items" }).click();
     await page
       .getByRole("listitem")
       .filter({ hasText: "PruneB" })
@@ -681,7 +677,9 @@ test.describe("Phase7 QA: meal edits never rewrite logged history", () => {
 
     await page.goto("/meals");
     page.on("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "Delete" }).click();
+    // Items now show by default (2026-07-30), so each item row has its own "Delete" button too --
+    // the meal-level one is the first "Delete" in DOM order (card header, above the item list).
+    await page.getByRole("button", { name: "Delete" }).first().click();
     await expect(page.getByText("Vanishing Meal")).toHaveCount(0);
 
     const after = await entriesForUser(user.id);
@@ -829,7 +827,6 @@ test.describe("Phase7 QA: RLS through the meal-item action surface", () => {
 
   test("addMealItem cannot add an item to another user's meal", async ({ page }) => {
     await page.goto("/meals");
-    await page.getByRole("button", { name: "Manage items" }).click();
     await page.getByRole("button", { name: "+ Add item" }).click();
     await page.getByLabel("Name", { exact: true }).fill("Injected");
     await page.getByLabel("Total calories", { exact: true }).fill("500");
@@ -848,7 +845,6 @@ test.describe("Phase7 QA: RLS through the meal-item action surface", () => {
 
   test("updateMealItem cannot edit another user's meal item", async ({ page }) => {
     await page.goto("/meals");
-    await page.getByRole("button", { name: "Manage items" }).click();
     await page.getByRole("button", { name: "Edit" }).click();
     await page.getByLabel("Name", { exact: true }).fill("Hijacked");
     await forceFieldValue(page, 'input[type="hidden"][name="id"]', victimItems[0].id);
@@ -885,7 +881,6 @@ test.describe("Phase7 QA: expanded meal state survives a post-mutation refresh",
     ]);
 
     await page.goto("/meals");
-    await page.getByRole("button", { name: "Manage items" }).click();
     await expect(page.getByRole("button", { name: "Hide items" })).toBeVisible();
 
     await page.getByRole("button", { name: "+ Add item" }).click();
@@ -908,7 +903,6 @@ test.describe("Phase7 QA: expanded meal state survives a post-mutation refresh",
     ]);
 
     await page.goto("/meals");
-    await page.getByRole("button", { name: "Manage items" }).click();
     await page
       .getByRole("listitem")
       .filter({ hasText: "RemoveB" })
@@ -927,7 +921,6 @@ test.describe("Phase7 QA: expanded meal state survives a post-mutation refresh",
     ]);
 
     await page.goto("/meals");
-    await page.getByRole("button", { name: "Manage items" }).click();
     await page.getByRole("button", { name: "Rename" }).click();
     await page.getByLabel("Meal name").fill("Renamed Meal");
     await page.getByRole("button", { name: "Save", exact: true }).click();
@@ -966,7 +959,6 @@ test.describe("Phase7 QA: FoodLookupPanel reuse inside MealItemForm", () => {
     const { meal } = await seedMeal(client, user, "Lookup Meal", []);
 
     await page.goto("/meals");
-    await page.getByRole("button", { name: "Manage items" }).click();
     await page.getByRole("button", { name: "+ Add item" }).click();
     await page.getByRole("button", { name: "Look up a food (barcode or search)" }).click();
     await page.getByLabel("Search by description").fill("chicken");
@@ -1000,7 +992,6 @@ test.describe("Phase7 QA: FoodLookupPanel reuse inside MealItemForm", () => {
     ]);
 
     await page.goto("/meals");
-    await page.getByRole("button", { name: "Manage items" }).click();
     await page.getByRole("button", { name: "+ Add item" }).click();
     await expect(page.getByRole("button", { name: "Look up a food (barcode or search)" })).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();

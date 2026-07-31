@@ -31,7 +31,11 @@ export type MealListProps = {
  * `MealForm`/`MealItemForm` instances, which own their own `useActionState`.
  */
 export function MealList({ meals, itemsByMeal, onChanged }: MealListProps) {
-  const [expandedMealId, setExpandedMealId] = useState<string | null>(null);
+  // Items show by default (Jeff's call, 2026-07-30 — a saved meal's whole point is checking what's
+  // in it, so hiding that behind a click every visit was the wrong default). Tracked as a set of
+  // explicitly *collapsed* ids, not expanded ones, so a newly created meal is expanded by default
+  // too, with no special-casing needed.
+  const [collapsedMealIds, setCollapsedMealIds] = useState<Set<string>>(() => new Set());
   const [renamingMealId, setRenamingMealId] = useState<string | null>(null);
   const [addingItemToMealId, setAddingItemToMealId] = useState<string | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -86,7 +90,7 @@ export function MealList({ meals, itemsByMeal, onChanged }: MealListProps) {
         const items = itemsByMeal[meal.id] ?? [];
         const totals = sumEntries(items);
         const pct = proteinCaloriePct(totals.proteinG, totals.calories);
-        const isExpanded = expandedMealId === meal.id;
+        const isExpanded = !collapsedMealIds.has(meal.id);
         const isRenaming = renamingMealId === meal.id;
 
         return (
@@ -116,7 +120,17 @@ export function MealList({ meals, itemsByMeal, onChanged }: MealListProps) {
                     type="button"
                     variant="secondary"
                     size="sm"
-                    onClick={() => setExpandedMealId(isExpanded ? null : meal.id)}
+                    onClick={() =>
+                      setCollapsedMealIds((prev) => {
+                        const next = new Set(prev);
+                        if (isExpanded) {
+                          next.add(meal.id);
+                        } else {
+                          next.delete(meal.id);
+                        }
+                        return next;
+                      })
+                    }
                   >
                     {isExpanded ? "Hide items" : "Manage items"}
                   </Button>
