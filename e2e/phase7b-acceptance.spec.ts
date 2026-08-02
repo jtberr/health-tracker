@@ -34,12 +34,32 @@ async function logIn(page: Page, user: TestUser) {
   await expect(page).toHaveURL("/");
 }
 
-/** An instant `minutesAgo` in the past, clamped to stay inside today's UTC day. */
-function pastInstant(minutesAgo: number): string {
-  const now = Date.now();
-  const d = new Date(now);
-  const startOfUtcDay = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-  return new Date(Math.max(now - minutesAgo * 60_000, startOfUtcDay + 1000)).toISOString();
+/**
+ * A FIXED wall-clock instant on today (UTC), given as "HH:MM".
+ *
+ * Deliberately NOT "now minus N minutes". The no-future-day cap is on the local DAY, not the
+ * instant, so ANY time-of-day today is a legal fixture -- whereas a relative helper has to clamp
+ * to the start of the UTC day to avoid spilling into yesterday, and that clamp silently collapses
+ * every fixture onto ONE identical instant whenever the suite runs inside the first N minutes
+ * after UTC midnight.
+ *
+ * That mattered here more than anywhere: this suite's entire subject is exact-`consumed_at` meal
+ * grouping, so the collapse merged fixtures that are meant to be SEPARATE groups. Found
+ * 2026-08-01 by qa-reviewer during the Phase 8 review: within ~70 minutes of UTC midnight the two
+ * entries seeded by "deleting an unrelated entry does not collapse an open expander" landed on one
+ * instant, rendered as a single group, and the group-scoped "Delete" locator then matched two
+ * buttons and failed Playwright strict mode. Proven pre-existing (a scoped `git stash` of all
+ * Phase 8 code reproduced it byte-identically), i.e. a latent fixture bug in this file, not a
+ * product defect.
+ *
+ * Fixed times remove the window entirely: this helper never reads the clock's time-of-day at all,
+ * only the UTC calendar date, so two distinct literals can never collide no matter when the suite
+ * runs. Times below are spaced on the quarter-hour grid and ordered so that a fixture that used to
+ * be "further in the past" is still earlier in the day, preserving every distinctness/ordering
+ * relationship the tests previously relied on.
+ */
+function todayAt(time: string): string {
+  return new Date().toISOString().slice(0, 10) + `T${time}:00.000Z`;
 }
 
 type SeedEntry = {
@@ -189,7 +209,7 @@ test.describe("Phase7b QA: faithful copy-by-value", () => {
   test.afterEach(async () => { await deleteTestUser(user.id); });
 
   test("a 3-entry group produces one meal with exactly 3 matching items, in logged order", async ({ page }) => {
-    const at = pastInstant(30);
+    const at = todayAt("08:00");
     await seedEntries(client, user, [
       { name: "QA Eggs", quantity: 3, unit: "egg", caloriesPerUnit: 78, proteinGPerUnit: 6.3, consumedAt: at },
       { name: "QA Toast", quantity: 2, unit: "slice", caloriesPerUnit: 90, proteinGPerUnit: 3.1, consumedAt: at },
@@ -221,7 +241,7 @@ test.describe("Phase7b QA: faithful copy-by-value", () => {
   });
 
   test("the meal's summed totals equal the source group's summed totals exactly", async ({ page }) => {
-    const at = pastInstant(25);
+    const at = todayAt("08:30");
     // quantity x per-unit deliberately does NOT land on integers, to catch any "copy the total
     // across" shortcut (which would round differently from the generated column).
     const sources = await seedEntries(client, user, [
@@ -249,7 +269,7 @@ test.describe("Phase7b QA: faithful copy-by-value", () => {
 
   test("a one-entry group saves as a valid one-item meal that logMealForDay accepts", async ({ page }) => {
     await seedEntries(client, user, [
-      { name: "QA Solo Bar", quantity: 1, unit: "bar", caloriesPerUnit: 210, proteinGPerUnit: 20, consumedAt: pastInstant(20) },
+      { name: "QA Solo Bar", quantity: 1, unit: "bar", caloriesPerUnit: 210, proteinGPerUnit: 20, consumedAt: todayAt("09:00") },
     ]);
 
     await page.goto("/food");
@@ -274,7 +294,7 @@ test.describe("Phase7b QA: faithful copy-by-value", () => {
   });
 
   test("round-trip: save a group, log the new meal, and the batch reproduces it as one group", async ({ page }) => {
-    const at = pastInstant(40);
+    const at = todayAt("07:30");
     const sources = await seedEntries(client, user, [
       { name: "QA RT A", quantity: 2, unit: "scoop", caloriesPerUnit: 120, proteinGPerUnit: 24, consumedAt: at },
       { name: "QA RT B", quantity: 1, unit: "banana", caloriesPerUnit: 105, proteinGPerUnit: 1.3, consumedAt: at },
@@ -319,7 +339,7 @@ test.describe("Phase7b QA: strictly read-only on food_entries", () => {
   test.afterEach(async () => { await deleteTestUser(user.id); });
 
   test("source rows are byte-identical after the save, incl. updated_at and logged_from_meal_id", async ({ page }) => {
-    const at = pastInstant(35);
+    const at = todayAt("07:45");
     await seedEntries(client, user, [
       { name: "QA RO A", quantity: 2, unit: "cup", caloriesPerUnit: 60, proteinGPerUnit: 2, consumedAt: at },
       { name: "QA RO B", quantity: 1, unit: null, caloriesPerUnit: 300, proteinGPerUnit: 12, consumedAt: at },
@@ -345,7 +365,7 @@ test.describe("Phase7b QA: strictly read-only on food_entries", () => {
       { name: "QA Origin Item", quantity: 2, unit: "piece", caloriesPerUnit: 55, proteinGPerUnit: 4 },
     ]);
     await seedEntries(client, user, [
-      { name: "QA Origin Item", quantity: 2, unit: "piece", caloriesPerUnit: 55, proteinGPerUnit: 4, consumedAt: pastInstant(45), loggedFromMealId: meal.id },
+      { name: "QA Origin Item", quantity: 2, unit: "piece", caloriesPerUnit: 55, proteinGPerUnit: 4, consumedAt: todayAt("07:15"), loggedFromMealId: meal.id },
     ]);
     const before = await entriesForUser(user.id);
 
@@ -383,7 +403,7 @@ test.describe("Phase7b QA: strictly read-only on food_entries", () => {
       { name: "QA Advisory Item", caloriesPerUnit: 100, proteinGPerUnit: 5 },
     ]);
     await seedEntries(client, user, [
-      { name: "QA Advisory Item", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: pastInstant(15), loggedFromMealId: meal.id },
+      { name: "QA Advisory Item", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: todayAt("09:30"), loggedFromMealId: meal.id },
     ]);
 
     await page.goto("/food");
@@ -395,7 +415,7 @@ test.describe("Phase7b QA: strictly read-only on food_entries", () => {
   });
 
   test("independence: deleting the new meal leaves the source entries untouched", async ({ page }) => {
-    const at = pastInstant(50);
+    const at = todayAt("07:00");
     await seedEntries(client, user, [
       { name: "QA Indep A", caloriesPerUnit: 150, proteinGPerUnit: 8, consumedAt: at },
       { name: "QA Indep B", caloriesPerUnit: 90, proteinGPerUnit: 1, consumedAt: at },
@@ -417,7 +437,7 @@ test.describe("Phase7b QA: strictly read-only on food_entries", () => {
   });
 
   test("independence: editing/deleting a source entry afterwards leaves the meal's items untouched", async ({ page }) => {
-    const at = pastInstant(55);
+    const at = todayAt("06:45");
     const sources = await seedEntries(client, user, [
       { name: "QA Mut A", quantity: 1, caloriesPerUnit: 200, proteinGPerUnit: 10, consumedAt: at },
       { name: "QA Mut B", quantity: 1, caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: at },
@@ -470,10 +490,10 @@ test.describe("Phase7b QA: ownership + rejections write nothing", () => {
 
   test("ANOTHER user real entry id alone is rejected, zero rows for either user", async ({ page }) => {
     const victimEntries = await seedEntries(victimClient, victim, [
-      { name: "QA Victim Steak", caloriesPerUnit: 600, proteinGPerUnit: 50, consumedAt: pastInstant(10) },
+      { name: "QA Victim Steak", caloriesPerUnit: 600, proteinGPerUnit: 50, consumedAt: todayAt("10:00") },
     ]);
     await seedEntries(attackerClient, attacker, [
-      { name: "QA Attacker Snack", caloriesPerUnit: 100, proteinGPerUnit: 1, consumedAt: pastInstant(12) },
+      { name: "QA Attacker Snack", caloriesPerUnit: 100, proteinGPerUnit: 1, consumedAt: todayAt("09:45") },
     ]);
 
     await page.goto("/food");
@@ -488,10 +508,10 @@ test.describe("Phase7b QA: ownership + rejections write nothing", () => {
 
   test("a MIXED set (own id + another user id) is rejected wholesale, not partially saved", async ({ page }) => {
     const victimEntries = await seedEntries(victimClient, victim, [
-      { name: "QA Victim Rice", caloriesPerUnit: 200, proteinGPerUnit: 4, consumedAt: pastInstant(10) },
+      { name: "QA Victim Rice", caloriesPerUnit: 200, proteinGPerUnit: 4, consumedAt: todayAt("10:00") },
     ]);
     const ownEntries = await seedEntries(attackerClient, attacker, [
-      { name: "QA Own Salad", caloriesPerUnit: 80, proteinGPerUnit: 3, consumedAt: pastInstant(12) },
+      { name: "QA Own Salad", caloriesPerUnit: 80, proteinGPerUnit: 3, consumedAt: todayAt("09:45") },
     ]);
 
     await page.goto("/food");
@@ -507,7 +527,7 @@ test.describe("Phase7b QA: ownership + rejections write nothing", () => {
 
   test("a nonexistent entry id is rejected with zero rows", async ({ page }) => {
     const ownEntries = await seedEntries(attackerClient, attacker, [
-      { name: "QA Own Wrap", caloriesPerUnit: 400, proteinGPerUnit: 20, consumedAt: pastInstant(12) },
+      { name: "QA Own Wrap", caloriesPerUnit: 400, proteinGPerUnit: 20, consumedAt: todayAt("09:45") },
     ]);
 
     await page.goto("/food");
@@ -522,7 +542,7 @@ test.describe("Phase7b QA: ownership + rejections write nothing", () => {
 
   test("empty entryIds is rejected (no_entries) with zero rows", async ({ page }) => {
     await seedEntries(attackerClient, attacker, [
-      { name: "QA Empty Src", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: pastInstant(12) },
+      { name: "QA Empty Src", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: todayAt("09:45") },
     ]);
 
     await page.goto("/food");
@@ -537,7 +557,7 @@ test.describe("Phase7b QA: ownership + rejections write nothing", () => {
 
   test("a blank name is rejected as a field error with zero rows", async ({ page }) => {
     await seedEntries(attackerClient, attacker, [
-      { name: "QA Blank Src", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: pastInstant(12) },
+      { name: "QA Blank Src", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: todayAt("09:45") },
     ]);
 
     await page.goto("/food");
@@ -550,7 +570,7 @@ test.describe("Phase7b QA: ownership + rejections write nothing", () => {
 
   test("a whitespace-only name is rejected with zero rows", async ({ page }) => {
     await seedEntries(attackerClient, attacker, [
-      { name: "QA WS Src", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: pastInstant(12) },
+      { name: "QA WS Src", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: todayAt("09:45") },
     ]);
 
     await page.goto("/food");
@@ -564,7 +584,7 @@ test.describe("Phase7b QA: ownership + rejections write nothing", () => {
 
   test("a duplicated entry id does not create a duplicate item (dedupe, not a count-check bypass)", async ({ page }) => {
     const own = await seedEntries(attackerClient, attacker, [
-      { name: "QA Dupe Src", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: pastInstant(12) },
+      { name: "QA Dupe Src", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: todayAt("09:45") },
     ]);
 
     await page.goto("/food");
@@ -596,7 +616,7 @@ test.describe("Phase7b QA: the name field opens blank", () => {
   test.afterEach(async () => { await deleteTestUser(user.id); });
 
   test("the input VALUE is empty on open (a placeholder is not a value) and it is autofocused", async ({ page }) => {
-    const at = pastInstant(18);
+    const at = todayAt("09:15");
     await seedEntries(client, user, [
       { name: "QA Prefill Trap", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: at },
       { name: "QA Second Item", caloriesPerUnit: 50, proteinGPerUnit: 1, consumedAt: at },
@@ -614,7 +634,7 @@ test.describe("Phase7b QA: the name field opens blank", () => {
 
   test("reopening the expander after a cancel still opens blank", async ({ page }) => {
     await seedEntries(client, user, [
-      { name: "QA Reopen", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: pastInstant(18) },
+      { name: "QA Reopen", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: todayAt("09:15") },
     ]);
 
     await page.goto("/food");
@@ -648,7 +668,7 @@ test.describe("Phase7b QA: hasLoadedOnce prerequisite", () => {
 
   test("adding an unrelated entry does not collapse an open expander or clear its typed name", async ({ page }) => {
     await seedEntries(client, user, [
-      { name: "QA Keepopen", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: pastInstant(60) },
+      { name: "QA Keepopen", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: todayAt("06:30") },
     ]);
 
     await page.goto("/food");
@@ -670,10 +690,10 @@ test.describe("Phase7b QA: hasLoadedOnce prerequisite", () => {
 
   test("deleting an unrelated entry does not collapse an open expander", async ({ page }) => {
     await seedEntries(client, user, [
-      { name: "QA Stay", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: pastInstant(70) },
+      { name: "QA Stay", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: todayAt("06:00") },
     ]);
     await seedEntries(client, user, [
-      { name: "QA Doomed", caloriesPerUnit: 10, proteinGPerUnit: 1, consumedAt: pastInstant(65) },
+      { name: "QA Doomed", caloriesPerUnit: 10, proteinGPerUnit: 1, consumedAt: todayAt("06:15") },
     ]);
 
     await page.goto("/food");
@@ -705,7 +725,7 @@ test.describe("Phase7b QA: duplicates + atomicity", () => {
 
   test("saving the same group twice produces two independent meals (no uniqueness constraint)", async ({ page }) => {
     await seedEntries(client, user, [
-      { name: "QA Twice", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: pastInstant(22) },
+      { name: "QA Twice", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: todayAt("08:45") },
     ]);
 
     await page.goto("/food");
@@ -725,7 +745,7 @@ test.describe("Phase7b QA: duplicates + atomicity", () => {
 
   test("FAULT INJECTION: a failed meal_items insert leaves no orphan meal (compensating delete)", async ({ page }) => {
     await seedEntries(client, user, [
-      { name: "QA Compensate", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: pastInstant(28) },
+      { name: "QA Compensate", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: todayAt("08:15") },
     ]);
 
     // Force the SECOND statement (meal_items insert) to fail while the first (meals insert)
