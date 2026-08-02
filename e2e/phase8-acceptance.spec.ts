@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createConfirmedTestUser, deleteTestUser, type TestUser } from "./helpers/test-users";
 import { createUserClient } from "./helpers/user-client";
 import { createAdminClient } from "./helpers/admin-client";
+import { formatDateLabel } from "../src/lib/domain/datetime";
 import type { FoodEntry, Meal } from "../src/lib/types";
 
 /**
@@ -137,7 +138,7 @@ test.describe("Phase8 QA: copy a whole day", () => {
     await page.getByRole("button", { name: "Copy this day" }).click();
     await page.getByLabel("Copy to date").fill(target);
     await page.getByRole("button", { name: "Copy day" }).click();
-    await expect(page.getByText("Copied 3 entries to " + target)).toBeVisible();
+    await expect(page.getByText("Copied 3 entries to " + formatDateLabel(target))).toBeVisible();
 
     const copies = (await entriesForUser(user.id)).filter((r) => r.consumed_local_date === target);
     expect(copies).toHaveLength(3);
@@ -175,7 +176,7 @@ test.describe("Phase8 QA: copy a whole day", () => {
     await page.getByRole("button", { name: "Copy this day" }).click();
     await page.getByLabel("Copy to date").fill(target);
     await page.getByRole("button", { name: "Copy day" }).click();
-    await expect(page.getByText("Copied 2 entries to " + target)).toBeVisible();
+    await expect(page.getByText("Copied 2 entries to " + formatDateLabel(target))).toBeVisible();
 
     const after = (await entriesForUser(user.id)).filter((r) => r.consumed_local_date === todayUtc());
     // Whole-row deep equality catches ANY field a per-field assertion would miss, including
@@ -224,7 +225,7 @@ test.describe("Phase8 QA: copy a whole day", () => {
     await page.getByRole("button", { name: "Copy this day" }).click();
     await page.getByLabel("Copy to date").fill(target);
     await page.getByRole("button", { name: "Copy day" }).click();
-    await expect(page.getByText("Copied 2 entries to " + target)).toBeVisible();
+    await expect(page.getByText("Copied 2 entries to " + formatDateLabel(target))).toBeVisible();
 
     const copies = (await entriesForUser(user.id)).filter((r) => r.consumed_local_date === target);
     expect(copies).toHaveLength(2);
@@ -270,7 +271,7 @@ test.describe("Phase8 QA: copy a meal group", () => {
 
     await group.getByLabel("Copy to date").fill(target);
     await group.getByRole("button", { name: "Copy group" }).click();
-    await expect(page.getByText("Copied 3 entries to " + target)).toBeVisible();
+    await expect(page.getByText("Copied 3 entries to " + formatDateLabel(target))).toBeVisible();
 
     const copies = (await entriesForUser(user.id)).filter((r) => r.consumed_local_date === target);
     expect(copies.map((c) => c.name).sort()).toEqual(["QA8 Grp Eggs", "QA8 Grp Juice", "QA8 Grp Toast"]);
@@ -294,7 +295,7 @@ test.describe("Phase8 QA: copy a meal group", () => {
     await expect(group.getByLabel("Copy to date")).toHaveValue(todayUtc());
     await group.getByRole("button", { name: "Copy group" }).click();
 
-    await expect(page.getByText("Copied 2 entries to " + todayUtc())).toBeVisible();
+    await expect(page.getByText("Copied 2 entries to " + formatDateLabel(todayUtc()))).toBeVisible();
     // Same time-of-day on the same day == the SAME instant, so the copies merge into the existing
     // group rather than forming a second one. Either way the invariant under test is "the copies
     // are one group": assert the copies all share one consumed_at at the DB level.
@@ -393,7 +394,12 @@ test.describe("Phase8 QA: Log again", () => {
 
     await page.getByRole("button", { name: "Log again" }).first().click();
     await expect(page.getByText('Logged "QA8 LA Egg" again.')).toBeVisible();
-    await expect(page.getByText("QA8 LA Egg")).toHaveCount(2);
+    // Scoped to entry ROWS specifically (not a page-wide text search): Phase 8b's success-message
+    // restyle also names the entry in its confirmation ("Logged "QA8 LA Egg" again."), which is a
+    // page-wide getByText("QA8 LA Egg") would ALSO match -- previously masked only by a timing
+    // coincidence (the old 4s auto-dismiss happened to elapse within this assertion's 5s retry
+    // window; the design's now-longer 6s SUCCESS_MESSAGE_MS duration no longer does).
+    await expect(page.locator("li", { hasText: "QA8 LA Egg" })).toHaveCount(2);
     // Still exactly one badge: the copy did NOT inherit the back-reference.
     await expect(page.getByText("From a saved meal")).toHaveCount(1);
 
@@ -573,13 +579,34 @@ test.describe("Phase8 QA: isolation, regression guards, non-goals", () => {
     await expect(group.getByLabel("Copy to date")).toHaveValue(target);
   });
 
-  test("the explicitly-optional multi-select (Copy selected) was NOT built", async ({ page }) => {
+  // Phase 8b (2026-08-01) built multi-select -- this test previously asserted it did NOT exist
+  // (qa-review N-1 on Phase 8). Updated in the same change that shipped the feature, per the
+  // design doc's explicit "update this test in the same change" requirement, rather than leaving a
+  // stale acceptance assertion pinning behaviour that's now deliberately different. A thorough,
+  // independent acceptance suite for Phase 8b's multi-select itself is qa-reviewer's job (per this
+  // project's role split) -- this is just a smoke check that select mode is real and reachable.
+  test("multi-select (Phase 8b) is built: select mode reveals per-row checkboxes and enables bulk actions", async ({ page }) => {
     await seedEntries(client, user, [
-      { name: "QA8 NoMulti A", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: todayAt("17:30") },
-      { name: "QA8 NoMulti B", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: todayAt("21:00") },
+      { name: "QA8 Multi A", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: todayAt("17:30") },
+      { name: "QA8 Multi B", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: todayAt("21:00") },
     ]);
     await page.goto("/food");
-    await expect(page.getByRole("button", { name: /Copy selected/i })).toHaveCount(0);
+
+    // Not in select mode yet: no checkboxes, no selection bar.
+    await expect(page.locator('input[type="checkbox"]')).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Copy selected" })).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Select entries" }).click();
+    await expect(page.locator('input[type="checkbox"]')).toHaveCount(2);
+    await expect(page.getByText("0 selected")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Copy selected" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Save selected as a meal" })).toBeDisabled();
+
+    await page.getByRole("checkbox", { name: /QA8 Multi A/ }).check();
+    await expect(page.getByText("1 selected")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Copy selected" })).toBeEnabled();
+
+    await page.getByRole("button", { name: "Done" }).click();
     await expect(page.locator('input[type="checkbox"]')).toHaveCount(0);
   });
 

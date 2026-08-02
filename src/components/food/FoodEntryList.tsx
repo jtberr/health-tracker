@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { groupByConsumedAt } from "@/lib/domain/entry-grouping";
 import { proteinCaloriePct } from "@/lib/domain/nutrition";
 import { sumEntries } from "@/lib/domain/totals";
@@ -13,6 +13,13 @@ import type { FoodEntry, Meal } from "@/lib/types";
 
 /** Which group action, if any, is currently open — mutually exclusive per group (see below). */
 type GroupAction = { key: string; kind: "save" | "copy" } | null;
+
+/** The rendered label for an entry row -- shared by the visible text and the checkbox's aria-label. */
+function entryDisplayLabel(entry: FoodEntry): string {
+  return entry.quantity !== 1 || entry.unit
+    ? `${entry.quantity}${entry.unit ? ` ${entry.unit}` : "x"} — ${entry.name}`
+    : entry.name;
+}
 
 /**
  * Renders a day's food entries grouped by exact-`consumed_at` meal groups (§3.4 "FoodEntryList").
@@ -27,6 +34,25 @@ type GroupAction = { key: string; kind: "save" | "copy" } | null;
  * (`groupAction` tracks which group + which kind) — this is real local UI state, which is exactly
  * why `FoodDayView.tsx`'s `hasLoadedOnce` fix (Phase 7b) matters: a background refresh triggered
  * elsewhere on the page must never unmount this component mid-typing/mid-picking-a-date.
+ *
+ * **Multi-select mode (Phase 8b, 2026-08-01)** — an explicit mode, not always-visible checkboxes
+ * (design doc §3.4/§4): while `selectMode` is true, every per-row ("Log again"/"Edit"/"Delete") and
+ * per-group ("Save as meal"/"Copy this group") action is hidden and a checkbox appears on every
+ * row instead. Entering select mode closes any open group expander. A checked row gets NO
+ * background tint of its own -- the checkbox alone is the indicator, so it never collides with the
+ * editing-row highlight below (both are per-row visual states in the same list).
+ *
+ * **Editing-row highlight (Phase 8b, 2026-08-01)** — `editingEntryId` is the ID of the entry
+ * currently open in the edit form above (or `null`), NOT the entry object: `refresh()` replaces
+ * every object in `entries` with a fresh row from the DB while the caller's `editingEntry` state
+ * still holds the pre-refresh snapshot, so an object-identity comparison would silently stop
+ * matching after the first background refresh — comparing ids is the only comparison that can't
+ * develop that bug. The matching row gets a left accent bar + an "Editing" label (no background
+ * fill — this list already uses a `bg-sage-pale` "From a saved meal" badge, which would vanish on a
+ * sage-pale row) and hides its own "Log again"/"Edit"/"Delete" (each is either meaningless or
+ * actively wrong while that row's edit form is open — see ai-context/DECISIONS.md's "Sixth
+ * manual-testing finding..."). Editing and select mode can coexist: entering select mode does not
+ * cancel an in-progress edit, and the edited row can still carry a checkbox alongside its highlight.
  */
 export function FoodEntryList({
   entries,
@@ -37,6 +63,10 @@ export function FoodEntryList({
   onLogAgain,
   onGroupSavedAsMeal,
   onGroupCopied,
+  editingEntryId = null,
+  selectMode = false,
+  selectedIds,
+  onToggleSelected,
 }: {
   entries: FoodEntry[];
   /** Today's local date — "Log again"/"Copy this group" cap their target date here. */
@@ -52,10 +82,27 @@ export function FoodEntryList({
   onGroupSavedAsMeal?: (meal: Meal) => void;
   /** Fired after `copyFoodEntries` succeeds for a whole group. */
   onGroupCopied?: (entries: FoodEntry[], toDate: string) => void;
+  /** Phase 8b: the id (NOT the entry object — see the file doc comment) of the entry currently
+   * being edited, or null. */
+  editingEntryId?: string | null;
+  /** Phase 8b: multi-select mode. */
+  selectMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelected?: (id: string) => void;
 }) {
   const [groupAction, setGroupAction] = useState<GroupAction>(null);
   const [logAgainPendingId, setLogAgainPendingId] = useState<string | null>(null);
   const groups = groupByConsumedAt(entries);
+
+  // Entering select mode closes any open group expander (design doc §3.4: "entering select mode
+  // closes any open group expander") — select mode is a *mode*: while it's on, the only thing the
+  // list does is select.
+  useEffect(() => {
+    if (selectMode) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setGroupAction(null);
+    }
+  }, [selectMode]);
 
   async function handleLogAgain(entry: FoodEntry) {
     setLogAgainPendingId(entry.id);
@@ -100,30 +147,35 @@ export function FoodEntryList({
                   {groupPct !== null && ` · ${groupPct}% from protein`}
                 </span>
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() =>
-                    setGroupAction(isSaving ? null : { key: group.consumedAt, kind: "save" })
-                  }
-                >
-                  {isSaving ? "Cancel" : "Save as meal"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() =>
-                    setGroupAction(isCopying ? null : { key: group.consumedAt, kind: "copy" })
-                  }
-                >
-                  {isCopying ? "Cancel" : "Copy this group"}
-                </Button>
-              </div>
+              {/* Phase 8b: per-group actions are hidden entirely in select mode -- two live copy
+                  affordances (this and "Copy selected") at once is the exact ambiguity select mode
+                  exists to prevent (design doc §3.4/§4). */}
+              {!selectMode && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() =>
+                      setGroupAction(isSaving ? null : { key: group.consumedAt, kind: "save" })
+                    }
+                  >
+                    {isSaving ? "Cancel" : "Save as meal"}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() =>
+                      setGroupAction(isCopying ? null : { key: group.consumedAt, kind: "copy" })
+                    }
+                  >
+                    {isCopying ? "Cancel" : "Copy this group"}
+                  </Button>
+                </div>
+              )}
             </header>
-            {isSaving && (
+            {isSaving && !selectMode && (
               <div className="border-b border-stone-100 bg-white px-4 py-3">
                 <SaveGroupAsMealDialog
                   entries={group.entries}
@@ -135,7 +187,7 @@ export function FoodEntryList({
                 />
               </div>
             )}
-            {isCopying && (
+            {isCopying && !selectMode && (
               <div className="border-b border-stone-100 bg-white px-4 py-3">
                 <CopyGroupDialog
                   entries={group.entries}
@@ -153,16 +205,34 @@ export function FoodEntryList({
               {group.entries.map((entry) => {
                 const entryPct = proteinCaloriePct(entry.protein_g, entry.calories);
                 const isLoggingAgain = logAgainPendingId === entry.id;
+                const isEditingRow = editingEntryId !== null && entry.id === editingEntryId;
+                const entryLabel = entryDisplayLabel(entry);
                 return (
                   <li
                     key={entry.id}
-                    className="flex items-center justify-between px-4 py-3 transition-colors hover:bg-stone-50/70"
+                    aria-current={isEditingRow ? "true" : undefined}
+                    className={`flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-stone-50/70 ${
+                      isEditingRow ? "border-l-4 border-l-sage-deep" : ""
+                    }`}
                   >
-                    <div>
-                      <p className="flex items-center gap-2 text-sm font-medium text-ink">
-                        {entry.quantity !== 1 || entry.unit
-                          ? `${entry.quantity}${entry.unit ? ` ${entry.unit}` : "x"} — ${entry.name}`
-                          : entry.name}
+                    {selectMode && (
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${entryLabel}`}
+                        autoComplete="off"
+                        checked={selectedIds?.has(entry.id) ?? false}
+                        onChange={() => onToggleSelected?.(entry.id)}
+                        className="h-4 w-4 flex-none accent-sage-deep"
+                      />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-ink">
+                        {entryLabel}
+                        {isEditingRow && (
+                          <span className="text-xs font-semibold uppercase tracking-wide text-sage-deep">
+                            Editing
+                          </span>
+                        )}
                         {/* Meal-batch rows (Phase 7): `logMealForDay` shares one `consumed_at`
                             per batch and stamps `logged_from_meal_id` on every row it writes —
                             labeled here per design doc §3.4 "Meal-batch rows ... are labeled". */}
@@ -177,23 +247,28 @@ export function FoodEntryList({
                         {entryPct !== null ? ` · ${entryPct}%` : " · —"}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        size="sm"
-                        disabled={isLoggingAgain}
-                        onClick={() => handleLogAgain(entry)}
-                      >
-                        {isLoggingAgain ? "Logging..." : "Log again"}
-                      </Button>
-                      <Button type="button" variant="secondary" size="sm" onClick={() => onEdit(entry)}>
-                        Edit
-                      </Button>
-                      <Button type="button" variant="danger" size="sm" onClick={() => onDelete(entry)}>
-                        Delete
-                      </Button>
-                    </div>
+                    {/* Phase 8b: per-row actions are hidden while this row is selected-mode-active
+                        OR is the row currently being edited -- each is either meaningless or
+                        actively wrong in either state (see the file doc comment). */}
+                    {!selectMode && !isEditingRow && (
+                      <div className="flex flex-none items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          disabled={isLoggingAgain}
+                          onClick={() => handleLogAgain(entry)}
+                        >
+                          {isLoggingAgain ? "Logging..." : "Log again"}
+                        </Button>
+                        <Button type="button" variant="secondary" size="sm" onClick={() => onEdit(entry)}>
+                          Edit
+                        </Button>
+                        <Button type="button" variant="danger" size="sm" onClick={() => onDelete(entry)}>
+                          Delete
+                        </Button>
+                      </div>
+                    )}
                   </li>
                 );
               })}

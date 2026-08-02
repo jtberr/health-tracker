@@ -40,7 +40,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
           <div className="flex items-center gap-3 text-sm text-stone-500">
             <span className="hidden sm:inline">{user.email}</span>
-            <form action={signOut}>
+            <form action={signOut} autoComplete="off">
               <Button type="submit" variant="secondary" size="sm">
                 Log out
               </Button>

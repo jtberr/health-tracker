@@ -2,20 +2,29 @@
 
 import { useState, useTransition } from "react";
 import { deleteMeal, deleteMealItem, reorderMealItems } from "@/lib/actions/meals";
+import { formatDateLabel, formatTimeLabel, utcToLocalTime } from "@/lib/domain/datetime";
 import { proteinCaloriePct } from "@/lib/domain/nutrition";
 import { sumEntries } from "@/lib/domain/totals";
 import { roundTo } from "@/lib/domain/units";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { StatusMessage, SUCCESS_MESSAGE_MS } from "@/components/ui/StatusMessage";
+import { LogMealDialog } from "@/components/food/LogMealDialog";
 import { MealForm } from "./MealForm";
 import { MealItemForm } from "./MealItemForm";
-import type { Meal, MealItem } from "@/lib/types";
+import type { FoodEntry, Meal, MealItem } from "@/lib/types";
 
 export type MealListProps = {
   meals: Meal[];
   itemsByMeal: Record<string, MealItem[]>;
   /** Called after any mutation settles (delete/reorder here, or a save inside MealForm/MealItemForm) — the parent (`MealsView`) owns the actual refetch. */
   onChanged: () => void;
+  /** Phase 8c (2026-08-01): today's local date / the browser's IANA timezone, resolved by
+   * `MealsView` in a mount-only Effect — `null` until resolved. Only the new "Log this meal" action
+   * depends on these; everything else in this list renders regardless (see `MealsView`'s doc
+   * comment for why this is scoped narrowly rather than gating the whole screen). */
+  today: string | null;
+  tz: string | null;
 };
 
 /**
@@ -29,8 +38,20 @@ export type MealListProps = {
  * This component itself calls `deleteMeal`/`deleteMealItem`/`reorderMealItems` directly (mirroring
  * how `FoodDayView` owns `deleteFoodEntry`), while create/rename/add/edit are delegated to nested
  * `MealForm`/`MealItemForm` instances, which own their own `useActionState`.
+ *
+ * **"Log this meal" (Phase 8c, 2026-08-01)** — placed FIRST in each card's action row (logging is
+ * the point of a saved meal; rename/manage/delete are maintenance), opening an inline expander that
+ * reuses `LogMealDialog` in its fixed-meal mode (`meal` prop) rather than a second hand-copied
+ * dialog. `loggingMealId` tracks which card's expander is open — a single nullable id, not a set,
+ * so at most one is open across the whole list at a time (the same mutual-exclusion rule
+ * `FoodEntryList` applies to its own group actions). Success shows a `StatusMessage` naming the
+ * meal/date/time and does **NOT** call `onChanged()` — logging writes only to `food_entries`, which
+ * this screen never renders, so there is nothing here to refetch (mirrors Phase 7b's "Save as meal"
+ * being read-only in the other direction). Kept self-contained in this component (not bubbled up to
+ * `MealsView`) since, unlike `/food`'s analogous `handleMealLogged`, there's no cross-cutting
+ * refetch or other side effect for a parent to own here.
  */
-export function MealList({ meals, itemsByMeal, onChanged }: MealListProps) {
+export function MealList({ meals, itemsByMeal, onChanged, today, tz }: MealListProps) {
   // Items show by default (Jeff's call, 2026-07-30 — a saved meal's whole point is checking what's
   // in it, so hiding that behind a click every visit was the wrong default). Tracked as a set of
   // explicitly *collapsed* ids, not expanded ones, so a newly created meal is expanded by default
@@ -39,7 +60,23 @@ export function MealList({ meals, itemsByMeal, onChanged }: MealListProps) {
   const [renamingMealId, setRenamingMealId] = useState<string | null>(null);
   const [addingItemToMealId, setAddingItemToMealId] = useState<string | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [loggingMealId, setLoggingMealId] = useState<string | null>(null);
+  const [logStatusMessage, setLogStatusMessage] = useState<string | null>(null);
+  // Bumped every time a NEW logStatusMessage is shown -- forces StatusMessage to remount (and so
+  // start a fresh auto-dismiss timer) on a repeat, the same idiom FoodDayView's `savedMessageNonce`/
+  // MetricForm's `savedNonce` already use.
+  const [logStatusNonce, setLogStatusNonce] = useState(0);
   const [, startTransition] = useTransition();
+
+  function handleMealLogged(meal: Meal, entries: FoodEntry[], loggedTz: string) {
+    setLoggingMealId(null);
+    // Defensive only -- logMealForDay's `empty_meal` rejection means this can't actually happen on
+    // a successful result, but guard against `entries[0]` on an empty array regardless.
+    if (entries.length === 0) return;
+    const { date, time } = utcToLocalTime(entries[0].consumed_at, loggedTz);
+    setLogStatusMessage(`Logged "${meal.name}" to ${formatDateLabel(date)} at ${formatTimeLabel(time)}.`);
+    setLogStatusNonce((n) => n + 1);
+  }
 
   function handleDeleteMeal(meal: Meal) {
     if (
@@ -76,22 +113,29 @@ export function MealList({ meals, itemsByMeal, onChanged }: MealListProps) {
     });
   }
 
-  if (meals.length === 0) {
-    return (
-      <div className="rounded-2xl border border-dashed border-stone-300 px-4 py-8 text-center text-sm text-stone-500">
-        No saved meals yet. Create one above to get started.
-      </div>
-    );
-  }
-
   return (
     <div className="flex flex-col gap-4">
-      {meals.map((meal) => {
+      {logStatusMessage && (
+        <StatusMessage
+          key={logStatusNonce}
+          message={logStatusMessage}
+          autoDismissMs={SUCCESS_MESSAGE_MS}
+          onDismiss={() => setLogStatusMessage(null)}
+        />
+      )}
+
+      {meals.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-stone-300 px-4 py-8 text-center text-sm text-stone-500">
+          No saved meals yet. Create one above to get started.
+        </div>
+      ) : (
+        meals.map((meal) => {
         const items = itemsByMeal[meal.id] ?? [];
         const totals = sumEntries(items);
         const pct = proteinCaloriePct(totals.proteinG, totals.calories);
         const isExpanded = !collapsedMealIds.has(meal.id);
         const isRenaming = renamingMealId === meal.id;
+        const isLogging = loggingMealId === meal.id;
 
         return (
           <Card key={meal.id} className="overflow-hidden p-4 sm:p-5">
@@ -115,7 +159,22 @@ export function MealList({ meals, itemsByMeal, onChanged }: MealListProps) {
                     {pct !== null && ` · ${pct}% from protein`}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Phase 8c: "Log this meal" is placed FIRST -- logging is the point of a saved
+                      meal, the rest are maintenance. Hidden entirely until today/tz resolve (this
+                      screen's first-ever browser-tz dependency -- see MealsView's doc comment),
+                      rather than rendering a disabled/placeholder button for a window that's
+                      normally imperceptible. */}
+                  {today !== null && tz !== null && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setLoggingMealId(isLogging ? null : meal.id)}
+                    >
+                      {isLogging ? "Cancel" : "Log this meal"}
+                    </Button>
+                  )}
                   <Button
                     type="button"
                     variant="secondary"
@@ -146,6 +205,22 @@ export function MealList({ meals, itemsByMeal, onChanged }: MealListProps) {
                     Delete
                   </Button>
                 </div>
+              </div>
+            )}
+
+            {/* Phase 8c: only one meal's "Log this meal" expander is ever open at a time
+                (`loggingMealId` is a single nullable id) -- the same mutual-exclusion rule
+                FoodEntryList applies to its own group actions. Hidden while renaming this same
+                card, so the two forms can never show at once. */}
+            {isLogging && !isRenaming && today !== null && tz !== null && (
+              <div className="mt-4 border-t border-stone-100 pt-4">
+                <LogMealDialog
+                  meal={meal}
+                  today={today}
+                  tz={tz}
+                  onLogged={(entries) => handleMealLogged(meal, entries, tz)}
+                  onCancel={() => setLoggingMealId(null)}
+                />
               </div>
             )}
 
@@ -246,7 +321,8 @@ export function MealList({ meals, itemsByMeal, onChanged }: MealListProps) {
             )}
           </Card>
         );
-      })}
+        })
+      )}
     </div>
   );
 }

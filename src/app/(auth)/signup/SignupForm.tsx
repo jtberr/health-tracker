@@ -34,7 +34,7 @@ export function SignupForm() {
   }
 
   return (
-    <form action={formAction} className="flex flex-col gap-4" noValidate>
+    <form action={formAction} className="flex flex-col gap-4" noValidate autoComplete="off">
       <div className="flex flex-col gap-1">
         <label htmlFor="email" className={labelClass}>
           Email

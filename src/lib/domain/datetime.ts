@@ -172,6 +172,33 @@ export function isValidTimeZone(tz: string): boolean {
 }
 
 /**
+ * Formats an ISO `YYYY-MM-DD` calendar date as human-readable `MM/DD/YYYY` prose (2026-07-31
+ * addition, Phase 8b) — the exact mirror of `formatTimeLabel` for dates. Used only where a date is
+ * rendered as human-readable TEXT (a toast/confirmation, an explanatory sentence) — never for an
+ * ISO date VALUE (an input's `value`/`max`, `DATE_PATTERN` validation, the future-day cap,
+ * `consumed_local_date`/`metric_date`, `?range=`, or any comparison), all of which stay untouched
+ * (design doc §3.3/§3.4).
+ *
+ * PURE STRING REORDER — split `"YYYY-MM-DD"` on `-` and rearrange — deliberately NOT
+ * `new Date(iso).toLocaleDateString()`. `new Date("2026-07-29")` parses per spec as UTC midnight,
+ * so `.toLocaleDateString()` in any negative-offset timezone (e.g. America/Chicago) would render
+ * "07/28/2026" — the PREVIOUS day. This exact trap is already documented in this repo:
+ * `components/trends/chartTheme.ts`'s `parseCalendarDate` exists specifically to defend against it
+ * for chart labels, so a naive reimplementation here would walk into the same hole a second time.
+ * A plain reorder can't have that bug and needs no tz reasoning at all.
+ *
+ * Anything not matching the exact `YYYY-MM-DD` shape (empty, malformed, already-formatted, an ISO
+ * timestamp with a time component, etc.) is returned unchanged — never throws, never produces
+ * "NaN/NaN/NaN".
+ */
+export function formatDateLabel(isoDate: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!match) return isoDate;
+  const [, year, month, day] = match;
+  return `${month}/${day}/${year}`;
+}
+
+/**
  * True when `dateStr` (a YYYY-MM-DD local calendar day) is not later than "today" as of `now`,
  * in the local calendar of `tz`. Backs the no-future-day cap (§2/§4): applies to add/edit for
  * food entries here; the same helper is reused for weight/body-fat (`metricTz`) and, in a later

@@ -18,12 +18,28 @@ const initialActionState: LogMealActionState = { ok: false, error: null };
 const TIME_OPTIONS = quarterHourOptions();
 
 export type LogMealDialogProps = {
-  /** The day currently being viewed on `/food` — the dialog's date defaults here. */
-  selectedDate: string;
+  /** The day currently being viewed on `/food` — the dialog's date defaults here. Omit (fixed-meal
+   * mode only, see `meal` below) to default to `today` instead — `/meals` has no "day currently
+   * being viewed" concept (design doc §3.4 Phase 8c: "defaulting to today"). */
+  selectedDate?: string;
   /** Today's local date (`max` for the date input) — same no-future-day cap as `FoodEntryForm`. */
   today: string;
   tz: string;
   onLogged: (entries: FoodEntry[]) => void;
+  /** Phase 8c (2026-08-01): when supplied, this instance is scoped to exactly one meal — it skips
+   * its own meals/items fetch and its `<select>` meal picker entirely, renders the meal's name as
+   * static text, and submits that meal's id via a hidden field. Used by `MealList`'s per-card "Log
+   * this meal" action on `/meals`; the `/food` picker usage (`FoodDayView`) omits this prop and is
+   * completely unchanged. Keeping one component (rather than a second hand-copied dialog) is what
+   * keeps the date/time fields, the `logMealForDay` error-code→message mapping, the cap wiring and
+   * the tz handling in exactly one place — see ai-context/DECISIONS.md's Phase 8c entry. */
+  meal?: Meal;
+  /** Phase 8c: the parent (`MealList`) owns whether this expander is rendered at all — mirroring
+   * `FoodEntryList`'s group-action expanders (`SaveGroupAsMealDialog`/`CopyGroupDialog`) — so a
+   * dismiss click calls this instead of an internal open/close toggle. Only meaningful (and only
+   * read) when `meal` is supplied; `/food`'s self-toggling usage manages its own open/close state
+   * internally and does not pass this. */
+  onCancel?: () => void;
 };
 
 function SubmitButton() {
@@ -46,9 +62,22 @@ function SubmitButton() {
  *
  * Fetches the user's meals independently of `MealsView` on `/meals` (same "each screen owns its
  * own read" convention as `TodaySummary`/`FoodDayView`/`TrendsView`) — only while open, so a page
- * load of `/food` never pays for a saved-meals read the user may not use that visit.
+ * load of `/food` never pays for a saved-meals read the user may not use that visit. **Fixed-meal
+ * mode (`meal` prop supplied, Phase 8c) skips this fetch entirely** — there is nothing to pick,
+ * so there is nothing to load.
+ *
+ * Two distinct rendering shapes, controlled by whether `meal` is supplied:
+ *  - **Picker mode** (`/food`, `meal` omitted): self-toggling — renders its own "Log a saved meal"
+ *    trigger button, then (once clicked) a bordered card with a header/"Close" button, a meals
+ *    fetch with its own loading/error/empty states, and the `<select>` meal picker.
+ *  - **Fixed-meal mode** (`/meals`'s `MealList`, `meal` supplied): the parent already renders the
+ *    card chrome and its own toggle button (mirroring `FoodEntryList`'s "Save as meal"/"Cancel"
+ *    toggle for `SaveGroupAsMealDialog`), so this renders ONLY the form body — the meal's name as
+ *    static text instead of a picker, plus a bottom "Cancel" button (calling `onCancel`) alongside
+ *    Submit, matching `SaveGroupAsMealDialog`/`CopyGroupDialog`'s own bottom Submit+Cancel row
+ *    rather than duplicating a second dismiss affordance inside this component.
  */
-export function LogMealDialog({ selectedDate, today, tz, onLogged }: LogMealDialogProps) {
+export function LogMealDialog({ selectedDate, today, tz, onLogged, meal, onCancel }: LogMealDialogProps) {
   const [open, setOpen] = useState(false);
   const [supabase] = useState(() => createClient());
   const [meals, setMeals] = useState<Meal[]>([]);
@@ -57,13 +86,19 @@ export function LogMealDialog({ selectedDate, today, tz, onLogged }: LogMealDial
   const [loadError, setLoadError] = useState(false);
   const [state, formAction] = useActionState(logMealForDay, initialActionState);
 
+  /** `/meals` has no "day currently being viewed" — always today (design doc §3.4 Phase 8c). */
+  const effectiveDate = selectedDate ?? today;
+
   const [defaultTime] = useState(() => {
     const floored = floorToQuarterHour(new Date());
     return `${String(floored.getHours()).padStart(2, "0")}:${String(floored.getMinutes()).padStart(2, "0")}`;
   });
 
+  const isFixedMeal = meal !== undefined;
+
   useEffect(() => {
-    if (!open) return;
+    // Fixed-meal mode never fetches — there's no picker to populate (see the module doc comment).
+    if (isFixedMeal || !open) return;
     let cancelled = false;
     (async () => {
       // Inside an async closure, not the synchronous effect body itself, so these setState calls
@@ -105,27 +140,149 @@ export function LogMealDialog({ selectedDate, today, tz, onLogged }: LogMealDial
     return () => {
       cancelled = true;
     };
-  }, [open, supabase]);
+  }, [isFixedMeal, open, supabase]);
 
   useEffect(() => {
     if (state.ok && state.entries) {
       // Closes this panel and hands the logged entries up to the caller on a successful submit —
       // the same "react to the action's settled state" pattern `FoodEntryForm`/`MetricForm` use
-      // for their own `onSaved` effects; `setOpen` is local-only here (unlike those, which only
-      // call a callback prop), so it needs its own suppression.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setOpen(false);
+      // for their own `onSaved` effects. In picker mode `setOpen` is local-only (unlike those,
+      // which only call a callback prop), so it needs its own suppression; in fixed-meal mode
+      // there's no `open` state to reset — the parent (`MealList`) owns visibility and closes this
+      // itself in its own `onLogged` handler, mirroring how `FoodEntryList` closes
+      // `SaveGroupAsMealDialog`/`CopyGroupDialog` from ITS OWN `onSaved`/`onCopied` handlers rather
+      // than from inside those components.
+      if (!isFixedMeal) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setOpen(false);
+      }
       onLogged(state.entries);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
 
-  if (!open) {
+  if (!isFixedMeal && !open) {
     return (
       <Button type="button" variant="secondary" onClick={() => setOpen(true)} className="self-start">
         Log a saved meal
       </Button>
     );
+  }
+
+  // Shared between both modes — the ONLY thing that differs between them is the meal picker vs.
+  // static name (below) and the surrounding chrome (further below). Assembled once so the
+  // date/time fields, the error mapping, and the tz/cap wiring stay in exactly one place
+  // regardless of which mode renders it.
+  const formBody = (
+    <form action={formAction} className="flex flex-col gap-3" noValidate autoComplete="off">
+      <input type="hidden" name="logTz" value={tz} autoComplete="off" />
+
+      {meal ? (
+        <div className="flex flex-col gap-1">
+          <p className={labelClass}>Meal</p>
+          <p className="text-sm font-medium text-ink">{meal.name}</p>
+          <input type="hidden" name="mealId" value={meal.id} autoComplete="off" />
+        </div>
+      ) : (
+        <div className="flex flex-col gap-1">
+          <label htmlFor="log-meal-select" className={labelClass}>
+            Meal
+          </label>
+          <select
+            id="log-meal-select"
+            name="mealId"
+            required
+            autoComplete="off"
+            defaultValue=""
+            className={inputClass}
+          >
+            <option value="" disabled>
+              Choose a meal...
+            </option>
+            {meals.map((option) => {
+              const items = itemsByMeal[option.id] ?? [];
+              const totals = sumEntries(items);
+              return (
+                <option key={option.id} value={option.id}>
+                  {option.name} ({totals.calories} kcal, {items.length} item{items.length === 1 ? "" : "s"})
+                </option>
+              );
+            })}
+          </select>
+          {state.fieldErrors?.mealId && <p className={errorTextClass}>{state.fieldErrors.mealId}</p>}
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="flex flex-col gap-1">
+          <label htmlFor="log-meal-date" className={labelClass}>
+            Date
+          </label>
+          <input
+            id="log-meal-date"
+            name="logDate"
+            type="date"
+            max={today}
+            required
+            autoComplete="off"
+            defaultValue={effectiveDate}
+            className={inputClass}
+          />
+          {state.fieldErrors?.logDate && <p className={errorTextClass}>{state.fieldErrors.logDate}</p>}
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="log-meal-time" className={labelClass}>
+            Time
+          </label>
+          <select
+            id="log-meal-time"
+            name="logTime"
+            required
+            autoComplete="off"
+            defaultValue={defaultTime}
+            className={`${inputClass} tabular-nums`}
+          >
+            {TIME_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value} className="tabular-nums">
+                {option.label}
+              </option>
+            ))}
+          </select>
+          {state.fieldErrors?.logTime && <p className={errorTextClass}>{state.fieldErrors.logTime}</p>}
+        </div>
+      </div>
+
+      {state.error && state.error !== "future_date" && state.error !== "empty_meal" && (
+        <p className={errorTextClass}>{state.error}</p>
+      )}
+      {state.error === "future_date" && (
+        <p className={errorTextClass}>
+          You can&apos;t log a meal dated later than today. Pick today or an earlier date.
+        </p>
+      )}
+      {state.error === "empty_meal" && (
+        <p className={errorTextClass}>
+          {meal
+            ? "This meal has no items yet — add some to this card before logging it."
+            : "That meal has no items yet — add some on the Meals page before logging it."}
+        </p>
+      )}
+
+      <div className="flex items-center gap-2 pt-1">
+        <SubmitButton />
+        {meal && (
+          <Button type="button" variant="secondary" onClick={() => onCancel?.()}>
+            Cancel
+          </Button>
+        )}
+      </div>
+    </form>
+  );
+
+  if (meal) {
+    // Fixed-meal mode: the parent (`MealList`) already provides the card chrome and its own
+    // toggle button (see the module doc comment) — render only the form body.
+    return formBody;
   }
 
   return (
@@ -150,85 +307,7 @@ export function LogMealDialog({ selectedDate, today, tz, onLogged }: LogMealDial
           You don&apos;t have any saved meals yet — create one on the Meals page.
         </p>
       ) : (
-        <form action={formAction} className="flex flex-col gap-3" noValidate>
-          <input type="hidden" name="logTz" value={tz} />
-
-          <div className="flex flex-col gap-1">
-            <label htmlFor="log-meal-select" className={labelClass}>
-              Meal
-            </label>
-            <select id="log-meal-select" name="mealId" required defaultValue="" className={inputClass}>
-              <option value="" disabled>
-                Choose a meal...
-              </option>
-              {meals.map((meal) => {
-                const items = itemsByMeal[meal.id] ?? [];
-                const totals = sumEntries(items);
-                return (
-                  <option key={meal.id} value={meal.id}>
-                    {meal.name} ({totals.calories} kcal, {items.length} item{items.length === 1 ? "" : "s"})
-                  </option>
-                );
-              })}
-            </select>
-            {state.fieldErrors?.mealId && <p className={errorTextClass}>{state.fieldErrors.mealId}</p>}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-1">
-              <label htmlFor="log-meal-date" className={labelClass}>
-                Date
-              </label>
-              <input
-                id="log-meal-date"
-                name="logDate"
-                type="date"
-                max={today}
-                required
-                defaultValue={selectedDate}
-                className={inputClass}
-              />
-              {state.fieldErrors?.logDate && <p className={errorTextClass}>{state.fieldErrors.logDate}</p>}
-            </div>
-            <div className="flex flex-col gap-1">
-              <label htmlFor="log-meal-time" className={labelClass}>
-                Time
-              </label>
-              <select
-                id="log-meal-time"
-                name="logTime"
-                required
-                defaultValue={defaultTime}
-                className={`${inputClass} tabular-nums`}
-              >
-                {TIME_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value} className="tabular-nums">
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              {state.fieldErrors?.logTime && <p className={errorTextClass}>{state.fieldErrors.logTime}</p>}
-            </div>
-          </div>
-
-          {state.error && state.error !== "future_date" && state.error !== "empty_meal" && (
-            <p className={errorTextClass}>{state.error}</p>
-          )}
-          {state.error === "future_date" && (
-            <p className={errorTextClass}>
-              You can&apos;t log a meal dated later than today. Pick today or an earlier date.
-            </p>
-          )}
-          {state.error === "empty_meal" && (
-            <p className={errorTextClass}>
-              That meal has no items yet — add some on the Meals page before logging it.
-            </p>
-          )}
-
-          <div className="pt-1">
-            <SubmitButton />
-          </div>
-        </form>
+        formBody
       )}
     </div>
   );

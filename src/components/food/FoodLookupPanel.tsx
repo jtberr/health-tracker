@@ -179,6 +179,7 @@ export function FoodLookupPanel({ onPick }: FoodLookupPanelProps) {
             <input
               id="food-lookup-query"
               type="text"
+              autoComplete="off"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {

@@ -3,20 +3,26 @@
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { queryTimeoutSignal } from "@/lib/supabase/query-timeout";
-import { browserTimeZone, floorToQuarterHour, localDateInTz } from "@/lib/domain/datetime";
+import { browserTimeZone, floorToQuarterHour, formatDateLabel, localDateInTz } from "@/lib/domain/datetime";
 import { copyFoodEntries, deleteFoodEntry } from "@/lib/actions/food";
 import { errorTextClass, inputClass, labelClass } from "@/components/ui/styles";
+import { Button } from "@/components/ui/Button";
+import { StatusMessage, SUCCESS_MESSAGE_MS } from "@/components/ui/StatusMessage";
 import { CopyDayDialog } from "./CopyDayDialog";
+import { CopyGroupDialog } from "./CopyGroupDialog";
 import { DailyTotals } from "./DailyTotals";
+import { EntrySelectionBar } from "./EntrySelectionBar";
 import { FoodEntryForm } from "./FoodEntryForm";
 import { FoodEntryList } from "./FoodEntryList";
 import { LogMealDialog } from "./LogMealDialog";
+import { SaveGroupAsMealDialog } from "./SaveGroupAsMealDialog";
 import type { DailyFoodTotals, FoodEntry, Meal } from "@/lib/types";
 
 /**
  * Client-side orchestrator for the `/food` day log (design doc §3.1 `food/page.tsx`). Owns:
  * the selected day, the fetched entries/totals for that day, the "smart default" tracking
- * (`lastConsumedAt`, reset to `null` on a day change per §3.4's edge cases), and edit state.
+ * (`lastConsumedAt`, reset to `null` on a day change per §3.4's edge cases), edit state, and
+ * (Phase 8b) multi-select state.
  *
  * Reads go through the RLS-scoped browser Supabase client (same anon key + policies the server
  * client uses — never service-role) rather than a Server Component fetch. This is a deliberate
@@ -36,6 +42,16 @@ import type { DailyFoodTotals, FoodEntry, Meal } from "@/lib/types";
  * silently collapsing whatever expander the user had open mid-typing. The placeholder is now
  * scoped to the true *initial* load only; a background refresh keeps `FoodEntryList` mounted (and
  * its state intact) throughout.
+ *
+ * **Multi-select (Phase 8b, 2026-08-01)** — `selectMode`/`selectedIds`/`bulkAction` are declared as
+ * plain state on THIS component (which a background `refresh()` never unmounts), and the JSX that
+ * renders the selection bar + whichever bulk expander is open sits ABOVE the
+ * `!hasLoadedOnce && loading` ternary — structurally, not just by convention — so neither the
+ * selection nor an open bulk expander can ever be wiped by a background refresh, matching how
+ * `savedMessage`/`FoodEntryForm` are already placed outside that ternary. This is the third
+ * component in this codebase to hold local UI state a background refresh could wipe (after
+ * `MealsView` in Phase 7 and `FoodEntryList` in Phase 7b, both of which shipped broken) — see
+ * ai-context/DECISIONS.md's "Phase 8b designed..." entry for the full reasoning.
  */
 export function FoodDayView() {
   const supabase = useMemo(() => createClient(), []);
@@ -62,20 +78,41 @@ export function FoodDayView() {
   // `resetToNow` prop), so there's no need to reset it back after either case.
   const [resetReason, setResetReason] = useState<"save" | "clear">("save");
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  // Bumped every time a NEW savedMessage is shown (Phase 8b) -- used as StatusMessage's `key` so a
+  // repeated identical message forces a fresh mount (and so a fresh auto-dismiss timer) instead of
+  // silently inheriting whatever remained of the previous occurrence's timer (a real, previously-
+  // unknown bug fixed alongside the pill->banner restyle -- see ai-context/DECISIONS.md).
+  const [savedMessageNonce, setSavedMessageNonce] = useState(0);
   // Phase 8 -- surfaces a failure from "Log again"/"Copy this day"/"Copy this group", none of
   // which go through useActionState (copyFoodEntries takes a plain object, not FormData, per
   // design doc §3.3) so there's no per-field error slot to render them into the way the form-backed
   // actions do.
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Auto-dismiss the save confirmation after a few seconds.
-  useEffect(() => {
-    if (!savedMessage) return;
-    const timeout = setTimeout(() => setSavedMessage(null), 4000);
-    return () => clearTimeout(timeout);
-  }, [savedMessage]);
+  // Phase 8b -- multi-select. Declared here (not in FoodEntryList) so a background refresh can
+  // never destroy it -- see the module doc comment above and ai-context/DECISIONS.md's "Phase 8b
+  // designed..." entry.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkAction, setBulkAction] = useState<"copy" | "save" | null>(null);
 
-  // Auto-dismiss a copy/log-again error the same way, so a stale error doesn't linger forever.
+  // The EFFECTIVE selection: intersected against the currently-loaded entries, so an id that
+  // vanished out-of-band (deleted elsewhere, then a refresh pulls in the change) simply drops out
+  // of the count/bulk-action input instead of the whole bulk action failing with a confusing
+  // "entries not found" (design doc §3.4, "the effective selection is derived by intersecting...").
+  const selectedEntries = useMemo(
+    () => entries.filter((entry) => selectedIds.has(entry.id)),
+    [entries, selectedIds],
+  );
+
+  function showSavedMessage(message: string) {
+    setSavedMessage(message);
+    setSavedMessageNonce((n) => n + 1);
+  }
+
+  // Auto-dismiss a copy/log-again error the same way it always has (this is an ERROR, not a
+  // success message, so it's deliberately NOT routed through StatusMessage -- see design doc §3.4's
+  // "Transient success feedback", which only restyles confirmations).
   useEffect(() => {
     if (!actionError) return;
     const timeout = setTimeout(() => setActionError(null), 6000);
@@ -137,6 +174,11 @@ export function FoodDayView() {
     setLastConsumedAt(null);
     setEditingEntry(null);
     setSavedMessage(null);
+    // Phase 8b -- the one existing choke point for "day changed" also clears the selection: stale
+    // ids from a different day must never silently survive into today's bulk action.
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setBulkAction(null);
     setSelectedDate(date);
   }
 
@@ -152,7 +194,7 @@ export function FoodDayView() {
     setEditingEntry(null);
     setResetReason("save");
     setAddFormResetNonce((n) => n + 1);
-    setSavedMessage(wasEditing ? "Changes saved." : "Entry added.");
+    showSavedMessage(wasEditing ? "Changes saved." : "Entry added.");
     refresh(selectedDate);
   }
 
@@ -173,7 +215,7 @@ export function FoodDayView() {
   // there is nothing on this day to refetch -- just surface the existing transient confirmation,
   // the same mechanism a save/edit/meal-log already uses.
   function handleGroupSavedAsMeal(meal: Meal) {
-    setSavedMessage(`Saved as "${meal.name}".`);
+    showSavedMessage(`Saved as "${meal.name}".`);
   }
 
   // Phase 7: logging a saved meal shares one `consumed_at` across its whole batch (already an
@@ -185,23 +227,56 @@ export function FoodDayView() {
       setLastConsumedAt(entries[0].consumed_at);
     }
     setEditingEntry(null);
-    setSavedMessage("Meal logged.");
+    showSavedMessage("Meal logged.");
     refresh(selectedDate);
   }
 
-  // Phase 8 -- shared success handler for both whole-day copies (CopyDayDialog) and single-group
-  // copies (CopyGroupDialog, from a FoodEntryList group header): the copy may land on the day
-  // currently being viewed (refresh it) or on a different date entirely (nothing on screen changed,
-  // so just confirm). copyFoodEntries is a plain async function (not a `<form action>`), so this is
-  // called directly from each dialog's own onCopied prop rather than reacted to via useActionState.
+  // Phase 8 -- shared success handler for whole-day copies (CopyDayDialog), single-group copies
+  // (CopyGroupDialog from a FoodEntryList group header), AND (Phase 8b) the multi-select "Copy
+  // selected" bulk action -- all three funnel through the one shared copyFoodEntries primitive, so
+  // one handler serves all of them. The copy may land on the day currently being viewed (refresh
+  // it) or on a different date entirely (nothing on screen changed, so just confirm).
+  // copyFoodEntries is a plain async function (not a `<form action>`), so this is called directly
+  // from each dialog's own onCopied prop rather than reacted to via useActionState.
   function handleCopied(copiedEntries: FoodEntry[], toDate: string) {
     setActionError(null);
-    setSavedMessage(
-      `Copied ${copiedEntries.length} entr${copiedEntries.length === 1 ? "y" : "ies"} to ${toDate}.`,
+    showSavedMessage(
+      `Copied ${copiedEntries.length} entr${copiedEntries.length === 1 ? "y" : "ies"} to ${formatDateLabel(toDate)}.`,
     );
     if (toDate === selectedDate) {
       refresh(selectedDate);
     }
+  }
+
+  // Phase 8b -- "Copy selected"/"Save selected as a meal" both clear the selection and exit select
+  // mode on success (design doc §3.4: "the selection has been spent; leaving boxes ticked invites
+  // an accidental second copy, which silently creates duplicate entries and has no undo").
+  function handleBulkCopied(copiedEntries: FoodEntry[], toDate: string) {
+    handleCopied(copiedEntries, toDate);
+    handleExitSelectMode();
+  }
+
+  function handleBulkSaved(meal: Meal) {
+    handleGroupSavedAsMeal(meal);
+    handleExitSelectMode();
+  }
+
+  function toggleEntrySelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function handleExitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setBulkAction(null);
   }
 
   function friendlyCopyError(error: string | null): string {
@@ -225,6 +300,13 @@ export function FoodDayView() {
   // time, floored to the 15-minute grid like every other smart default in this app), via the
   // shared copyFoodEntries primitive -- always targets "now", regardless of which day is currently
   // being viewed (design doc §2: "one tap re-logs that exact entry ... to now, no pre-saving").
+  //
+  // N-4 fix (Phase 8b, qa note from Phase 8): when the day being viewed ISN'T today, nothing
+  // visibly changes in the list (the new row lands on today, not the viewed day) so the toast now
+  // names the destination -- mirroring handleCopied's own "Copied N entries to <date>." wording --
+  // rather than leaving the user with no indication of where the entry went. The view deliberately
+  // STAYS on the browsed day (switching it was considered and rejected, §4) -- naming the
+  // destination is the fix, navigating is not.
   async function handleLogAgain(entry: FoodEntry) {
     setActionError(null);
     const floored = floorToQuarterHour(new Date());
@@ -242,7 +324,9 @@ export function FoodDayView() {
       return;
     }
 
-    setSavedMessage(`Logged "${entry.name}" again.`);
+    const destinationNote =
+      today === selectedDate ? "" : ` It was logged to ${formatDateLabel(today)}.`;
+    showSavedMessage(`Logged "${entry.name}" again.${destinationNote}`);
     if (today === selectedDate) {
       // "Log again" is unrelated to any edit currently in progress -- unlike handleSaved/
       // handleMealLogged (which respond to *this* form's own submit), don't cancel it here.
@@ -263,6 +347,7 @@ export function FoodDayView() {
           max={today}
           value={selectedDate}
           onChange={(e) => handleDayChange(e.target.value)}
+          autoComplete="off"
           className={inputClass}
         />
       </div>
@@ -278,12 +363,27 @@ export function FoodDayView() {
           tz={tz}
           onCopied={handleCopied}
         />
+        {/* Phase 8b -- "Select entries" is absent on a day with no entries, and hidden once select
+            mode is already active (its counterpart, "Done", lives in EntrySelectionBar below). */}
+        {entries.length > 0 && !selectMode && (
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => setSelectMode(true)}
+            className="self-start"
+          >
+            Select entries
+          </Button>
+        )}
       </div>
 
       {savedMessage && (
-        <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-sage-pale px-3 py-1 text-xs font-medium text-ink">
-          {savedMessage}
-        </p>
+        <StatusMessage
+          key={savedMessageNonce}
+          message={savedMessage}
+          autoDismissMs={SUCCESS_MESSAGE_MS}
+          onDismiss={() => setSavedMessage(null)}
+        />
       )}
       {actionError && <p className={errorTextClass}>{actionError}</p>}
 
@@ -297,6 +397,42 @@ export function FoodDayView() {
         onCancelEdit={() => setEditingEntry(null)}
         onClear={handleClear}
       />
+
+      {/* Phase 8b -- hoisted structurally ABOVE the loading/error ternary below (not nested inside
+          any of its branches), so select mode, the selection, and an open bulk expander can never
+          be unmounted by a background refresh -- see the module doc comment. */}
+      {selectMode && (
+        <>
+          <EntrySelectionBar
+            selectedCount={selectedEntries.length}
+            onCopySelected={() => setBulkAction("copy")}
+            onSaveSelectedAsMeal={() => setBulkAction("save")}
+            onClear={() => setSelectedIds(new Set())}
+            onDone={handleExitSelectMode}
+          />
+          {bulkAction === "copy" && (
+            <CopyGroupDialog
+              entries={selectedEntries}
+              today={today}
+              tz={tz}
+              onCopied={handleBulkCopied}
+              onCancel={() => setBulkAction(null)}
+              submitLabel="Copy selected"
+              noEntriesMessage="Nothing to copy — nothing is selected."
+              entriesNotFoundMessage="Couldn't find those entries — try reselecting and copying again."
+            />
+          )}
+          {bulkAction === "save" && (
+            <SaveGroupAsMealDialog
+              entries={selectedEntries}
+              onSaved={handleBulkSaved}
+              onCancel={() => setBulkAction(null)}
+              noEntriesMessage="Nothing to save — nothing is selected."
+              entriesNotFoundMessage="Couldn't find those entries — try reselecting and saving again."
+            />
+          )}
+        </>
+      )}
 
       {!hasLoadedOnce && loading ? (
         <p className="text-sm text-stone-500">Loading…</p>
@@ -321,6 +457,10 @@ export function FoodDayView() {
           onLogAgain={handleLogAgain}
           onGroupSavedAsMeal={handleGroupSavedAsMeal}
           onGroupCopied={handleCopied}
+          editingEntryId={editingEntry ? editingEntry.id : null}
+          selectMode={selectMode}
+          selectedIds={selectedIds}
+          onToggleSelected={toggleEntrySelected}
         />
       )}
     </div>

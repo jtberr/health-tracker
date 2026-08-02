@@ -10,12 +10,19 @@ import type { FoodEntry, Meal } from "@/lib/types";
 const initialActionState: MealActionState = { ok: false, error: null };
 
 export type SaveGroupAsMealDialogProps = {
-  /** The exact-`consumed_at` group's entries — this dialog's "source". Display/preview only; the
-   * action itself always re-reads these rows from the DB by id (§3.3), so a stale prop here can
-   * never cause the wrong thing to be saved. */
+  /** The entries to save — this dialog's "source". Display/preview only; the action itself always
+   * re-reads these rows from the DB by id (§3.3), so a stale prop here can never cause the wrong
+   * thing to be saved. Also serves the multi-select "Save selected as a meal" bulk action
+   * (Phase 8b) — this prop may span more than one exact-`consumed_at` group in that case. */
   entries: FoodEntry[];
   onSaved: (meal: Meal) => void;
   onCancel: () => void;
+  /** Phase 8b: parameterizes the two "this group" error strings so this one component can serve
+   * both a group's "Save as meal" (default) and the multi-select "Save selected as a meal" bulk
+   * action, without duplicating the dialog — defaults preserve the existing group call site's
+   * rendered text byte-for-byte. */
+  noEntriesMessage?: string;
+  entriesNotFoundMessage?: string;
 };
 
 function SubmitButton() {
@@ -27,12 +34,16 @@ function SubmitButton() {
   );
 }
 
-function friendlyError(error: string): string {
+function friendlyError(
+  error: string,
+  noEntriesMessage: string,
+  entriesNotFoundMessage: string,
+): string {
   switch (error) {
     case "no_entries":
-      return "Nothing to save — this group has no entries.";
+      return noEntriesMessage;
     case "entries_not_found":
-      return "Couldn't find those entries — try reopening this group and saving again.";
+      return entriesNotFoundMessage;
     case "unauthenticated":
       return "You've been signed out — please log in again.";
     default:
@@ -68,7 +79,13 @@ function friendlyError(error: string): string {
  * already lost time once to the opposite case: the Phase 6 `FoodLookupPanel`/`BarcodeScanner`
  * nested-`<form>` bug, see ai-context/PROGRESS.md).
  */
-export function SaveGroupAsMealDialog({ entries, onSaved, onCancel }: SaveGroupAsMealDialogProps) {
+export function SaveGroupAsMealDialog({
+  entries,
+  onSaved,
+  onCancel,
+  noEntriesMessage = "Nothing to save — this group has no entries.",
+  entriesNotFoundMessage = "Couldn't find those entries — try reopening this group and saving again.",
+}: SaveGroupAsMealDialogProps) {
   const [state, formAction] = useActionState(createMealFromEntries, initialActionState);
   const idPrefix = useId();
 
@@ -80,9 +97,9 @@ export function SaveGroupAsMealDialog({ entries, onSaved, onCancel }: SaveGroupA
   }, [state]);
 
   return (
-    <form action={formAction} className="flex flex-col gap-3" noValidate>
+    <form action={formAction} className="flex flex-col gap-3" noValidate autoComplete="off">
       {entries.map((entry) => (
-        <input key={entry.id} type="hidden" name="entryIds" value={entry.id} />
+        <input key={entry.id} type="hidden" name="entryIds" value={entry.id} autoComplete="off" />
       ))}
 
       <div className="flex flex-col gap-1">
@@ -95,6 +112,7 @@ export function SaveGroupAsMealDialog({ entries, onSaved, onCancel }: SaveGroupA
           type="text"
           required
           autoFocus
+          autoComplete="off"
           defaultValue=""
           placeholder="e.g. Weekday breakfast"
           className={inputClass}
@@ -118,7 +136,11 @@ export function SaveGroupAsMealDialog({ entries, onSaved, onCancel }: SaveGroupA
         </ul>
       </div>
 
-      {state.error && !state.fieldErrors && <p className={errorTextClass}>{friendlyError(state.error)}</p>}
+      {state.error && !state.fieldErrors && (
+        <p className={errorTextClass}>
+          {friendlyError(state.error, noEntriesMessage, entriesNotFoundMessage)}
+        </p>
+      )}
 
       <div className="flex items-center gap-2">
         <SubmitButton />

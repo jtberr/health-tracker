@@ -3,6 +3,7 @@ import {
   browserTimeZone,
   defaultConsumedAtForNextEntry,
   floorToQuarterHour,
+  formatDateLabel,
   formatTimeLabel,
   isValidTimeZone,
   localDateInTz,
@@ -298,6 +299,47 @@ describe("isValidTimeZone", () => {
   it("never throws, even on obviously malicious/oversized input", () => {
     expect(() => isValidTimeZone("x".repeat(10_000))).not.toThrow();
     expect(isValidTimeZone("x".repeat(10_000))).toBe(false);
+  });
+});
+
+describe("formatDateLabel", () => {
+  it("reorders YYYY-MM-DD to MM/DD/YYYY", () => {
+    expect(formatDateLabel("2026-07-29")).toBe("07/29/2026");
+  });
+
+  it("zero-pads single-digit months and days (already zero-padded in the ISO input)", () => {
+    expect(formatDateLabel("2026-01-05")).toBe("01/05/2026");
+  });
+
+  it("a date is never shifted by a day in a negative-offset timezone (the new Date() off-by-one trap)", () => {
+    // This is the case a `new Date(iso).toLocaleDateString()` implementation would get wrong:
+    // `new Date("2026-07-29")` parses as UTC midnight, which is still "2026-07-28" evening in
+    // America/Chicago (a negative-offset zone) -- confirmed directly below, so the assertion that
+    // formatDateLabel does NOT reproduce that shift is meaningful, not vacuous.
+    expect(
+      new Date("2026-07-29").toLocaleDateString("en-US", { timeZone: "America/Chicago" }),
+    ).toBe("7/28/2026");
+
+    const original = process.env.TZ;
+    process.env.TZ = "America/Chicago";
+    try {
+      expect(formatDateLabel("2026-07-29")).toBe("07/29/2026");
+    } finally {
+      if (original === undefined) delete process.env.TZ;
+      else process.env.TZ = original;
+    }
+  });
+
+  it("returns malformed/empty input unchanged rather than throwing or producing NaN", () => {
+    expect(formatDateLabel("")).toBe("");
+    expect(formatDateLabel("not-a-date")).toBe("not-a-date");
+    expect(formatDateLabel("2026-7-29")).toBe("2026-7-29");
+    expect(formatDateLabel("2026-07-29T00:00:00.000Z")).toBe("2026-07-29T00:00:00.000Z");
+  });
+
+  it("never throws", () => {
+    expect(() => formatDateLabel("")).not.toThrow();
+    expect(() => formatDateLabel("x".repeat(1000))).not.toThrow();
   });
 });
 

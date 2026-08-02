@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { queryTimeoutSignal } from "@/lib/supabase/query-timeout";
+import { browserTimeZone, localDateInTz } from "@/lib/domain/datetime";
 import { groupMealItemsByMeal } from "@/lib/domain/meal-items";
 import { filterMealsByName, sortMealsByName } from "@/lib/domain/meals";
 import { inputClass, labelClass } from "@/components/ui/styles";
@@ -34,6 +35,18 @@ import type { Meal, MealItem } from "@/lib/types";
  * `FoodDayView` itself) — `MealList` isn't in that position, so the big "Loading…" replacement is
  * now scoped to the *initial* load only; a background refresh after a mutation keeps `MealList`
  * mounted (and its state intact) throughout.
+ *
+ * **`today`/`tz` (Phase 8c, 2026-08-01)** — `/meals`' first-ever browser-timezone dependency: a
+ * saved meal itself has no date, so this screen never needed "today" before now, but the new
+ * per-card "Log this meal" action does (it defaults its date/time to today/floor-of-now). Resolved
+ * in a mount-only Effect, starting `null` and rendered identically on the server pass and the
+ * client's first pass (nothing extra renders until they resolve) — the same hydration-mismatch
+ * avoidance `MetricForm`/`FoodDayView`/`TrendsView` already use, since `browserTimeZone()` would
+ * otherwise disagree between the server's tz and the user's actual one. Deliberately scoped
+ * narrowly: unlike `MetricForm` (which gates its ENTIRE form behind this resolution because every
+ * field on it is tz-dependent), gating all of `/meals` behind it would newly block rendering the
+ * meal list/filter/counts, none of which depend on tz at all — so only `MealList`'s "Log this meal"
+ * surface waits on `today`/`tz` (see that component), not this whole screen.
  */
 export function MealsView() {
   const [supabase] = useState(() => createClient());
@@ -43,10 +56,23 @@ export function MealsView() {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [tz, setTz] = useState<string | null>(null);
+  const [today, setToday] = useState<string | null>(null);
   // Transient view state, deliberately not a URL param (unlike /trends' `?range=`, which is a
   // server-rendered shareable view) -- design doc §3.4 Phase 7c. Typing never refetches; it only
   // narrows the rows already in `meals`.
   const [filterQuery, setFilterQuery] = useState("");
+
+  // Client-only: resolves the browser's actual timezone/date post-mount, avoiding an SSR/client
+  // hydration mismatch (see the module doc comment above). Reads a client-only browser API (Intl
+  // timezone) on mount; there's no external subscription to attach a callback to instead, so the
+  // setState calls below are justifiably synchronous.
+  useEffect(() => {
+    const resolvedTz = browserTimeZone();
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTz(resolvedTz);
+    setToday(localDateInTz(new Date(), resolvedTz));
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -167,7 +193,13 @@ export function MealsView() {
               No meals match &quot;{filterQuery.trim()}&quot;.
             </div>
           ) : (
-            <MealList meals={visibleMeals} itemsByMeal={itemsByMeal} onChanged={refresh} />
+            <MealList
+              meals={visibleMeals}
+              itemsByMeal={itemsByMeal}
+              onChanged={refresh}
+              today={today}
+              tz={tz}
+            />
           )}
         </div>
       )}

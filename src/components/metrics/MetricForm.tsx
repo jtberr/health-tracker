@@ -8,6 +8,7 @@ import { deleteDailyMetric, upsertDailyMetric, type DailyMetricActionState } fro
 import { browserTimeZone, localDateInTz } from "@/lib/domain/datetime";
 import { weightForDisplay } from "@/lib/domain/units";
 import { Button } from "@/components/ui/Button";
+import { StatusMessage, SUCCESS_MESSAGE_MS } from "@/components/ui/StatusMessage";
 import { errorTextClass, inputClass, labelClass } from "@/components/ui/styles";
 import type { DailyMetric, WeightUnit } from "@/lib/types";
 
@@ -147,6 +148,7 @@ export function MetricForm({ weightUnit }: MetricFormProps) {
           max={today}
           value={selectedDate}
           onChange={(e) => setSelectedDate(e.target.value)}
+          autoComplete="off"
           className={inputClass}
         />
       </div>
@@ -213,10 +215,24 @@ function MetricEntryForm({
   const [bodyFatPct, setBodyFatPct] = useState(() =>
     existing?.body_fat_pct != null ? String(existing.body_fat_pct) : "",
   );
+  // Phase 8b: a real "Weight saved." confirmation -- this form previously had NONE at all (only
+  // the unrelated "Already logged" status pill, which stays exactly as-is). This component is
+  // keyed by `selectedDate` from the parent (not by a per-save value), so a repeat save on the
+  // SAME day would leave `showSaved` already true with no re-trigger -- `savedNonce` (bumped
+  // alongside `showSaved` in the effect below) is what forces StatusMessage to remount and start a
+  // fresh auto-dismiss window each time, the same idiom FoodDayView's `savedMessageNonce` uses.
+  const [showSaved, setShowSaved] = useState(false);
+  const [savedNonce, setSavedNonce] = useState(0);
 
   useEffect(() => {
     if (state.ok && state.metric) {
       onSaved(state.metric);
+      // Directly reacting to this action's own settled state (the same pattern this file already
+      // uses for its mount-only tz/today resolution above), not an arbitrary effect-triggered
+      // cascade.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setShowSaved(true);
+      setSavedNonce((n) => n + 1);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
@@ -234,10 +250,11 @@ function MetricEntryForm({
       action={formAction}
       className="flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5"
       noValidate
+      autoComplete="off"
     >
-      <input type="hidden" name="metricDate" value={selectedDate} />
-      <input type="hidden" name="metricTz" value={tz} />
-      <input type="hidden" name="weightUnit" value={weightUnit} />
+      <input type="hidden" name="metricDate" value={selectedDate} autoComplete="off" />
+      <input type="hidden" name="metricTz" value={tz} autoComplete="off" />
+      <input type="hidden" name="weightUnit" value={weightUnit} autoComplete="off" />
 
       {existing && (
         <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-sage-pale px-3 py-1 text-xs font-medium text-ink">
@@ -257,6 +274,7 @@ function MetricEntryForm({
             step="any"
             min={0}
             required
+            autoComplete="off"
             value={weight}
             onChange={(e) => setWeight(e.target.value)}
             className={inputClass}
@@ -274,6 +292,7 @@ function MetricEntryForm({
             step="any"
             min={0}
             max={100}
+            autoComplete="off"
             value={bodyFatPct}
             onChange={(e) => setBodyFatPct(e.target.value)}
             className={inputClass}
@@ -291,6 +310,14 @@ function MetricEntryForm({
         <p className={errorTextClass}>
           You can&apos;t log a metric dated later than today. Pick today or an earlier date.
         </p>
+      )}
+      {showSaved && (
+        <StatusMessage
+          key={savedNonce}
+          message="Weight saved."
+          autoDismissMs={SUCCESS_MESSAGE_MS}
+          onDismiss={() => setShowSaved(false)}
+        />
       )}
 
       <div className="flex items-center gap-3 pt-1">

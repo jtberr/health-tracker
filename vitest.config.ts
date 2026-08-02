@@ -50,6 +50,10 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
+    // Registers `@testing-library/jest-dom`'s DOM matchers (`toBeInTheDocument`, `toBeDisabled`,
+    // `toHaveTextContent`, etc.) — see vitest.setup.ts's own doc comment for why this was newly
+    // added (Phase 8b) rather than already present.
+    setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
     exclude: ["e2e/**", "node_modules/**"],
     // Test files run in separate worker processes that do NOT automatically inherit

@@ -205,10 +205,11 @@ export function FoodEntryForm({
       action={formAction}
       className="flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5"
       noValidate
+      autoComplete="off"
     >
-      {isEditing && <input type="hidden" name="id" value={editingEntry!.id} />}
-      <input type="hidden" name="consumedTz" value={tz} />
-      <input type="hidden" name="mode" value={mode} />
+      {isEditing && <input type="hidden" name="id" value={editingEntry!.id} autoComplete="off" />}
+      <input type="hidden" name="consumedTz" value={tz} autoComplete="off" />
+      <input type="hidden" name="mode" value={mode} autoComplete="off" />
       {/* When the detail section is collapsed, the visible quantity/unit inputs below aren't
           rendered, but the form must still submit whatever quantity/unit the user (or a lookup
           pick) actually set -- collapsing only hides the inputs, it must never reset the values
@@ -217,8 +218,8 @@ export function FoodEntryForm({
           moment "Hide detail" was clicked after it had been changed. */}
       {!expanded && (
         <>
-          <input type="hidden" name="quantity" value={quantity} />
-          <input type="hidden" name="unit" value={unit} />
+          <input type="hidden" name="quantity" value={quantity} autoComplete="off" />
+          <input type="hidden" name="unit" value={unit} autoComplete="off" />
         </>
       )}
 
@@ -237,6 +238,7 @@ export function FoodEntryForm({
           name="name"
           type="text"
           required
+          autoComplete="off"
           value={name}
           onChange={(e) => setName(e.target.value)}
           className={inputClass}
@@ -256,6 +258,7 @@ export function FoodEntryForm({
             step="any"
             min={0}
             required
+            autoComplete="off"
             value={calories}
             onChange={(e) => setCalories(e.target.value)}
             className={inputClass}
@@ -275,6 +278,7 @@ export function FoodEntryForm({
             step="any"
             min={0}
             required
+            autoComplete="off"
             value={protein}
             onChange={(e) => setProtein(e.target.value)}
             className={inputClass}
@@ -296,6 +300,7 @@ export function FoodEntryForm({
             type="date"
             max={today}
             required
+            autoComplete="off"
             value={consumedDate}
             onChange={(e) => setConsumedDate(e.target.value)}
             className={inputClass}
@@ -312,6 +317,7 @@ export function FoodEntryForm({
             id={`${idPrefix}-time`}
             name="consumedTime"
             required
+            autoComplete="off"
             value={consumedTime}
             onChange={(e) => setConsumedTime(e.target.value)}
             className={`${inputClass} tabular-nums`}
@@ -352,6 +358,7 @@ export function FoodEntryForm({
                 step="any"
                 min={0}
                 required
+                autoComplete="off"
                 value={quantity}
                 onChange={(e) => setQuantity(e.target.value)}
                 className={inputClass}
@@ -369,6 +376,7 @@ export function FoodEntryForm({
                 name="unit"
                 type="text"
                 placeholder="eggs, cup, serving..."
+                autoComplete="off"
                 value={unit}
                 onChange={(e) => setUnit(e.target.value)}
                 className={inputClass}
@@ -383,6 +391,7 @@ export function FoodEntryForm({
             <label className="flex items-center gap-2 text-sm text-stone-700">
               <input
                 type="radio"
+                autoComplete="off"
                 checked={mode === "total"}
                 onChange={() => setMode("total")}
                 className="h-4 w-4 accent-sage-deep"
@@ -392,6 +401,7 @@ export function FoodEntryForm({
             <label className="flex items-center gap-2 text-sm text-stone-700">
               <input
                 type="radio"
+                autoComplete="off"
                 checked={mode === "perUnit"}
                 onChange={() => setMode("perUnit")}
                 className="h-4 w-4 accent-sage-deep"

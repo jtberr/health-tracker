@@ -155,6 +155,7 @@ export function BarcodeScanner({ onSubmitBarcode, disabled = false }: BarcodeSca
             type="text"
             inputMode="numeric"
             pattern="[0-9]*"
+            autoComplete="off"
             value={manualCode}
             onChange={(e) => setManualCode(e.target.value)}
             onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {

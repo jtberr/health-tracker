@@ -4,6 +4,7 @@ import { useActionState, useId, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { updateGoals, type GoalsActionState } from "@/lib/actions/goals";
 import { Button } from "@/components/ui/Button";
+import { StatusMessage, SUCCESS_MESSAGE_MS } from "@/components/ui/StatusMessage";
 import { errorTextClass, inputClass, labelClass } from "@/components/ui/styles";
 import type { UserGoals, WeightUnit } from "@/lib/types";
 
@@ -64,12 +65,20 @@ function SettingsFields({
     goals.daily_protein_target_g != null ? String(goals.daily_protein_target_g) : "",
   );
   const [weightUnit, setWeightUnit] = useState<WeightUnit>(goals.weight_unit);
+  // Phase 8b: the "Settings saved." confirmation now auto-dismisses (it never did before -- see
+  // ai-context/DECISIONS.md "Phase 8b absorbs three more manual-testing findings..."). This whole
+  // component remounts fresh (via the outer SettingsForm's `key={goals.updated_at}`) after every
+  // successful save, so `dismissed` starting `false` on each fresh instance is what gives a
+  // REPEATED save its own full auto-dismiss window -- no extra nonce needed here, unlike
+  // FoodDayView's savedMessage (which doesn't remount its parent on every message).
+  const [dismissed, setDismissed] = useState(false);
 
   return (
     <form
       action={formAction}
       className="flex flex-col gap-5 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5"
       noValidate
+      autoComplete="off"
     >
       <div className="grid grid-cols-2 gap-3">
         <div className="flex flex-col gap-1">
@@ -82,6 +91,7 @@ function SettingsFields({
             type="number"
             step={1}
             min={0}
+            autoComplete="off"
             value={dailyCalorieTarget}
             onChange={(e) => setDailyCalorieTarget(e.target.value)}
             className={inputClass}
@@ -100,6 +110,7 @@ function SettingsFields({
             type="number"
             step="any"
             min={0}
+            autoComplete="off"
             value={dailyProteinTargetG}
             onChange={(e) => setDailyProteinTargetG(e.target.value)}
             className={inputClass}
@@ -118,6 +129,7 @@ function SettingsFields({
               type="radio"
               name="weightUnit"
               value="kg"
+              autoComplete="off"
               checked={weightUnit === "kg"}
               onChange={() => setWeightUnit("kg")}
               className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
@@ -131,6 +143,7 @@ function SettingsFields({
               type="radio"
               name="weightUnit"
               value="lb"
+              autoComplete="off"
               checked={weightUnit === "lb"}
               onChange={() => setWeightUnit("lb")}
               className="peer absolute inset-0 h-full w-full cursor-pointer opacity-0"
@@ -146,10 +159,12 @@ function SettingsFields({
       </fieldset>
 
       {state.error && <p className={errorTextClass}>{state.error}</p>}
-      {state.ok && (
-        <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-sage-pale px-3 py-1 text-xs font-medium text-ink">
-          Settings saved.
-        </p>
+      {state.ok && !dismissed && (
+        <StatusMessage
+          message="Settings saved."
+          autoDismissMs={SUCCESS_MESSAGE_MS}
+          onDismiss={() => setDismissed(true)}
+        />
       )}
 
       <div>
