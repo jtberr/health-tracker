@@ -1,9 +1,18 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import { isValidTimeZone, localDateNotAfterToday, localInputToUtcInTz } from "@/lib/domain/datetime";
+import {
+  isValidTimeZone,
+  localDateNotAfterToday,
+  localInputToUtcInTz,
+  utcToLocalTime,
+} from "@/lib/domain/datetime";
 import { perUnitFromTotal } from "@/lib/domain/quantity";
-import { validateFoodEntryInput, type FoodEntryField } from "@/lib/domain/validation";
+import {
+  validateCopyFoodEntriesInput,
+  validateFoodEntryInput,
+  type FoodEntryField,
+} from "@/lib/domain/validation";
 import type { FoodEntry } from "@/lib/types";
 
 /**
@@ -128,6 +137,141 @@ export async function updateFoodEntry(
   }
 
   return { ok: true, error: null, entry: data as FoodEntry };
+}
+
+// -------------------------------------------------------------------------------------------
+// copyFoodEntries — the shared copy/repeat primitive (Phase 8 — "Ease-of-entry extras").
+// Three thin callers all funnel through this one action (ai-context/DECISIONS.md "Copy/repeat
+// entries via one shared `copyFoodEntries` primitive..."): (a) `CopyDayDialog` passes every id
+// from the currently-viewed day; (b) per-entry "Log again" passes a single id with
+// `toDate=today`/an explicit `toTime` (the floor-of-now grid value); (c) "Copy this group" (a
+// `FoodEntryList` group header action) passes an exact-`consumed_at` group's ids. See design doc
+// §3.3 for the full contract.
+// -------------------------------------------------------------------------------------------
+
+export type CopyFoodEntriesInput = {
+  entryIds: string[];
+  toDate: string;
+  /** Omit to preserve each source entry's own local time-of-day on `toDate` (see below). */
+  toTime?: string;
+  toTz: string;
+};
+
+export type CopyFoodEntriesResult = {
+  ok: boolean;
+  error: string | null;
+  entries?: FoodEntry[];
+};
+
+/**
+ * Duplicates `entryIds` (which must ALL belong to the caller) into new `food_entries` rows dated
+ * `toDate` in `toTz`. `logged_from_meal_id` is never carried over — a copy is a fresh manual log,
+ * not a meal-logging event (ai-context/DECISIONS.md) — so every inserted row gets the column's
+ * default (`null`), simply by never setting it.
+ *
+ * Goes through the exact same no-future-day validation as any other write
+ * (`localDateNotAfterToday`) — copying cannot be used to route around the cap — and the exact same
+ * ownership re-check pattern `createMealFromEntries` (Phase 7b) already established: the source
+ * rows are re-read via the RLS-scoped client (never service-role, never trusting client-supplied
+ * values), and a foreign id / nonexistent id / mixed own-and-foreign set all collapse to the same
+ * whole-request rejection rather than silently copying a partial subset.
+ */
+export async function copyFoodEntries(input: CopyFoodEntriesInput): Promise<CopyFoodEntriesResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { ok: false, error: "unauthenticated" };
+  }
+
+  // Dedupe + drop blanks — defensive, mirrors `createMealFromEntries`'s identical guard.
+  const entryIds = Array.from(new Set(input.entryIds.filter((id) => id.length > 0)));
+  const toTime = input.toTime && input.toTime.length > 0 ? input.toTime : undefined;
+  const toTz = input.toTz.trim();
+
+  const validation = validateCopyFoodEntriesInput({ entryIds, toDate: input.toDate, toTime });
+  if (!validation.ok) {
+    // An empty selection is the one case worth a stable short code (matching
+    // `createMealFromEntries`'s `no_entries` convention) — every Phase 8 caller only ever supplies
+    // a real date/an already-gridded time from its own UI, so a bad `toDate`/`toTime` shape here
+    // would be a caller bug, not a real user-facing state; fall back to the first message.
+    if (validation.errors.some((e) => e.field === "entryIds")) {
+      return { ok: false, error: "no_entries" };
+    }
+    return { ok: false, error: validation.errors[0].message };
+  }
+
+  if (!toTz) {
+    return { ok: false, error: "Missing time zone." };
+  }
+
+  // Same defensive check as this file's other tz-taking actions — a garbled/tampered `toTz` must
+  // fail gracefully here, BEFORE it ever reaches `localDateNotAfterToday`/`localInputToUtcInTz`,
+  // both of which throw a `RangeError` on an invalid IANA zone (see `isValidTimeZone`'s doc comment).
+  if (!isValidTimeZone(toTz)) {
+    return { ok: false, error: "invalid_timezone" };
+  }
+
+  // No-future-day cap on the whole batch, checked up front, before any read/insert — exactly like
+  // `addFoodEntry`/`updateFoodEntry`/`logMealForDay`. Copying cannot be used to bypass the cap.
+  if (!localDateNotAfterToday(input.toDate, toTz)) {
+    return { ok: false, error: "future_date" };
+  }
+
+  // Ownership re-check (same pattern as `createMealFromEntries`): resolve the SOURCE entries via
+  // the RLS-scoped client already bound to this session's `supabase` client — never service-role,
+  // never any client-supplied name/calorie values. A foreign id, a nonexistent id, or a mixed
+  // own/foreign set all collapse to "fewer rows came back than ids were requested" — reject the
+  // WHOLE request rather than silently copying a partial subset, which would look like it worked.
+  const { data: rows, error: entriesError } = await supabase
+    .from("food_entries")
+    .select("*")
+    .in("id", entryIds)
+    .eq("user_id", user.id);
+
+  if (entriesError) {
+    return { ok: false, error: entriesError.message };
+  }
+  if (!rows || rows.length !== entryIds.length) {
+    return { ok: false, error: "entries_not_found" };
+  }
+
+  const sourceEntries = rows as FoodEntry[];
+
+  // If `toTime` is omitted, each copy preserves ITS OWN source local time-of-day on `toDate` — so
+  // a copied group (whose sources all share one exact `consumed_at`) lands on one new instant and
+  // stays grouped (design doc §3.3). If `toTime` IS supplied (the "Log again" case), every copied
+  // row uses that one explicit time instead.
+  const newRows = sourceEntries.map((entry) => {
+    const timeOfDay = toTime ?? utcToLocalTime(entry.consumed_at, entry.consumed_tz).time;
+    return {
+      user_id: user.id,
+      name: entry.name,
+      quantity: entry.quantity,
+      unit: entry.unit,
+      calories_per_unit: entry.calories_per_unit,
+      protein_g_per_unit: entry.protein_g_per_unit,
+      consumed_at: localInputToUtcInTz(input.toDate, timeOfDay, toTz),
+      consumed_tz: toTz,
+      // logged_from_meal_id deliberately omitted (defaults to null, its column default) — a copy
+      // is a fresh manual log, not a meal-logging event.
+    };
+  });
+
+  // A single multi-row INSERT is one Postgres statement — it either inserts every row or none
+  // (atomic per-statement), which is what "future-cap rejection / cross-user rejection writes zero
+  // rows" both rely on; there is no insert call before this point.
+  const { data: inserted, error: insertError } = await supabase
+    .from("food_entries")
+    .insert(newRows)
+    .select();
+
+  if (insertError) {
+    return { ok: false, error: insertError.message };
+  }
+
+  return { ok: true, error: null, entries: (inserted ?? []) as FoodEntry[] };
 }
 
 export async function deleteFoodEntry(id: string): Promise<DeleteFoodEntryResult> {

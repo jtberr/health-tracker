@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  validateCopyFoodEntriesInput,
   validateDailyMetricInput,
   validateFoodEntryInput,
   validateGoalsInput,
   validateLogMealInput,
   validateMealInput,
   validateMealItemInput,
+  type CopyFoodEntriesInput,
   type DailyMetricInput,
   type FoodEntryInput,
   type GoalsInput,
@@ -370,6 +372,74 @@ describe("validateLogMealInput", () => {
     if (!result.ok) {
       const fields = result.errors.map((e) => e.field).sort();
       expect(fields).toEqual(["logDate", "logTime", "mealId"].sort());
+    }
+  });
+});
+
+const baseCopy: CopyFoodEntriesInput = {
+  entryIds: ["11111111-1111-1111-1111-111111111111"],
+  toDate: "2026-07-15",
+};
+
+describe("validateCopyFoodEntriesInput", () => {
+  it("accepts a valid input with no toTime (preserves each entry's own time-of-day)", () => {
+    expect(validateCopyFoodEntriesInput(baseCopy).ok).toBe(true);
+  });
+
+  it("accepts a valid input with an explicit on-grid toTime", () => {
+    expect(validateCopyFoodEntriesInput({ ...baseCopy, toTime: "08:15" }).ok).toBe(true);
+  });
+
+  it("rejects an empty entryIds list", () => {
+    const result = validateCopyFoodEntriesInput({ ...baseCopy, entryIds: [] });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "entryIds")).toBe(true);
+  });
+
+  it("accepts multiple entryIds (whole-day / group copies)", () => {
+    const result = validateCopyFoodEntriesInput({
+      ...baseCopy,
+      entryIds: ["11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"],
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects a malformed toDate", () => {
+    const result = validateCopyFoodEntriesInput({ ...baseCopy, toDate: "07/15/2026" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "toDate")).toBe(true);
+  });
+
+  it("rejects a malformed toTime when one is supplied", () => {
+    const result = validateCopyFoodEntriesInput({ ...baseCopy, toTime: "8am" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "toTime")).toBe(true);
+  });
+
+  it("rejects a toTime not on the 15-minute grid", () => {
+    const result = validateCopyFoodEntriesInput({ ...baseCopy, toTime: "08:07" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "toTime")).toBe(true);
+  });
+
+  it("does not validate toTime at all when omitted, null, or empty", () => {
+    expect(validateCopyFoodEntriesInput({ ...baseCopy, toTime: undefined }).ok).toBe(true);
+    expect(validateCopyFoodEntriesInput({ ...baseCopy, toTime: null }).ok).toBe(true);
+    expect(validateCopyFoodEntriesInput({ ...baseCopy, toTime: "" }).ok).toBe(true);
+  });
+
+  it("accepts every quarter-hour grid value for toTime", () => {
+    for (const time of ["00:00", "08:00", "08:15", "08:30", "08:45", "23:45"]) {
+      expect(validateCopyFoodEntriesInput({ ...baseCopy, toTime: time }).ok).toBe(true);
+    }
+  });
+
+  it("reports multiple errors at once", () => {
+    const result = validateCopyFoodEntriesInput({ entryIds: [], toDate: "bad", toTime: "bad" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const fields = result.errors.map((e) => e.field).sort();
+      expect(fields).toEqual(["entryIds", "toDate", "toTime"].sort());
     }
   });
 });

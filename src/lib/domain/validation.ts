@@ -240,3 +240,56 @@ export function validateLogMealInput(input: LogMealInput): LogMealValidationResu
 
   return errors.length > 0 ? { ok: false, errors } : { ok: true };
 }
+
+/**
+ * Validates `copyFoodEntries`'s input (Phase 8 — "Ease-of-entry extras (copy/repeat)"). Reuses the
+ * same `DATE_PATTERN`/`TIME_PATTERN`/15-minute-grid rules `validateFoodEntryInput`/
+ * `validateLogMealInput` apply to their own date/time fields, since a copy target's date/time
+ * follow the exact same shape/constraints as any other food-entry write.
+ *
+ * `toTime` is genuinely optional — when omitted, `copyFoodEntries` preserves each source entry's
+ * own local time-of-day rather than using one explicit time for every copied row (design doc §3.3),
+ * so there is nothing to validate on that path; it's only checked when the caller does supply one
+ * (the "Log again" case, which always passes an already-gridded floor-of-now value).
+ *
+ * Deliberately does NOT check the no-future-day cap here — same convention as every other validator
+ * in this module: that's tz-aware (`datetime.localDateNotAfterToday`) and applied by the caller
+ * (the server action), not this framework-free module.
+ */
+export type CopyFoodEntriesField = "entryIds" | "toDate" | "toTime";
+export type CopyFoodEntriesFieldError = { field: CopyFoodEntriesField; message: string };
+export type CopyFoodEntriesValidationResult =
+  | { ok: true }
+  | { ok: false; errors: CopyFoodEntriesFieldError[] };
+
+export type CopyFoodEntriesInput = {
+  entryIds: string[];
+  toDate: string;
+  /** Omit (or pass `null`/`undefined`) to preserve each source entry's own local time-of-day. */
+  toTime?: string | null;
+};
+
+export function validateCopyFoodEntriesInput(input: CopyFoodEntriesInput): CopyFoodEntriesValidationResult {
+  const errors: CopyFoodEntriesFieldError[] = [];
+
+  if (input.entryIds.length === 0) {
+    errors.push({ field: "entryIds", message: "Select at least one entry to copy." });
+  }
+
+  if (!DATE_PATTERN.test(input.toDate)) {
+    errors.push({ field: "toDate", message: "Enter a valid date." });
+  }
+
+  if (input.toTime) {
+    if (!TIME_PATTERN.test(input.toTime)) {
+      errors.push({ field: "toTime", message: "Enter a valid time." });
+    } else {
+      const minutes = Number(input.toTime.slice(3, 5));
+      if (minutes % 15 !== 0) {
+        errors.push({ field: "toTime", message: "Time must be on a 15-minute interval." });
+      }
+    }
+  }
+
+  return errors.length > 0 ? { ok: false, errors } : { ok: true };
+}

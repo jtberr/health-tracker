@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { queryTimeoutSignal } from "@/lib/supabase/query-timeout";
-import { browserTimeZone, localDateInTz } from "@/lib/domain/datetime";
-import { deleteFoodEntry } from "@/lib/actions/food";
-import { inputClass, labelClass } from "@/components/ui/styles";
+import { browserTimeZone, floorToQuarterHour, localDateInTz } from "@/lib/domain/datetime";
+import { copyFoodEntries, deleteFoodEntry } from "@/lib/actions/food";
+import { errorTextClass, inputClass, labelClass } from "@/components/ui/styles";
+import { CopyDayDialog } from "./CopyDayDialog";
 import { DailyTotals } from "./DailyTotals";
 import { FoodEntryForm } from "./FoodEntryForm";
 import { FoodEntryList } from "./FoodEntryList";
@@ -61,6 +62,11 @@ export function FoodDayView() {
   // `resetToNow` prop), so there's no need to reset it back after either case.
   const [resetReason, setResetReason] = useState<"save" | "clear">("save");
   const [savedMessage, setSavedMessage] = useState<string | null>(null);
+  // Phase 8 -- surfaces a failure from "Log again"/"Copy this day"/"Copy this group", none of
+  // which go through useActionState (copyFoodEntries takes a plain object, not FormData, per
+  // design doc §3.3) so there's no per-field error slot to render them into the way the form-backed
+  // actions do.
+  const [actionError, setActionError] = useState<string | null>(null);
 
   // Auto-dismiss the save confirmation after a few seconds.
   useEffect(() => {
@@ -68,6 +74,13 @@ export function FoodDayView() {
     const timeout = setTimeout(() => setSavedMessage(null), 4000);
     return () => clearTimeout(timeout);
   }, [savedMessage]);
+
+  // Auto-dismiss a copy/log-again error the same way, so a stale error doesn't linger forever.
+  useEffect(() => {
+    if (!actionError) return;
+    const timeout = setTimeout(() => setActionError(null), 6000);
+    return () => clearTimeout(timeout);
+  }, [actionError]);
 
   const refresh = useCallback(
     async (date: string) => {
@@ -176,6 +189,68 @@ export function FoodDayView() {
     refresh(selectedDate);
   }
 
+  // Phase 8 -- shared success handler for both whole-day copies (CopyDayDialog) and single-group
+  // copies (CopyGroupDialog, from a FoodEntryList group header): the copy may land on the day
+  // currently being viewed (refresh it) or on a different date entirely (nothing on screen changed,
+  // so just confirm). copyFoodEntries is a plain async function (not a `<form action>`), so this is
+  // called directly from each dialog's own onCopied prop rather than reacted to via useActionState.
+  function handleCopied(copiedEntries: FoodEntry[], toDate: string) {
+    setActionError(null);
+    setSavedMessage(
+      `Copied ${copiedEntries.length} entr${copiedEntries.length === 1 ? "y" : "ies"} to ${toDate}.`,
+    );
+    if (toDate === selectedDate) {
+      refresh(selectedDate);
+    }
+  }
+
+  function friendlyCopyError(error: string | null): string {
+    switch (error) {
+      case "no_entries":
+        return "There's nothing to copy.";
+      case "entries_not_found":
+        return "Couldn't find that entry — try reloading the page and trying again.";
+      case "future_date":
+        return "You can't log an entry dated later than today.";
+      case "unauthenticated":
+        return "You've been signed out — please log in again.";
+      default:
+        // Never echo an unrecognized code or a raw Postgres error string verbatim to the UI (same
+        // posture as SaveGroupAsMealDialog/CopyDayDialog/CopyGroupDialog's own friendlyError).
+        return "Something went wrong. Please try again.";
+    }
+  }
+
+  // Phase 8 -- "Log again": one tap re-logs a single past entry to right now (today's real clock
+  // time, floored to the 15-minute grid like every other smart default in this app), via the
+  // shared copyFoodEntries primitive -- always targets "now", regardless of which day is currently
+  // being viewed (design doc §2: "one tap re-logs that exact entry ... to now, no pre-saving").
+  async function handleLogAgain(entry: FoodEntry) {
+    setActionError(null);
+    const floored = floorToQuarterHour(new Date());
+    const toTime = `${String(floored.getHours()).padStart(2, "0")}:${String(floored.getMinutes()).padStart(2, "0")}`;
+
+    const result = await copyFoodEntries({
+      entryIds: [entry.id],
+      toDate: today,
+      toTime,
+      toTz: tz,
+    });
+
+    if (!result.ok || !result.entries || result.entries.length === 0) {
+      setActionError(friendlyCopyError(result.error));
+      return;
+    }
+
+    setSavedMessage(`Logged "${entry.name}" again.`);
+    if (today === selectedDate) {
+      // "Log again" is unrelated to any edit currently in progress -- unlike handleSaved/
+      // handleMealLogged (which respond to *this* form's own submit), don't cancel it here.
+      setLastConsumedAt(result.entries[0].consumed_at);
+      refresh(selectedDate);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center gap-3">
@@ -194,13 +269,23 @@ export function FoodDayView() {
 
       <DailyTotals totals={totals} />
 
-      <LogMealDialog selectedDate={selectedDate} today={today} tz={tz} onLogged={handleMealLogged} />
+      <div className="flex flex-wrap items-start gap-3">
+        <LogMealDialog selectedDate={selectedDate} today={today} tz={tz} onLogged={handleMealLogged} />
+        <CopyDayDialog
+          sourceDate={selectedDate}
+          entries={entries}
+          today={today}
+          tz={tz}
+          onCopied={handleCopied}
+        />
+      </div>
 
       {savedMessage && (
         <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-sage-pale px-3 py-1 text-xs font-medium text-ink">
           {savedMessage}
         </p>
       )}
+      {actionError && <p className={errorTextClass}>{actionError}</p>}
 
       <FoodEntryForm
         key={editingEntry ? `edit-${editingEntry.id}` : `add-${selectedDate}-${addFormResetNonce}`}
@@ -229,9 +314,13 @@ export function FoodDayView() {
       ) : (
         <FoodEntryList
           entries={entries}
+          today={today}
+          tz={tz}
           onEdit={setEditingEntry}
           onDelete={handleDelete}
+          onLogAgain={handleLogAgain}
           onGroupSavedAsMeal={handleGroupSavedAsMeal}
+          onGroupCopied={handleCopied}
         />
       )}
     </div>

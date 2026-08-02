@@ -7,38 +7,64 @@ import { sumEntries } from "@/lib/domain/totals";
 import { formatTimeLabel, utcToLocalTime } from "@/lib/domain/datetime";
 import { roundTo } from "@/lib/domain/units";
 import { Button } from "@/components/ui/Button";
+import { CopyGroupDialog } from "./CopyGroupDialog";
 import { SaveGroupAsMealDialog } from "./SaveGroupAsMealDialog";
 import type { FoodEntry, Meal } from "@/lib/types";
+
+/** Which group action, if any, is currently open — mutually exclusive per group (see below). */
+type GroupAction = { key: string; kind: "save" | "copy" } | null;
 
 /**
  * Renders a day's food entries grouped by exact-`consumed_at` meal groups (§3.4 "FoodEntryList").
  * Each group header shows the group's local time-of-day and its ratio-of-sums protein %; each
- * entry row shows its own per-entry protein %. Edit/delete are delegated to the caller (which
- * owns the mutation + refetch).
+ * entry row shows its own per-entry protein % plus a one-tap "Log again" (Phase 8 — "Ease-of-entry
+ * extras (copy/repeat)"). Edit/delete are delegated to the caller (which owns the mutation +
+ * refetch).
  *
- * **Group header is a small action bar** (Phase 7b, design doc §3.4): "Save as meal" opens an
- * inline `SaveGroupAsMealDialog` expander for that group (this is the slot Phase 8's "Copy this
- * group" will later add a second button to). This is the first time this component holds real
- * local UI state (`savingGroupKey` — which group's expander, if any, is open) — see
- * `FoodDayView.tsx`'s `hasLoadedOnce` fix, a required prerequisite so a background refresh
- * triggered elsewhere on the page never unmounts this component mid-typing.
+ * **Group header is a small action bar** (Phase 7b built the slot; Phase 8 adds the second
+ * button): "Save as meal" opens an inline `SaveGroupAsMealDialog` expander; "Copy this group" opens
+ * an inline `CopyGroupDialog` expander. Only one expander per group can be open at a time
+ * (`groupAction` tracks which group + which kind) — this is real local UI state, which is exactly
+ * why `FoodDayView.tsx`'s `hasLoadedOnce` fix (Phase 7b) matters: a background refresh triggered
+ * elsewhere on the page must never unmount this component mid-typing/mid-picking-a-date.
  */
 export function FoodEntryList({
   entries,
+  today,
+  tz,
   onEdit,
   onDelete,
+  onLogAgain,
   onGroupSavedAsMeal,
+  onGroupCopied,
 }: {
   entries: FoodEntry[];
+  /** Today's local date — "Log again"/"Copy this group" cap their target date here. */
+  today: string;
+  tz: string;
   onEdit: (entry: FoodEntry) => void;
   onDelete: (entry: FoodEntry) => void;
+  /** Fired when a single entry's "Log again" (`copyFoodEntries`) succeeds. */
+  onLogAgain: (entry: FoodEntry) => Promise<void> | void;
   /** Fired after `createMealFromEntries` succeeds for a group. Optional — a caller that doesn't
    * care about surfacing a confirmation (there's nothing on this screen to refetch; the operation
    * is read-only on `food_entries`, per §3.3) can simply omit it. */
   onGroupSavedAsMeal?: (meal: Meal) => void;
+  /** Fired after `copyFoodEntries` succeeds for a whole group. */
+  onGroupCopied?: (entries: FoodEntry[], toDate: string) => void;
 }) {
-  const [savingGroupKey, setSavingGroupKey] = useState<string | null>(null);
+  const [groupAction, setGroupAction] = useState<GroupAction>(null);
+  const [logAgainPendingId, setLogAgainPendingId] = useState<string | null>(null);
   const groups = groupByConsumedAt(entries);
+
+  async function handleLogAgain(entry: FoodEntry) {
+    setLogAgainPendingId(entry.id);
+    try {
+      await onLogAgain(entry);
+    } finally {
+      setLogAgainPendingId(null);
+    }
+  }
 
   if (groups.length === 0) {
     return (
@@ -51,11 +77,12 @@ export function FoodEntryList({
   return (
     <div className="flex flex-col gap-4">
       {groups.map((group) => {
-        const tz = group.entries[0].consumed_tz;
-        const { time } = utcToLocalTime(group.consumedAt, tz);
+        const groupTz = group.entries[0].consumed_tz;
+        const { time } = utcToLocalTime(group.consumedAt, groupTz);
         const groupTotals = sumEntries(group.entries);
         const groupPct = proteinCaloriePct(groupTotals.proteinG, groupTotals.calories);
-        const isSaving = savingGroupKey === group.consumedAt;
+        const isSaving = groupAction?.key === group.consumedAt && groupAction.kind === "save";
+        const isCopying = groupAction?.key === group.consumedAt && groupAction.kind === "copy";
 
         return (
           <section
@@ -78,9 +105,21 @@ export function FoodEntryList({
                   type="button"
                   variant="secondary"
                   size="sm"
-                  onClick={() => setSavingGroupKey(isSaving ? null : group.consumedAt)}
+                  onClick={() =>
+                    setGroupAction(isSaving ? null : { key: group.consumedAt, kind: "save" })
+                  }
                 >
                   {isSaving ? "Cancel" : "Save as meal"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    setGroupAction(isCopying ? null : { key: group.consumedAt, kind: "copy" })
+                  }
+                >
+                  {isCopying ? "Cancel" : "Copy this group"}
                 </Button>
               </div>
             </header>
@@ -89,16 +128,31 @@ export function FoodEntryList({
                 <SaveGroupAsMealDialog
                   entries={group.entries}
                   onSaved={(meal) => {
-                    setSavingGroupKey(null);
+                    setGroupAction(null);
                     onGroupSavedAsMeal?.(meal);
                   }}
-                  onCancel={() => setSavingGroupKey(null)}
+                  onCancel={() => setGroupAction(null)}
+                />
+              </div>
+            )}
+            {isCopying && (
+              <div className="border-b border-stone-100 bg-white px-4 py-3">
+                <CopyGroupDialog
+                  entries={group.entries}
+                  today={today}
+                  tz={tz}
+                  onCopied={(copiedEntries, toDate) => {
+                    setGroupAction(null);
+                    onGroupCopied?.(copiedEntries, toDate);
+                  }}
+                  onCancel={() => setGroupAction(null)}
                 />
               </div>
             )}
             <ul className="divide-y divide-stone-100">
               {group.entries.map((entry) => {
                 const entryPct = proteinCaloriePct(entry.protein_g, entry.calories);
+                const isLoggingAgain = logAgainPendingId === entry.id;
                 return (
                   <li
                     key={entry.id}
@@ -124,6 +178,15 @@ export function FoodEntryList({
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        disabled={isLoggingAgain}
+                        onClick={() => handleLogAgain(entry)}
+                      >
+                        {isLoggingAgain ? "Logging..." : "Log again"}
+                      </Button>
                       <Button type="button" variant="secondary" size="sm" onClick={() => onEdit(entry)}>
                         Edit
                       </Button>
