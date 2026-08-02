@@ -1,11 +1,11 @@
 # Progress
 # Health Tracker
 
-**Last updated**: 2026-07-30
+**Last updated**: 2026-07-31
 
 ---
 
-## Current Status: Phase 4 qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Phase 5 (trend charts) implemented, qa-reviewed (one blocking bug found), and fixed up — ready for Jeff's approval (2026-07-25). **Sage-arc motif narrowed to auth screens only (2026-07-26, Jeff's direct decision, removed from the dashboard) — see `ai-context/DECISIONS.md`.** Visual identity rollout qa-reviewed (0 blocking findings, 5 non-blocking notes) — **NB-1 (dead old-palette CSS) and NB-2 (field-border/placeholder contrast) fixed, time-`<select>` alignment implemented, and the fetch-timeout follow-up closed, all 2026-07-26 (developer) — ready for Jeff's approval.** **Jeff approved Phase 6 (food lookup: barcode + description search), 2026-07-27.** **Phase 7 (Saved meals) implemented (2026-07-27, developer), then qa-reviewed (2026-07-28, qa-reviewer) — verdict: ready to gate to production, no blocking findings, 8 non-blocking notes (N-1 through N-8). N-1 (ungraceful invalid-timezone crash, shared with Phase 3's `addFoodEntry`/`updateFoodEntry`), N-7 (no direct action-level test coverage for `lib/actions/meals.ts`), and N-8 (a misdiagnosed "Node 24" environment note in this file's own history) fixed 2026-07-28 (developer) — ready for Jeff's approval. N-2 through N-6 logged below in Up Next, not fixed, per Jeff's explicit instruction to defer them.** The previously-flagged `supabase/seed.sql` time-of-day-dependent `db reset` failure has been root-caused (with a live repro) and fixed (2026-07-27, developer) — see Completed below. **Phase 7b ("Save a logged meal group as a Saved Meal") designed by the architect and approved as ready-to-implement (2026-07-30), then implemented (2026-07-30, developer) — `createMealFromEntries`, `mealItemsFromEntries`, `SaveGroupAsMealDialog`, `FoodEntryList`'s new group-header action bar, and the required `FoodDayView` `hasLoadedOnce` prerequisite fix are all in place — ready for qa-reviewer.** **Phase 7b qa-reviewed (2026-07-30, qa-reviewer): 23 independent acceptance tests (`e2e/phase7b-acceptance.spec.ts`) all green; full suite 395/395 unit + 222/222 e2e with zero regressions. The feature itself is correct — ownership invariant, copy-by-value, byte-identical source entries, the blank name field, and the compensating delete were all independently verified, the last with real fault injection plus a negative control. **One BLOCKING finding, B-1 — a scope/process issue, not a defect:** the change-set also carries undocumented out-of-scope changes (a new "Clear" button, a `lastConsumedAt`-on-edit semantics change contradicting design doc §3.4, a group-header AM/PM time-format change a recorded decision said would NOT be silently changed, and protein display rounding reaching Phase 7's already-reviewed `MealList.tsx`) — under a PROGRESS entry stating no deviations were needed. Plus 6 non-blocking notes (N-1..N-6). **B-1 resolved 2026-07-30 (Jeff's explicit call: document in place, don't split the diff)** — `ai-context/DECISIONS.md` gained three new entries recording the `lastConsumedAt`-on-edit change, the "Clear" reset-to-now behavior, and the group-header AM/PM change as deliberate, amending the two entries B-1 said were contradicted; `docs/architecture/food-weight-tracker.md` §3.4 and the `FoodEntryList` description were corrected to match; two new e2e tests pin the two previously-untested behavior changes; and N-1 (a raw Postgres error string reaching the UI from a malformed entry id) was fixed alongside. See the Completed entries below — **ready for Jeff's final approval.** **Phase 7c ("Saved-meals library: ordering, filtering, and counts") — designed by the architect (2026-07-30) in response to Jeff's "could the meals page get out of control?" question, then implemented (2026-07-30, developer): `lib/domain/meals.ts` (`sortMealsByName`/`filterMealsByName`), `MealsView`'s filter box + count readout + distinct no-match empty state, and `LogMealDialog`'s shared alphabetical ordering are all in place, verified against a real 60-meal fixture library in a live browser — ready for qa-reviewer.** **Phase 7c qa-reviewed (2026-07-30, qa-reviewer): 43 independent tests (24 unit in `src/lib/domain/meals.qa.test.ts`, 19 acceptance in `e2e/phase7c-acceptance.spec.ts`) all green. The feature as specified is correct — both rows §8 Phase 7c said to hammer (the two empty states staying distinct, and no data hidden at 60 meals across BOTH /meals and the LogMealDialog picker) were independently verified, along with shared alphabetical ordering, name-first picker labels, AND-of-tokens meal-name-only filtering, accurate counts, zero refetch while typing, and every explicit non-goal confirmed unbuilt. **One BLOCKING finding, B-1 — a real regression this time, not just a process issue:** the same working tree carries an undocumented `MealList.tsx` collapse-by-default → expand-by-default change that breaks **15 of `e2e/phase7-acceptance.spec.ts`'s 29 tests** (that suite clicks "Manage items" in 17 places; the button now reads "Hide items" on load). A scoped `git stash` of `MealList.tsx` alone restores 29/29 with all Phase 7c code intact, so none of the breakage is Phase 7c's own; it went unnoticed because Phase 7c's verification ran lint/tsc/build/unit but no e2e suite. Full run: unit 432/432; e2e 218/243 (15 = B-1, 10 = the documented pre-existing Day-input flakes). Plus 5 non-blocking notes (N-1..N-5), including an empirically-confirmed silent PostgREST `max_rows = 1000` truncation that lands on §5's own ~200-meal revisit trigger. **B-1 resolved (2026-07-30, direct edit per Jeff's explicit instruction: document in place, don't split the diff)** — `ai-context/DECISIONS.md` gained an entry recording the `MealList` expand-by-default change (made directly, before Phase 7c existed, in response to Jeff's live-testing feedback); the 17 stale `e2e/phase7-acceptance.spec.ts` assertions were updated to match (13 now-redundant "Manage items" clicks removed, plus 2 further "Delete"-button-ambiguity failures found and fixed once those were removed — `.first()`, since items now show by default); and the Phase 7c entry's inaccurate "no change to `MealList`" sentence was corrected in place. `e2e/phase7-acceptance.spec.ts`: 29/29. `max_rows = 1000` (N-1) is intentionally NOT fixed — carried forward in Up Next per Jeff's explicit "note it for later" instruction. One unrelated, pre-existing timezone-boundary flake in `src/lib/actions/meals.test.ts` (a file this session never touched) was newly observed while verifying — not fixed, logged in Up Next. **Phase 7c is ready for Jeff's final approval.**
+## Current Status: Phase 4 qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Phase 5 (trend charts) implemented, qa-reviewed (one blocking bug found), and fixed up — ready for Jeff's approval (2026-07-25). **Sage-arc motif narrowed to auth screens only (2026-07-26, Jeff's direct decision, removed from the dashboard) — see `ai-context/DECISIONS.md`.** Visual identity rollout qa-reviewed (0 blocking findings, 5 non-blocking notes) — **NB-1 (dead old-palette CSS) and NB-2 (field-border/placeholder contrast) fixed, time-`<select>` alignment implemented, and the fetch-timeout follow-up closed, all 2026-07-26 (developer) — ready for Jeff's approval.** **Jeff approved Phase 6 (food lookup: barcode + description search), 2026-07-27.** **Phase 7 (Saved meals) implemented (2026-07-27, developer), then qa-reviewed (2026-07-28, qa-reviewer) — verdict: ready to gate to production, no blocking findings, 8 non-blocking notes (N-1 through N-8). N-1 (ungraceful invalid-timezone crash, shared with Phase 3's `addFoodEntry`/`updateFoodEntry`), N-7 (no direct action-level test coverage for `lib/actions/meals.ts`), and N-8 (a misdiagnosed "Node 24" environment note in this file's own history) fixed 2026-07-28 (developer) — ready for Jeff's approval. N-2 through N-6 logged below in Up Next, not fixed, per Jeff's explicit instruction to defer them.** The previously-flagged `supabase/seed.sql` time-of-day-dependent `db reset` failure has been root-caused (with a live repro) and fixed (2026-07-27, developer) — see Completed below. **Phase 7b ("Save a logged meal group as a Saved Meal") designed by the architect and approved as ready-to-implement (2026-07-30), then implemented (2026-07-30, developer) — `createMealFromEntries`, `mealItemsFromEntries`, `SaveGroupAsMealDialog`, `FoodEntryList`'s new group-header action bar, and the required `FoodDayView` `hasLoadedOnce` prerequisite fix are all in place — ready for qa-reviewer.** **Phase 7b qa-reviewed (2026-07-30, qa-reviewer): 23 independent acceptance tests (`e2e/phase7b-acceptance.spec.ts`) all green; full suite 395/395 unit + 222/222 e2e with zero regressions. The feature itself is correct — ownership invariant, copy-by-value, byte-identical source entries, the blank name field, and the compensating delete were all independently verified, the last with real fault injection plus a negative control. **One BLOCKING finding, B-1 — a scope/process issue, not a defect:** the change-set also carries undocumented out-of-scope changes (a new "Clear" button, a `lastConsumedAt`-on-edit semantics change contradicting design doc §3.4, a group-header AM/PM time-format change a recorded decision said would NOT be silently changed, and protein display rounding reaching Phase 7's already-reviewed `MealList.tsx`) — under a PROGRESS entry stating no deviations were needed. Plus 6 non-blocking notes (N-1..N-6). **B-1 resolved 2026-07-30 (Jeff's explicit call: document in place, don't split the diff)** — `ai-context/DECISIONS.md` gained three new entries recording the `lastConsumedAt`-on-edit change, the "Clear" reset-to-now behavior, and the group-header AM/PM change as deliberate, amending the two entries B-1 said were contradicted; `docs/architecture/food-weight-tracker.md` §3.4 and the `FoodEntryList` description were corrected to match; two new e2e tests pin the two previously-untested behavior changes; and N-1 (a raw Postgres error string reaching the UI from a malformed entry id) was fixed alongside. See the Completed entries below — **ready for Jeff's final approval.** **Phase 7c ("Saved-meals library: ordering, filtering, and counts") — designed by the architect (2026-07-30) in response to Jeff's "could the meals page get out of control?" question, then implemented (2026-07-30, developer): `lib/domain/meals.ts` (`sortMealsByName`/`filterMealsByName`), `MealsView`'s filter box + count readout + distinct no-match empty state, and `LogMealDialog`'s shared alphabetical ordering are all in place, verified against a real 60-meal fixture library in a live browser — ready for qa-reviewer.** **Phase 7c qa-reviewed (2026-07-30, qa-reviewer): 43 independent tests (24 unit in `src/lib/domain/meals.qa.test.ts`, 19 acceptance in `e2e/phase7c-acceptance.spec.ts`) all green. The feature as specified is correct — both rows §8 Phase 7c said to hammer (the two empty states staying distinct, and no data hidden at 60 meals across BOTH /meals and the LogMealDialog picker) were independently verified, along with shared alphabetical ordering, name-first picker labels, AND-of-tokens meal-name-only filtering, accurate counts, zero refetch while typing, and every explicit non-goal confirmed unbuilt. **One BLOCKING finding, B-1 — a real regression this time, not just a process issue:** the same working tree carries an undocumented `MealList.tsx` collapse-by-default → expand-by-default change that breaks **15 of `e2e/phase7-acceptance.spec.ts`'s 29 tests** (that suite clicks "Manage items" in 17 places; the button now reads "Hide items" on load). A scoped `git stash` of `MealList.tsx` alone restores 29/29 with all Phase 7c code intact, so none of the breakage is Phase 7c's own; it went unnoticed because Phase 7c's verification ran lint/tsc/build/unit but no e2e suite. Full run: unit 432/432; e2e 218/243 (15 = B-1, 10 = the documented pre-existing Day-input flakes). Plus 5 non-blocking notes (N-1..N-5), including an empirically-confirmed silent PostgREST `max_rows = 1000` truncation that lands on §5's own ~200-meal revisit trigger. **B-1 resolved (2026-07-30, direct edit per Jeff's explicit instruction: document in place, don't split the diff)** — `ai-context/DECISIONS.md` gained an entry recording the `MealList` expand-by-default change (made directly, before Phase 7c existed, in response to Jeff's live-testing feedback); the 17 stale `e2e/phase7-acceptance.spec.ts` assertions were updated to match (13 now-redundant "Manage items" clicks removed, plus 2 further "Delete"-button-ambiguity failures found and fixed once those were removed — `.first()`, since items now show by default); and the Phase 7c entry's inaccurate "no change to `MealList`" sentence was corrected in place. `e2e/phase7-acceptance.spec.ts`: 29/29. `max_rows = 1000` (N-1) is intentionally NOT fixed — carried forward in Up Next per Jeff's explicit "note it for later" instruction. One unrelated, pre-existing timezone-boundary flake in `src/lib/actions/meals.test.ts` (a file this session never touched) was newly observed while verifying — not fixed, logged in Up Next. **Phase 7c is ready for Jeff's final approval.** **Jeff approved all of Phase 7 in full (Phase 7, Phase 7b, and Phase 7c — saved meals, save-a-logged-group-as-a-meal, and the library findability pass), 2026-07-31.** **Phase 8 ("Ease-of-entry extras — copy/repeat: copy a whole day, "Log again" on a single entry, and "Copy this group") implemented (2026-07-31, developer) — `copyFoodEntries`, `validateCopyFoodEntriesInput`, `CopyDayDialog`, `CopyGroupDialog`, and the `FoodEntryList`/`FoodDayView` wiring are all in place. Several deviations/implicit decisions and known-deferred-class issues were flagged for qa-reviewer's attention — see the Completed entry below.** **Phase 8 qa-reviewed (2026-07-31, qa-reviewer): 50 independent tests all green, no blocking findings, 8 non-blocking notes (N-1 through N-8) — none recommended for action beyond amending two design-doc passages that describe unbuilt-but-non-blocking scope (multi-select copy, a dashboard quick-copy). Full regression suite confirmed green (both observed failures are already-documented pre-existing UTC-boundary flakes in files Phase 8 never touched) — ready for Jeff's approval.** **Phase 8b ("Multi-select bulk actions on the day's log") designed (2026-07-31, architect), resolving Phase 8's N-1/N-2 — a new design-doc section covers explicit select mode, cross-group selection, "Copy selected"/"Save selected as a meal" (both driving already-shipped actions with zero new server/domain code), and permanently descopes the stale dashboard quick-add line rather than building it. Phase 8's N-3/N-4 subsequently folded into Phase 8b too (2026-07-31, architect): a structural unmount-on-close fix for `CopyDayDialog`'s stale-error-on-reopen bug, and a "Log again" toast that names its destination. Phase 8b is ready for developer.** **N-8 fixed (2026-08-01, qa-reviewer): the `pastInstant()` UTC-midnight fixture-collision flake in `e2e/phase7b-acceptance.spec.ts` replaced with fixed-time-of-day fixtures — 23/23 re-confirmed, full suite 482/482 unit + 263/263 e2e. A different, unrelated local-midnight-window flake was newly found in `e2e/food-logging.spec.ts` and deliberately left unfixed — see Up Next 0-pre-c.**
 
 ---
 
@@ -1647,10 +1647,360 @@
   `phase7-acceptance.spec.ts` referenced `MealList`'s expand/collapse button or an unscoped
   page-level "Delete" button among the files checked above); **ready for Jeff's final approval.**
 
+- [x] **Phase 8 ("Ease-of-entry extras — copy/repeat") implemented** (2026-07-31, developer),
+  against `docs/architecture/food-weight-tracker.md` §3.3/§3.4/§6/§8's Phase 8 bullet, now that
+  Phase 7/7b/7c are all approved and the shared `FoodEntryList` group-header surface Phase 7b built
+  is available for it to extend.
+  - **`copyFoodEntries(input)`** (new, `src/lib/actions/food.ts`) — the single shared server action
+    all three ease-of-entry mechanisms funnel through, per the 2026-07-19 "Copy/repeat entries via
+    one shared `copyFoodEntries` primitive" decision. Mirrors `createMealFromEntries`'s (Phase 7b)
+    ownership pattern exactly: re-reads the source `food_entries` rows via the RLS-scoped client
+    (never service-role, never trusting client-supplied name/calorie values), rejects a foreign id/
+    nonexistent id/mixed own-and-foreign set as one whole-request `entries_not_found` (never a
+    silent partial copy), rejects an empty selection (`no_entries`), a garbled `toTz`
+    (`invalid_timezone`), and a future `toDate` (`future_date`) — all checked before any insert, so
+    copying can't be used to route around the no-future-day cap. `logged_from_meal_id` is never
+    carried over (simply omitted from the insert, defaulting to `null`) — a copy is a fresh manual
+    log, not a meal-logging event, per the existing decision. When `toTime` is omitted, each row
+    preserves its *own* source local time-of-day on the new date (so a copied exact-`consumed_at`
+    group — whose entries share one source instant by definition — lands on one new shared instant
+    and stays grouped); when `toTime` is supplied, every row uses that one explicit time instead.
+    One multi-row `INSERT` (atomic per-statement), matching this codebase's established rationale
+    for why "future-cap/cross-user rejection writes zero rows" holds without an explicit
+    transaction.
+  - **`validateCopyFoodEntriesInput`** (new, `src/lib/domain/validation.ts`) — pure validation for
+    `entryIds`/`toDate`/optional `toTime`, reusing the existing `DATE_PATTERN`/`TIME_PATTERN`/
+    15-minute-grid rules rather than duplicating them.
+  - **`CopyDayDialog.tsx`** (new) — inline expander on `/food` (matching the established
+    `FoodLookupPanel`/`LogMealDialog`/`SaveGroupAsMealDialog` expander convention, no modal) that
+    copies every entry on the currently-viewed day onto a picked target date (default/max today);
+    hidden entirely when the viewed day has nothing to copy.
+  - **`CopyGroupDialog.tsx`** (new) — the second button the Phase 7b group-header action bar was
+    built to hold, alongside "Save as meal": copies one exact-`consumed_at` group onto a picked
+    date, with no time field (relies on `copyFoodEntries`'s time-of-day-preserving default so the
+    group stays grouped on the new day).
+  - **`FoodEntryList.tsx`** — added a "Log again" button per entry row, and wired "Copy this group"
+    into the existing group-header action bar as a second, mutually-exclusive expander alongside
+    "Save as meal".
+  - **`FoodDayView.tsx`** — wired `CopyDayDialog`, a `handleLogAgain` handler (always targets
+    "today," floor-of-now quarter-hour time — consistent with every other smart-default already in
+    this app), and a shared `handleCopied` success callback that only refreshes the day view when a
+    copy actually lands on the day currently being viewed.
+  - **Unit tests**: `validateCopyFoodEntriesInput` cases added to `src/lib/domain/validation.test.ts`,
+    plus a full integration-test suite for `copyFoodEntries` added to `src/lib/actions/food.test.ts`
+    against real local Postgres/RLS (following the established `describe.skipIf`-gated pattern) —
+    whole-day copy, a group copy staying grouped, the explicit-`toTime` override ("Log again"),
+    `logged_from_meal_id` dropped even when copying a real `logMealForDay`-produced entry,
+    future-date rejection, cross-user/mixed-set rejection, empty-selection rejection, and garbled-tz
+    rejection — all verified via service-role reads, not just the action's return value.
+  - **Verification, independently re-run and confirmed, not just taken from the developer's own
+    report**: `npm run lint` / `npx tsc --noEmit` clean; `npm test` **452/452** (with a live local
+    Supabase instance, so the new integration tests actually ran, not skipped). The developer's own
+    report additionally states: `npm run build` clean; a full `npx playwright test --workers=1` run
+    at **243/243 passed, zero regressions** (including every Phase 7/7b/7c suite); and a manual,
+    real-browser end-to-end pass via a throwaway Playwright script (written, run, then deleted, per
+    this project's established practice) confirming Log again / Copy this group / Copy this day all
+    insert real rows with `logged_from_meal_id = null`, cross-user isolation holds, the future-date
+    cap is enforced, and zero console errors — these specific claims were not independently
+    re-executed this session, only the lint/tsc/unit results above were.
+  - **Deviations/implicit decisions flagged by the developer, not yet reviewed by qa-reviewer**:
+    (1) multi-select ("Copy selected") was **not built** — the design doc's own §8 Phase 8 bullet
+    frames it as optional, so only the three named mechanisms (copy-day, log-again, copy-group) were
+    treated as required scope; (2) the dashboard's "copy previous day" quick-add mentioned in §3.1's
+    module tree was **not built** — not named in §8 Phase 8's actual In-scope bullet, and the current
+    dashboard is deliberately minimal per later phases' decisions; (3) `CopyGroupDialog.tsx` is a new
+    file not explicitly named in the design doc's module tree (only the "Copy this group" button
+    itself is specified) — built mirroring `SaveGroupAsMealDialog.tsx`'s shape; (4) "Log again"'s
+    "now" is floor-of-current-quarter-hour, not the literal second — a deliberate consequence is that
+    logging again within the same 15-minute window as another recent entry correctly merges into the
+    same exact-timestamp group by design, not a bug; (5) the `no_entries`/`entries_not_found` error
+    short-codes are the developer's choice, mirroring `createMealFromEntries`'s convention, not
+    spelled out letter-for-letter in the design doc.
+  - **Known-deferred-class issues the developer flagged for qa-reviewer's attention**: the group
+    header's own toggle button re-uses the label "Cancel" while the open dialog has its own distinct
+    "Cancel" button — the same ambiguity already deferred as Phase 7b's N-3, now present a second
+    time for "Copy this group"; no stale-response guard on the new async handlers (same deferred
+    class as Phase 3/7's N-6); and `copyFoodEntries` has no upper bound on `entryIds` size (same
+    class as Phase 7b's deferred N-2 for `createMealFromEntries`), now also reachable via "Copy this
+    day" on an unusually large day. None of these were fixed — flagging for qa-reviewer to weigh,
+    consistent with how the equivalent Phase 7b findings were handled.
+  - **Ready for qa-reviewer.**
+
+- [x] **Phase 8 qa-reviewed** (2026-07-31, qa-reviewer). Independent acceptance/action-level suite
+  written from the design doc's §3.3/§3.4/§6/§8 spec (not from the developer's own test files,
+  which were read only afterwards to look for gaps): `e2e/phase8-acceptance.spec.ts` (20 real-UI
+  acceptance tests), `src/lib/actions/food.qa.test.ts` (20 action-level tests against real
+  Postgres/RLS — added specifically because `CopyDayDialog`/`CopyGroupDialog` build `entryIds` from
+  React props read through the RLS-scoped browser client, so there's no hidden DOM input to tamper
+  with; the real hostile-client surface is a direct Server Action call, which this file exercises),
+  and `src/lib/domain/validation-copy.qa.test.ts` (10 pure-unit tests). **All 50 pass.**
+  **Verdict: no blocking findings — ready to gate to production.** In contrast to Phase 7b and 7c,
+  the change-set stayed tightly scoped to §8 Phase 8's In list, and every deviation was proactively
+  disclosed in the developer's own PROGRESS entry before this review — the undocumented-scope-creep
+  pattern that produced a B-1 in each of the last two phases did not recur (checked for it
+  specifically via `git diff --stat` and hunk-level review, not assumed).
+  **Independently verified and confirmed passing**: the ownership invariant (a foreign id, a
+  nonexistent id, a mixed own+foreign set, and a duplicate-padding attempt `[mine, mine, foreign]`
+  all reject the whole request with zero rows written for either user, verified via service-role
+  reads — foreign and nonexistent are indistinguishable, no enumeration oracle); `logged_from_meal_id`
+  is genuinely never carried over, including when copying an entry that itself came from a real
+  `logMealForDay` batch; the future-day cap is checked before any read/write and holds from both UI
+  entry points even with the `<input max>` attribute stripped from the DOM, and a shape-valid but
+  calendar-overflowing date (`YYYY-MM-99`) can't smuggle a future row past the DB CHECK backstop;
+  copy-day preserves each entry's own distinct time-of-day (three sources stay three groups) while
+  copy-group lands its entries on one shared new instant and stays one group (asserted through
+  `groupByConsumedAt` itself); source entries are byte-identical before/after (full-row deep
+  equality including `updated_at`); generated `calories`/`protein_g` columns match exactly on
+  non-integer inputs, proving the same generated expression ran on both sides, not a copied total;
+  and adversarial code review of `copyFoodEntries` found exactly one `.select()` and one `.insert()`
+  against `food_entries` (no UPDATE/DELETE), `user_id` always from `getUser()`, and no client-supplied
+  value reaching any inserted name/nutrition field. Also reconfirmed no nested-`<form>` regression
+  and that `hasLoadedOnce` holds for the new copy expanders across a background refresh.
+  **8 non-blocking notes (N-1 through N-8):**
+  - **N-1**: multi-select ("Copy selected") wasn't built — agreed non-blocking (§6's Phase 8 scope
+    doesn't require it, and "Copy this group" already satisfies requirement (c)), but the design
+    doc's §3.4/§8 text still describes it as if built; recommend the doc be amended to match.
+  - **N-2**: the dashboard "copy previous day" quick-add from §3.1's module tree was never built —
+    a **pre-existing** divergence (the dashboard has been `TodaySummary`-only since Phase 3), not
+    introduced by Phase 8, and not in §8 Phase 8's actual In list; same recommendation to amend the
+    doc.
+  - **N-3**: `CopyDayDialog` shows a stale error message on reopen — confirmed live: trigger a
+    rejected copy, close the panel, reopen it, and the old error is still displayed before any new
+    action. `CopyDayDialog` stays mounted across the open/close toggle and doesn't reset `state`;
+    `CopyGroupDialog` is immune only because it unmounts on cancel. Cosmetic, no data risk.
+  - **N-4**: "Log again" from a past day gives no feedback about *where* the entry went — it
+    correctly logs to today (per spec) but the view stays on the past day with no visible new row,
+    and the toast doesn't name the destination date (unlike the day/group copy toasts, which do).
+    Behavior is correct; only the feedback is thin.
+  - **N-5**: the group header's toggle button re-uses the label "Cancel" while `CopyGroupDialog`
+    itself has its own "Cancel" button — the same two-"Cancel"-buttons ambiguity already deferred as
+    Phase 7b's N-3, now recurring for the new "Copy this group" control too.
+  - **N-6**: a group whose entries share an exact `consumed_at` but have *different* `consumed_tz`
+    values (only reachable via a direct DB insert, or a timezone change between two sub-second
+    logs) would split into separate instants on copy rather than staying one group, since each
+    copy's time-of-day is derived per-entry from its own source tz — a very-low-severity edge case
+    against §3.3's "stays grouped" language; the current per-entry behavior is judged correct for
+    the (far more common) copy-*day* case, so no change recommended.
+  - **N-7**: no upper bound on `entryIds`, and no stale-response guard on the new async handlers —
+    both already flagged by the developer, both confirmed real, both the same deferred class as
+    Phase 7b's N-2/N-6, which Jeff already marked trivial/scale-only on 2026-07-31. No action
+    recommended.
+  - **N-8**: qa-reviewer's own `e2e/phase7b-acceptance.spec.ts` has a latent fixture flake (a
+    `pastInstant()` helper that clamps near UTC midnight, occasionally colliding two distinct
+    fixture entries into one group) — proven **pre-existing**, not a Phase 8 regression, via a
+    scoped `git stash` of all Phase 8 code reproducing it identically. qa-reviewer's own new Phase 8
+    suite avoids the same trap by using fixed `todayAt("HH:MM")` fixtures instead. Recommend the
+    same fix be applied to `phase7b-acceptance.spec.ts` (and worth checking `phase7c`'s fixture
+    helpers for the same pattern) — not fixed as part of this review, logged for whoever picks it up.
+  **Full regression run**: unit **481/482** (one failure — `meals.test.ts` "rejects a meal dated
+  tomorrow" — is the already-documented pre-existing UTC-boundary flake, PROGRESS item 0-pre-b, in a
+  file Phase 8 never touched; independently re-confirmed this session), e2e **261/263** (the other
+  failure is the also-already-documented pre-existing `phase4-acceptance.spec.ts` "no-future metric
+  date (UTC browser)" flake, touching only `daily_metrics`/`MetricForm`, files Phase 8 doesn't
+  touch), lint/typecheck/build clean (lint and typecheck independently re-run and confirmed clean
+  this session). Both failures are explained by the run landing in the ~00:05–00:20 UTC window,
+  exactly their documented trigger. **Ready for Jeff's approval.**
+
+- [x] **Phase 8's N-8 fixed** (2026-08-01, qa-reviewer): the latent fixture flake in qa-reviewer's own
+  `e2e/phase7b-acceptance.spec.ts`. Root cause (as originally reported): `pastInstant(minutesAgo)`
+  clamped to `startOfUtcDay + 1000` to avoid spilling into yesterday, which meant that within ~70
+  minutes of UTC midnight, two distinct `minutesAgo` values (e.g. 70 and 65) both clamped to the same
+  instant — collapsing two fixture entries meant to be separate meal groups into one, and failing
+  "deleting an unrelated entry does not collapse an open expander" on a Playwright strict-mode
+  violation (a group-scoped "Delete" locator matching 2 buttons instead of 1). Fixed by replacing
+  `pastInstant()` with a fixed-time-of-day `todayAt("HH:MM")` helper (all 25 call sites remapped to
+  17 distinct quarter-hour times, order-preserving with the original `minutesAgo` values so every
+  distinctness/ordering relationship the tests relied on is unchanged) — `todayAt` never reads the
+  clock's time-of-day, only the calendar date, so two distinct literals can never collide regardless
+  of when the suite runs. Fixture-only change: no assertion, test name, or behavioral expectation was
+  touched.
+  **Verification was more than "ran it once"**: simulated all 1440 minutes of a day and confirmed the
+  old helper collided for 66 of them (00:00–01:05 UTC) while the new helper collided for zero, and
+  that all 17 remapped fixture times stay pairwise distinct at every minute. Also ran a **negative
+  control** — a temporary copy of the spec with the two fixtures forced back onto one instant,
+  executed at 14:30 UTC (well outside the old collision window) — which reproduced the original
+  failure verbatim, confirming the test is genuinely sensitive to the collision rather than the
+  failure merely not appearing to happen; the temp file was deleted afterward. Full file: **23/23**
+  (independently re-run and confirmed this session, including the specific
+  previously-flake-prone test). `pastInstant` confirmed gone from the codebase (grepped, zero
+  matches). `e2e/phase7c-acceptance.spec.ts` was audited and found to need no fix (it seeds no
+  `consumed_at` fixtures at all); `e2e/phase5-acceptance.spec.ts`'s relative-time helper uses whole-
+  day offsets with no collision risk. Full regression: unit 482/482, e2e 263/263 (an intermediate run
+  against a several-hours-old dev server produced the 10 already-documented pre-existing
+  `FoodDayView` `Day`-input-race failures — none in a file this fix touched — which cleared to 26/26
+  then 263/263 after restarting the server and clearing `.next`, another data point reinforcing that
+  known, still-open, unrelated bug).
+  **One new, different flake found and deliberately NOT fixed, flagged instead**:
+  `e2e/food-logging.spec.ts`'s "editing an existing entry does not move the smart same-sitting
+  default backward" (line ~402) uses `new Date(Date.now() - 45 * 60_000)` — a genuinely different
+  failure mode from N-8 (this one is about a fixture spilling onto *yesterday's local date* and never
+  rendering on today's `/food` view, broken for 45 of 1440 *local* minutes, 15 of which have no valid
+  substitute fixture at all, since the test needs an on-grid instant that's simultaneously in the
+  past, inside the 120-minute freshness window, and distinct from floor-of-now). A fixed time isn't a
+  safe drop-in replacement here the way it was for N-8; the honest fix is either a documented skip
+  in that window or restructuring the scenario — judged a call on this developer-owned behavioral
+  test's semantics rather than something to reshape unilaterally. Logged in Up Next for whoever picks
+  it up; not yet fixed.
+
+- [x] **Phase 8b designed** (2026-07-31, architect), resolving Phase 8 qa-review's N-1 (multi-select
+  described in the doc as if built, when Phase 8 deliberately shipped without it) and N-2 (a stale
+  §3.1 dashboard "quick-add + 'copy previous day'" module-tree line). A new "### Phase 8b —
+  Multi-select bulk actions on the day's log" section was inserted into
+  `docs/architecture/food-weight-tracker.md` between Phase 8 and the existing Phase 9 (PWA-lite
+  shell), numbered 8b rather than renumbering 9, following the same lettered-insertion precedent
+  Phase 7b/7c already established. Full reasoning is in `ai-context/DECISIONS.md`'s new "Phase 8b
+  designed..." entry; summary here:
+  - **The phase adds zero server-action and zero `lib/domain/` code** — both `copyFoodEntries`
+    (Phase 8) and `createMealFromEntries` (Phase 7b) already accept an arbitrary, group-agnostic
+    entry-id list, so Phase 8b is client UI only.
+  - **In scope**: an explicit "Select entries" mode on `/food` (not always-visible checkboxes) that
+    hides the existing per-row/per-group action buttons while active; a new `EntrySelectionBar`
+    ("N selected", "Copy selected", "Save selected as a meal", "Clear", "Done"); selection that
+    deliberately **spans exact-`consumed_at` group boundaries** (the one thing multi-select can do
+    that Phase 8's three mechanisms can't); reuse of `CopyGroupDialog`/`SaveGroupAsMealDialog`
+    verbatim (parameterized wording only) rather than new twin components; selection state owned by
+    `FoodDayView`, hoisted structurally above the `!hasLoadedOnce && loading` branch.
+  - **"Save selected as a meal" is bundled into 8b**, not split into its own phase — a deliberate
+    reversal of this project's usual small-phase bias, reasoned through explicitly in the DECISIONS
+    entry (7b/7c were split because each was independently shippable and touched different files;
+    neither holds here).
+  - **Out of scope, explicitly**: bulk delete/edit, a sticky/floating bar, per-group or day-level
+    "select all", any selection-size cap (same deferred class as Phase 7b N-2/Phase 8 N-7), and any
+    dashboard control.
+  - **N-2 resolved as a permanent descope, not a deferral**: the dashboard stays `TodaySummary`-only.
+    The doc's §3.1 line is corrected to say so explicitly, so the question doesn't resurface
+    undocumented later. Reasoning (a dashboard quick-add would duplicate or weaken `FoodEntryForm`;
+    "copy previous day" is now a strict subset of what `CopyDayDialog` already does on `/food`; the
+    dashboard's minimalism is reinforced, not contradicted, by Jeff's earlier sage-arc-removal call)
+    is in the DECISIONS entry.
+  - **A required implementation note carried into the design**: `e2e/phase8-acceptance.spec.ts`
+    currently has a test asserting multi-select was NOT built — Phase 8b's implementation must
+    update that test in the same change, the same stale-acceptance-test gap that produced a
+    blocking B-1 in both Phase 7b's and Phase 7c's qa-reviews when missed.
+  - **The refresh-safety requirement got structural treatment**, not just a reminder: this is the
+    third component in this codebase to hold local UI state a background refresh can wipe (after
+    `MealsView` in Phase 7 and `FoodEntryList` in Phase 7b, both of which shipped broken with no
+    automated assertion catching it) — §6 gained a real acceptance row for it and an explicit
+    required manual-browser check.
+  - No application code was written (architect's role doesn't implement) and `ai-context/DECISIONS.md`/
+    `ai-context/PROGRESS.md` were not touched by the architect — recorded here and in DECISIONS.md
+    separately, matching this project's established handoff convention.
+  - **Amended same day (2026-07-31, architect)**: Phase 8's two remaining non-blocking notes, N-3
+    and N-4, were folded into Phase 8b's scope at Jeff's request, rather than left standalone or
+    reopening Phase 8's already-approved diff. Both are small, UI-only, and confined to files Phase
+    8b already touches. Full reasoning in `ai-context/DECISIONS.md`'s new "Phase 8b absorbs Phase
+    8's remaining qa notes..." entry; summary:
+    - **N-3** (`CopyDayDialog` shows a stale error message on reopen) gets a **structural** fix, not
+      a manual reset: its open-panel body (`toDate`/`state`/`pending`) moves into a subtree that only
+      renders while `open`, so each open mounts fresh — the same property `CopyGroupDialog` already
+      has by accident of its structure, now made a deliberate rule that also applies to Phase 8b's
+      own new bulk expanders. Explicitly **not** the same situation as the `SettingsForm`
+      remount-on-`key` precedent (that one was forced by a React form-Action quirk; this one is a
+      maintainability choice, not a correctness requirement) — recorded so the two precedents aren't
+      conflated later. Carries an explicit guardrail: the unmount must be keyed **only** off the
+      user's own open/close toggle, never off anything a background refresh touches, or the fix would
+      silently reintroduce the exact state-wiping bug Phase 8b exists to prevent — §6 now requires
+      both properties to be asserted together in one test.
+    - **N-4** ("Log again" gives no feedback about its destination when logging from a past day) is
+      fixed by having the toast name the destination date when it differs from the day being viewed,
+      reusing the exact wording the day/group copy toasts already use. The view deliberately stays on
+      the browsed day rather than jumping to today — silently moving the user was considered and
+      rejected.
+    - Phase 8 itself remains approved-as-shipped, untouched — neither note was a defect in what it
+      was asked to build. Because N-3 restructures `CopyDayDialog`, Phase 8b's §6 scope now
+      explicitly flags that component's existing Phase 8 acceptance rows as the likeliest regression
+      point and requires them to stay green.
+  - **Amended again same day (2026-08-01, architect)**: three more manual-testing findings from Jeff
+    were folded into Phase 8b's checkpoint. Full reasoning, including the general rule used to decide
+    each one's structure (how many already-approved phases' files a change reaches outside 8b's own
+    set), is in `ai-context/DECISIONS.md`'s new "Phase 8b absorbs three more manual-testing
+    findings..." entry; summary:
+    - **Autofill/password-manager hygiene** — password managers were offering to fill/save non-
+      identity fields (food name/quantity/calories, meal names, weight, goal targets, the meals
+      filter, barcode entry) app-wide, for lack of `autocomplete` hints. Fixed with two plain HTML
+      rules (`autoComplete="off"` on every `<form>`, plus an explicit value on every single control)
+      applied across essentially every form in the app. Because this reaches ~6 already-approved
+      phases' files that 8b never otherwise opens, it's structured as **its own cross-cutting pass**
+      (the structural twin of the Visual Identity rollout) — tracked and reviewed at Phase 8b's
+      checkpoint, but its own separate commit, not folded into 8b's feature diff.
+    - **Transient success-feedback restyle** — the identical pill used for "Saved."/"Copied N
+      entries..."/"Settings saved." is replaced by a new shared `components/ui/StatusMessage.tsx`
+      (a left-accent banner, `role="status"`, 6-second auto-dismiss, up from 4), reversing only the
+      *shape* half of a 2026-07-25 visual-identity decision (the *colour* call stands unchanged). A
+      real, previously-unknown timer bug was found and fixed alongside (firing the identical message
+      twice in a row used to make the second one inherit the first's remaining dismiss time). Reaches
+      1-2 files outside 8b's own set, so it's folded into Phase 8b but as **its own commit** within it.
+    - **Human-readable date display** — a new `formatDateLabel` (mirroring the existing
+      `formatTimeLabel`) replaces raw ISO dates in toast/prose text at exactly 3 sites, all already
+      inside files 8b opens, so this one folds directly into 8b's own diff. Implemented as a plain
+      string reorder rather than `new Date(iso).toLocaleDateString()`, which would have introduced a
+      real off-by-one-day bug in negative-offset timezones (a trap this codebase's `chartTheme.ts`
+      already has a helper defending against elsewhere).
+    - **Two judgment calls the architect flagged as overridable — both resolved by Jeff, 2026-08-01**:
+      chart axis/tooltip date labels ("Jul 25" style) stay as-is, **not** reformatted to `MM/DD/YYYY`
+      (Jeff agreed with the architect's recommendation — reformatting would be a density regression on
+      a 90-tick chart axis); and the two identity email inputs use **`autoComplete="email"`** (Jeff's
+      explicit choice, overriding the architect's initial `"username"` recommendation — both are valid
+      tokens; `email` matches the literal original finding).
+    - **One open yes/no — resolved by Jeff, 2026-08-01: yes, add it.** `MetricForm` gains a real
+      "Weight saved." confirmation using the new `StatusMessage` component (alongside, not replacing,
+      its unrelated "Already logged" status pill) — it previously had no save confirmation at all.
+    - The design doc was updated directly (not re-routed through the architect) to reflect all three
+      answers, since each was already laid out as an explicit fork awaiting exactly this decision —
+      not new design work.
+  - **Ready for developer to implement** — all open questions resolved.
+
+- [x] **Two more manual-testing findings designed** (2026-08-01, architect). Full reasoning in
+  `ai-context/DECISIONS.md`'s "Two more manual-testing findings..." entry; summary:
+  - **Finding 4 — `CopyGroupDialog` gains an optional "Copy to time" override**, folded into Phase
+    8b's diff (touches only `CopyGroupDialog.tsx`, already open for 8b). A `<select>` using the same
+    96 quarter-hour values as everywhere else, defaulting to a `value=""` "Keep original time(s)"
+    sentinel so existing behavior is unchanged unless the user deliberately overrides it. Deliberately
+    NOT pre-filled with the group's own time — this control is shared with 8b's "Copy selected" bulk
+    action, where a multi-group selection has no single time to pre-fill, and a rejected pre-fill
+    would have silently changed default behavior for that case. Picking an override time while
+    copying a multi-group selection collapses everything onto that one new time — treated as a
+    disclosed feature (a one-line note appears only when it's actually relevant), not restricted.
+    `CopyDayDialog` explicitly does NOT get this — preserving each entry's own time is the entire
+    point of a whole-day copy.
+  - **Finding 5 — logging a saved meal directly from `/meals`, recommended as its own "Phase 8c"
+    rather than folded into 8b (flagged as overrulable by Jeff).** Unlike the other four findings,
+    this is a new capability, not a fix/restyle/missing-control — it adds a new action surface to
+    `/meals`, a screen 8b never otherwise touches, with its own trigger/defaults/success-state/
+    acceptance rows. Sequenced immediately after 8b (a real dependency: its success message uses the
+    `StatusMessage` component 8b introduces). Reuses `LogMealDialog` via a new optional `meal?: Meal`
+    fixed-meal mode rather than a second hand-copied dialog. Defaults to today/floor-of-now with no
+    "keep original" option (a saved meal has no existing time to keep) and no smart same-sitting
+    default (that's `/food`-scoped state with no `/meals` equivalent). Explicitly out: a servings
+    multiplier, multi-select on `/meals`, navigating away after logging, and any change to `MealList`'s
+    filter/expand-by-default/read strategy. `/meals` gains its first-ever browser-timezone dependency,
+    flagged to use the established mount-only-Effect pattern to avoid a hydration mismatch.
+  - **Confirmed by Jeff (2026-08-01): Finding 5 stays split out as its own Phase 8c**, per the
+    architect's recommendation.
+
+- [x] **Sixth manual-testing finding designed** (2026-08-01, architect): `FoodEntryList` now highlights
+  whichever row is currently being edited. Full reasoning in `ai-context/DECISIONS.md`'s "Sixth
+  manual-testing finding..." entry; summary: `FoodDayView` passes a new `editingEntryId: string | null`
+  down — deliberately the **id**, not the entry object, since an object-identity comparison would
+  silently break after the first background refresh replaces the row objects. Treatment is a
+  `border-l-4 border-l-sage-deep` bar plus a visible "Editing" label, no background fill (a
+  `bg-sage-pale` tint was rejected — it would make the existing "From a saved meal" badge, which uses
+  the same fill, disappear into the row). Reuses the same left-accent-bar vocabulary the new
+  `StatusMessage` component (Finding 3) introduces, differentiated by weight rather than a second
+  pattern. The edited row's own per-row actions (Log again/Edit/Delete) are hidden while it's being
+  edited, following the same "a special-state row suppresses its ordinary actions" rule multi-select's
+  select mode already established — and editing/select mode are confirmed to coexist without
+  conflict (a checked row gets no tint of its own; the checkbox is already the indicator). No live-
+  region announcement (the user caused this state themselves by clicking "Edit," so nothing needs
+  announcing) but the "Editing" label is real visible text, not color alone. **Structured as the same
+  commit as 8b's multi-select work** (not a separate commit) — the first finding this session judged
+  genuinely coupled to, not just co-located with, 8b's other changes, since both add per-row visual
+  state to the identical list and had to be designed against each other.
+
 
 ## Up Next
-0-pre. **Phase 7c B-1 resolved (2026-07-30) — Phase 7c is complete and ready for Jeff's final
-   approval.** See the "Phase 7c B-1 resolved" Completed entry above for the full fix (a DECISIONS
+0-pre. **Phase 7c B-1 resolved (2026-07-30) — Phase 7c is complete. Approved by Jeff, 2026-07-31.**
+   See the "Phase 7c B-1 resolved" Completed entry above for the full fix (a DECISIONS
    entry for the `MealList` expand-by-default change, the 17 stale `e2e/phase7-acceptance.spec.ts`
    assertions updated to match — plus 2 more test fixes the same root cause required, found only
    once the first 13 were fixed — and the Phase 7c entry's inaccurate "no change to `MealList`"
@@ -1703,8 +2053,22 @@
    from the same `logTz` the test passes) rather than the runner's local clock — mirrors the fix
    direction already used for `seed.sql`'s equivalent bug.
 
-0. **Phase 7b, including B-1's resolution and the N-1 fix, is complete and ready for Jeff's final
-   approval.** No further developer or qa-reviewer action is expected unless Jeff's own review
+0-pre-c. **Newly found, unfixed, local-midnight-window flake in `e2e/food-logging.spec.ts`** (found
+   2026-08-01, qa-reviewer, while fixing N-8 — see the "Phase 8's N-8 fixed" Completed entry above).
+   "editing an existing entry does not move the smart same-sitting default backward for the next new
+   entry" (~line 402) builds a fixture via `new Date(Date.now() - 45 * 60_000)`. Unlike N-8, this
+   isn't a same-instant collision — the fixture can spill onto *yesterday's local date* and then never
+   render on today's `/food` view, broken for 45 of 1440 *local* minutes (00:00–00:44 local), 15 of
+   which have no valid substitute fixture at all: the test needs an on-grid instant that is
+   simultaneously in the past, inside the 120-minute smart-default freshness window, and distinct from
+   floor-of-now, and no such slot exists before 00:15 local. A fixed time-of-day isn't a safe drop-in
+   fix the way it was for N-8. Presumable fix direction: either a documented skip during that window,
+   or restructure the scenario so it doesn't depend on "some number of minutes before whatever `now`
+   happens to be" at all — deliberately left as a call for whoever owns this test's behavioral intent
+   next, not reshaped unilaterally by qa-reviewer.
+
+0. **Phase 7b, including B-1's resolution and the N-1 fix, is complete. Approved by Jeff,
+   2026-07-31.** No further developer or qa-reviewer action is expected unless Jeff's own review
    surfaces something new. Five non-blocking notes remain deferred (N-2 through N-6, logged in the
    qa-review Completed entry) — N-2 (no upper bound on `entryIds`), N-3 (two "Cancel"-labeled
    buttons visible at once), N-4 (an undocumented `exhaustive-deps` suppression), N-5 (recorded only
@@ -1718,9 +2082,10 @@
    save (including `updated_at` and `logged_from_meal_id`), and cross-user/mixed-set rejection
    writing zero rows anywhere, verified via a service-role read across both users — plus a code
    review confirming no UPDATE/DELETE against `food_entries` anywhere in `createMealFromEntries`.
-1. **Phase 7 qa-reviewed; N-1, N-7, N-8 fixed (2026-07-28) — ready for Jeff's approval.** No
+1. **Phase 7 qa-reviewed; N-1, N-7, N-8 fixed (2026-07-28). Approved by Jeff, 2026-07-31.** No
    further developer or qa-reviewer action required on those three unless Jeff's own review
-   surfaces something new. See item 8 below for the five notes Jeff explicitly asked to defer.
+   surfaces something new. See item 8 below for the five notes Jeff explicitly asked to defer
+   (marked trivial/scale-only, per Jeff, 2026-07-31).
 2. **Phase 5 fixed up after qa-reviewer's blocking bug — ready for Jeff's approval.** No further
    developer or qa-reviewer action required unless Jeff's own review surfaces something new.
 3. **Phase 6 approved by Jeff (2026-07-27).** No further action needed.
@@ -1738,13 +2103,19 @@
    existing hypothesis (a controlled-input/native-reset interaction, same family as the
    `SettingsForm` radio bug already fixed in Phase 4). Re-confirmed still pre-existing during Phase
    7b verification (2026-07-30) via a scoped `git stash` of only that session's own files.
-7. **Phase 8 (Ease-of-entry extras — copy/repeat) is the next *feature* phase in the design doc's §8
-   dependency order** once Phase 7b clears Jeff's approval — the design doc's §8 ordering note states
-   7→7b is now a genuine hard dependency for 8 (not just a sequencing preference), since both share
-   the `FoodEntryList` group-header action bar Phase 7b just built. **Phase 7c (item 0-pre above) is
-   recommended to run first**, but shares no files with Phase 8, so the order is Jeff's free choice.
-8. **Phase 7 qa-review non-blocking notes N-2 through N-6 — logged here, deliberately NOT fixed**
-   (Jeff's explicit instruction: fix N-1/N-7/N-8 now, defer the rest). All five live in
+7. **Phase 8 (Ease-of-entry extras — copy/repeat) implemented (2026-07-31, developer) and
+   qa-reviewed (2026-07-31, qa-reviewer) — no blocking findings, ready for Jeff's approval.** See
+   the two Completed entries above for the full breakdown. Eight non-blocking notes are logged
+   there (N-1/N-2: two design-doc passages describe unbuilt-but-non-blocking scope and should be
+   amended; N-3/N-4: minor UI polish — a stale error on `CopyDayDialog` reopen, and "Log again"
+   from a past day not naming its destination in the toast; N-5/N-6/N-7: low-severity edge cases,
+   mostly recurrences of already-deferred issue classes; N-8: a latent fixture flake in
+   qa-reviewer's own `phase7b-acceptance.spec.ts`, proven pre-existing). None require developer
+   action unless Jeff asks otherwise.
+8. **Phase 7 qa-review non-blocking notes N-2 through N-6 — logged here, deliberately NOT fixed,
+   and marked trivial (Jeff, 2026-07-31): only worth revisiting if this app ever goes public at
+   meaningful scale (considered unlikely) — no action needed for solo/small-scale use.** (Jeff's
+   original instruction: fix N-1/N-7/N-8 now, defer the rest.) All five live in
    `src/lib/actions/meals.ts` unless noted. Picking any of these up should start from qa-reviewer's
    original finding, not just this summary:
    - **N-2**: `reorderMealItems` issues one `UPDATE` per item with no surrounding transaction (a

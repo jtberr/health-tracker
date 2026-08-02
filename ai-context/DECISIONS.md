@@ -1113,3 +1113,356 @@ visibility assertions right after them are left in place and still meaningful �
 prove the list is expanded *from page load*, not just *after* a click).
 
 ---
+
+### Phase 8b designed: multi-select bulk actions ship as their own phase, adding no server-action or domain code; the dashboard "quick-add"/"copy previous day" is descoped, not deferred
+**Date**: 2026-07-31
+**Decision**: Following Phase 8 qa-review's non-blocking N-1 (the design doc, in two places, described a
+"multi-select → 'Copy selected'" control as already built, when it deliberately wasn't), Jeff asked the
+architect to properly design it rather than just correct the sentence. The result is a new **Phase 8b**
+(`docs/architecture/food-weight-tracker.md`, inserted between the completed Phase 8 and the existing Phase 9
+PWA-lite shell — numbered 8b, not a renumbered 9, following the exact precedent Phase 7b/7c already
+established) with three load-bearing properties: (1) **it adds zero server-action and zero `lib/domain/`
+code** — both `copyFoodEntries` (Phase 8) and `createMealFromEntries` (Phase 7b) already accept an arbitrary,
+group-agnostic entry-id list, a property Phase 7b's design doc explicitly wrote down in anticipation of this
+phase, so Phase 8b is client UI only, driving two already-shipped, already-qa-reviewed actions unchanged; (2)
+**select mode is explicit, not always-visible checkboxes** — entering select mode hides the existing per-row
+("Log again") and per-group ("Copy this group"/"Save as meal") action buttons, closes any open group
+expander, and shows a new `EntrySelectionBar` ("N selected", "Copy selected", "Save selected as a meal",
+"Clear", "Done"); (3) **selection spans exact-`consumed_at` group boundaries** — a user can tick entries from
+two different meal groups into one bulk action, which is the one thing multi-select can do that Phase 8's
+three implicit-scope mechanisms (whole day / one group / one entry) cannot, and is the actual reason this
+phase exists rather than being folded back into 8. **"Save selected entries as a meal" is bundled into 8b**,
+not split into its own phase — a deliberate reversal of this project's usual small-phase bias (see Why).
+Both bulk actions reuse `CopyGroupDialog`/`SaveGroupAsMealDialog` verbatim (parameterized wording only, with
+defaults preserving the existing group call sites' rendered text byte-for-byte), rather than new twin
+components. Selection state is owned by `FoodDayView`, hoisted above the `!hasLoadedOnce && loading` branch
+(not resting on that flag alone), cleared at the existing `handleDayChange` choke point and on a successful
+bulk action, and derived by intersecting stored ids against the currently-loaded entries so one stale id
+drops out instead of failing the whole request. Explicitly out of scope: bulk delete/edit (destructive, no
+undo anywhere in this app, deserves its own round), a sticky/floating bar, per-group "select all", a
+day-level "select all", any cap on selection size (same deferred class as Phase 7b N-2/Phase 8 N-7), and any
+dashboard control (see the descope decision below).
+**Separately, N-2 resolved**: the design doc's §3.1 module tree had long described the dashboard as having
+"quick-add + 'copy previous day'" — neither was ever built (the dashboard has been `TodaySummary`-only since
+Phase 3). **Decision: descope permanently, don't build it** — the doc line is corrected to "today's totals
+only... deliberately minimal" rather than silently deleted, so the question doesn't resurface undocumented in
+a year.
+**Why (bundling)**: the instinct to split "Copy selected" and "Save selected as a meal" into separate phases
+is the same reasoning that correctly produced 7b and 7c as their own phases — but that precedent doesn't
+transfer here. 7b and 7c were each independently valuable, independently shippable, and touched different
+files (§8 Phase 7c states it shares no files with Phase 8). None of that holds for the two Phase 8b actions:
+"Save selected as a meal" isn't shippable without the selection UI, and it touches the identical three files
+selection itself touches. Splitting would mean a second phase re-opening the same files and re-deriving the
+same selection-state invariants for a second full qa cycle over one interaction surface — two reviews of one
+thing, the expensive outcome, not the safe one. The marginal cost of bundling is genuinely small precisely
+because of property (1) above: both actions are "hand the selection's ids to an already-reviewed action,"
+differing only in which table gets written.
+**Why (explicit select mode, not always-visible checkboxes)**: two reasons. Density — entry rows already
+carry Log again/Edit/Delete and group headers carry two more actions, so permanent checkboxes would add a
+fifth affordance per row on the most-used screen, for a rare action, worst on a phone. Ambiguity — with
+checkboxes always live, "Copy this group" and "Copy selected" would both be simultaneously actionable with
+"what am I about to copy?" depending on invisible state, which is the same class of ambiguity already raised
+twice as a non-blocking note (duplicate "Cancel" labels: Phase 7b's N-3, recurring as Phase 8's N-5) — not a
+class worth deliberately building a third instance of.
+**Why (the refresh-safety requirement gets structural treatment, not just a reminder)**: this is the third
+component in this codebase to hold local UI state that a background `refresh()` can silently wipe — the first
+two (`MealsView` in Phase 7, `FoodEntryList` in Phase 7b) both shipped broken and had no automated assertion
+catching either. Rather than just noting "don't do that again," the design hoists selection state to live
+above the loading-placeholder branch structurally, and requires both a real §6 acceptance row and an explicit
+manual-browser check (tick entries across two groups, open the save dialog, force a real background refresh
+via an unrelated add, confirm everything survives) — the same bug class shipping broken a third time would be
+a process failure, not a surprise.
+**Why (dashboard descope)**: a dashboard quick-add would need its own validation/tz/smart-default/lookup
+story — either duplicating `FoodEntryForm` (two code paths for the app's single most important interaction,
+exactly where divergence hurts most) or shipping a deliberately weaker form that can't express quantity/unit
+or a lookup prefill. "Copy previous day" is now strictly a subset of what `CopyDayDialog` (Phase 8) already
+does on `/food`, where the source day is actually visible while copying it — a dashboard shortcut buys one
+tap and costs a second surface that must stay consistent with the future-day cap and timezone rules forever.
+Both are one nav click away already. The dashboard's minimalism is also no longer accidental: it's the same
+direction as Jeff's 2026-07-26 call to pull the sage-arc motif off the dashboard specifically because even a
+decorative element read as clutter there (see the visual-identity entry above) — adding a live form to that
+screen would cut directly against that judgment.
+**Also required by this design** (not a new decision, but newly load-bearing): `e2e/phase8-acceptance.spec.ts`
+currently contains a test asserting multi-select was **not** built — Phase 8b's implementation must update
+that test in the same change, exactly the kind of stale-acceptance-test gap that produced a blocking B-1 in
+both Phase 7b's and Phase 7c's qa-reviews when it wasn't caught.
+**Rejected**: per-group "select all in this group" (needs indeterminate-checkbox state and duplicates "Copy
+this group" — no new capability); a day-level "select all" (redundant with the existing "Copy this day");
+row-click-to-select instead of a dedicated checkbox (an accidental tap must not silently change what a bulk
+action operates on); a sticky/floating selection bar (no sticky-positioning pattern exists anywhere in this
+codebase); new twin dialog components instead of parameterizing the existing group ones (would widen the diff
+of two already-reviewed files' *behavior* for a cosmetic rename, and duplicate logic this project's
+conventions explicitly avoid); a cheap "link to `/food` with the previous day pre-selected" version of the
+dashboard shortcut was considered and also rejected for v1, noted as the fallback if the descope is ever
+revisited.
+
+### Phase 8b absorbs Phase 8's remaining qa notes (N-3, N-4): `CopyDayDialog` gets a structural unmount-on-close fix, "Log again" names its destination in the toast
+**Date**: 2026-07-31
+**Decision**: Jeff asked for Phase 8 qa-review's last two non-blocking notes to be folded into Phase 8b's
+design rather than left as standalone unscoped polish or reopening Phase 8's already-reviewed, approved diff.
+Both are small, UI-only, and confined to files Phase 8b already touches, so they were added to that phase
+rather than given their own round.
+**N-3 fix — `CopyDayDialog`'s stale error on reopen, fixed structurally, not with a manual reset.** The bug:
+trigger a rejected copy, close the panel, reopen it — the previous error is still displayed before any new
+action. Root cause is structural: the *collapsed button*, not the dialog body, is what's conditionally
+rendered, so `CopyDayDialog` itself never unmounts and its `state`/`toDate`/`pending` survive the toggle.
+`CopyGroupDialog` never had this bug only by accident of structure (its stateful body **is** the
+conditionally-rendered part). **Chosen fix**: extract `CopyDayDialog`'s open-panel body into a subtree
+rendered only while `open`, so each open mounts fresh — making the property `CopyGroupDialog` has by accident
+into a deliberate rule, applied to Phase 8b's new bulk expanders too. **Rejected**: manually resetting the
+tracked fields in the toggle handler — works today, but requires enumerating exactly which fields to clear and
+silently rots the first time a field is added and someone forgets to add it to the reset list (the same defect
+returning in a different shape). Explicitly **not** the same situation as `SettingsForm`'s remount-on-`key`
+decision (see that 2026-07-22 entry above) — `SettingsForm` needed a remount because React resets the native
+`<form>` after a form Action settles, desyncing a controlled radio *outside* React's reconciliation, so a
+manual reset genuinely couldn't fix it there. `CopyDayDialog` isn't `useActionState`-driven, so a manual reset
+*would* be correct here; it's rejected on maintainability grounds, not correctness — recorded explicitly so a
+future reader doesn't over-generalize either precedent onto the other.
+**Guardrail — the fix must not fight the refresh-survival requirement Phase 8b already established** (see the
+"Phase 8b designed" entry above): the unmount must be driven **only** by the user's own open/close toggle,
+never by anything a background `refresh()` changes (not `loading`, not a fetch nonce, not `entries.length`,
+not the selection) — a wrongly-keyed implementation would fix the stale error and simultaneously reintroduce
+the exact state-wiping bug Phase 8b exists to guard against. The two requirements are compatible; getting the
+key source wrong is what makes them look like they conflict. §6 now requires both to be asserted **together**
+in one test, not separately, specifically so an implementation that passes one by breaking the other gets
+caught.
+**N-4 fix — "Log again" now names its destination when it isn't the day on screen.** "Log again" always
+correctly logs to *today* regardless of which day is being viewed, but from a past day nothing visibly changes
+in the list and the toast read only `Logged "X" again.`, with no indication of where it went. Fix: when
+`today !== selectedDate`, the toast names the destination, reusing the exact wording `handleCopied` already
+uses for day/group copies (`Copied N entries to <date>.`) so the feedback is consistent across all of Phase
+8/8b's copy-shaped actions. **Rejected**: switching the view to today so the new entry is visible — the user
+is deliberately browsing a past day, and silently moving them off it is a worse trade than one clause of
+toast text; it would also make "Log again" the only action in the app that navigates the user without being
+asked. §6 explicitly asserts the view **stays on the browsed day** so this can't be "improved" into navigation
+later.
+**Also recorded**: Phase 8 itself remains approved-as-shipped and unmodified — neither N-3 nor N-4 was a
+defect in what Phase 8 was actually asked to build, only UI polish gaps, which is why they were routed to the
+still-pre-implementation Phase 8b instead of reopening Phase 8's clean, already-reviewed verdict. Because N-3
+restructures `CopyDayDialog`, Phase 8b's §6 scope explicitly flags that component's existing Phase 8
+acceptance rows as the likeliest place a regression could land, and requires them to stay green.
+
+---
+
+### Phase 8b absorbs three more manual-testing findings: `autoComplete` hygiene (own cross-cutting pass), a non-pill success-feedback treatment (own commit), and human-readable date display (folds into 8b's diff) — plus the general rule used to decide which is which
+**Date**: 2026-08-01
+**Decision**: While manually testing Phase 8, Jeff raised three more findings, all routed to Phase 8b's
+checkpoint at his request. The architect designed all three and, for each, decided how it should actually be
+*structured* using one explicit rule stated in §4: **the deciding factor is how many already-approved phases'
+files a change reaches outside the files Phase 8b already opens** — because reaching into an already-reviewed
+phase's files without saying so, inside a feature's own diff, is exactly what produced a blocking B-1 in each
+of the last two phases (7b and 7c).
+
+| Finding | Files outside 8b's own set | Structure |
+|---|---|---|
+| Human-readable date display | 0 (all 3 sites are in files 8b already opens) | Folds into 8b's diff |
+| Success-message restyle | 1–2 (`SettingsForm`, optionally `MetricForm`) + a new `components/ui/` primitive | Folded into 8b, but **its own commit** |
+| Autofill/password-manager hygiene | ~6 already-approved phases' worth (essentially every form in the app) | A **separate cross-cutting pass**, structurally the twin of the Visual Identity rollout — tracked and reviewed at 8b's checkpoint, but its own commit |
+
+**1. Autofill/password-manager hygiene.** Password managers were offering to fill/save non-identity fields
+throughout the app (food entry name/quantity/unit/calories/protein, meal names, weight/body-fat, goal targets,
+the `/meals` filter, barcode entry) because none of those controls carried an `autocomplete` hint, leaving the
+browser to guess from labels/`name`/`id` — a field literally labelled "Name" is the textbook case a
+name-autofill heuristic fires on. Fix is two plain HTML rules applied to every form in `src/`, no JS/library/
+custom widget: (1) every `<form>` gets `autoComplete="off"` as a default-deny; (2) **every** `<input>`/
+`<select>`/`<textarea>` — including ones inside a denying form — gets an explicit value anyway, both because
+Chrome weighs field-level over form-level `off`, and because an explicit per-control value is what makes the
+convention greppable/enforceable later. Two categories: identity fields (`LoginForm`/`SignupForm` email +
+password) get real autofill-helping values — `autoComplete="email"` on both email inputs (**Jeff's explicit
+choice, 2026-08-01**, overriding the architect's initial recommendation of `username`, which pairs slightly
+more strongly with `current-password`/`new-password` for a manager's sign-in-vs-sign-up recognition; `email`
+is still fully valid and matches the literal original finding), `current-password` on login,
+`new-password` on both signup password fields; everything else in the entire app gets a uniform
+`autoComplete="off"`, deliberately with no per-field exceptions (including number/date/search controls where a
+manager is unlikely to fire anyway — a ruleset without exceptions is what a reviewer can check mechanically).
+**Structured as its own cross-cutting pass** (not folded into 8b's feature diff) because it touches ~6 already-
+approved phases' files that 8b never otherwise opens — folding it in would reproduce the exact "which lines are
+the feature" ambiguity that produced the last two phases' B-1s. It is still tracked at Phase 8b's checkpoint —
+ships with it, qa-reviewed in the same pass, approved together — just as its own reviewable/revertable commit.
+**Accepted side effect**: `autoComplete="off"` also suppresses the browser's own form-history dropdown on the
+`/meals` filter and the lookup search box (both re-typed in a second, judged an acceptable trade). **Explicitly
+not solved**: this is a best-effort HTML hint, not an enforcement mechanism — no CI browser has a real password-
+manager extension, so the suite proves the markup only; if a specific field still prompts in someone's real
+browser, that's an evidence-gated escalation (to a vendor-specific opt-out like `data-1p-ignore`, or eventually
+a lint rule if the convention is ever violated twice), not a sign the whole approach failed.
+**2. Transient success-feedback restyle.** The identical pill (`rounded-full bg-sage-pale px-3 py-1 text-xs
+font-medium text-ink`) was hand-copied in three places for a transient confirmation message — `FoodDayView`'s
+`savedMessage` (4s auto-dismiss), and `SettingsForm`'s "Settings saved." (no auto-dismiss at all, previously
+unnoticed). Jeff's complaint: it blends in, doesn't catch the eye, and a pill reads wrong for a one-off message
+("pills should be used for statuses, not user messages"). Audit found `MetricForm`'s pill is NOT actually a
+success message — `{existing && "Already logged for this day..."}` is gated on the data's state with no timer,
+i.e. a genuine status by Jeff's own rule, and stays a pill unchanged, exactly like `FoodEntryList`'s "From a
+saved meal" badge. **New shared component**: `components/ui/StatusMessage.tsx` — a left-accent banner
+(`border-l-4 border-l-sage-deep`, `bg-sage-pale` surface, `text-ink` text at `text-sm`/`px-4 py-3`, a decorative
+`aria-hidden` sage-deep check icon, `role="status"` so it's actually announced to assistive tech — closing the
+same live-region gap qa-reviewer already flagged for the `/meals` filter as Phase 7c N-3), an optional
+`autoDismissMs` prop, and one exported `SUCCESS_MESSAGE_MS = 6000` (up from 4s) so the duration is a single
+number, not three copied literals. **Duration reasoning**: ~2s to notice (it appears outside the user's focus,
+the actual complaint) + ~2s to read the longest string ("Copied 3 entries to 07/29/2026.") + margin, while
+staying under the ~8–10s point where a lingering confirmation reads as stuck UI. **Contrast guardrail honored,
+not just referenced**: the 2026-07-25 token table's warning that `sage-deep` on `sage-pale` is ~4.2:1 (under AA
+for small text) is why sage-deep appears only as the border/icon (non-text, clears the 3:1 bar) while all text
+stays ink-on-sage-pale (~13:1). **A real, previously-unknown bug found while specifying this, fixed alongside**:
+`FoodDayView`'s dismiss timer depends on the message *string*, so firing the identical message twice in a row
+(e.g. "Entry added." twice) doesn't change React state, the effect doesn't re-run, and the second occurrence
+silently inherits whatever remained of the first's timer — sometimes vanishing almost instantly. Fixed by keying
+the timer on a per-message nonce, the same idiom `addFormResetNonce` already uses in that file.
+**This is an explicit, partial reversal of a recorded decision** — the 2026-07-25 "Visual identity" entry
+called `SettingsForm`'s pill *"a deliberate on-brand success confirmation, not a blind green swap."* Only the
+*shape* is reversed here; the *colour* call stands unchanged (same sage-pale/ink, new container). Why the
+original call now looks wrong without having been careless: it was made mid-rollout answering "which green
+replaces `emerald-50/emerald-700`" — the pill *shape* was inherited from the pre-existing emerald pill and was
+never independently chosen, so it was never weighed against "is a pill the right vocabulary for a message at
+all," which is the question actually being answered now. **Structured as its own commit within Phase 8b**
+(reaches 1-2 files outside 8b's own set) — folded into the same checkpoint, reviewed as its own unit.
+**Resolved (Jeff, 2026-08-01): yes, add it.** `MetricForm` gains a real "Weight saved." message using the new
+component (alongside, not replacing, its "Already logged" status pill) — it had never had one before.
+**3. Human-readable date display (`MM/DD/YYYY`, presentation only).** Jeff's report: "save messages" show raw
+`2026-07-29`. Framed precisely as "ISO leaking into prose," not "more than one human format exists" — that
+framing is what kept this from becoming a blind reformat. New pure `formatDateLabel(isoDate)` in
+`lib/domain/datetime.ts`, mirroring how `formatTimeLabel` already handles the identical problem for times.
+**An audit found exactly three affected sites, all already inside files Phase 8b opens**: `FoodDayView`'s
+`handleCopied` toast, `CopyDayDialog`'s explanatory line, and the new N-4 "Log again" destination toast (which
+must be written using `formatDateLabel` from birth, not added raw and fixed later) — which is why, unlike the
+autofill sweep, this folds directly into 8b's own diff rather than needing separate structure.
+**Deliberately NOT touched, each for a concrete reason** (as important as the fix list): the six native
+`<input type="date">` controls — their `value`/`max` must stay ISO per the HTML spec (the wire format, not a
+display choice), while the browser already renders their *visible* text in the user's own locale, so there is
+nothing to fix there short of replacing the native control, which this project has consistently declined (see
+the time-`<select>` decisions); the chart axis/tooltip labels (`formatAxisDate` → "Jul 25", `formatTooltipDate`
+→ "Jul 25, 2026") are already human-readable and deliberate from Phase 5, not ISO, so reformatting them to
+`MM/DD/YYYY` would be a **regression** (far denser on an axis that may show 90 ticks) — flagged as a judgment
+call Jeff might overrule, and **confirmed by Jeff (2026-08-01): agreed, leave the charts as-is.** Every ISO date
+*value* (validation, the future-day cap, action inputs, `?range=`, comparisons) — identical
+value/display boundary the zero-padded time labels already established.
+**Implementation choice, with a real bug avoided**: `formatDateLabel` is a **plain string reorder** (split
+`"YYYY-MM-DD"` on `-`, rearrange), not `new Date(iso).toLocaleDateString()` — the obvious one-liner is actively
+wrong here, since `new Date("2026-07-29")` parses per spec as **UTC midnight**, so `.toLocaleDateString()` in
+any negative-offset timezone renders **07/28/2026**, the previous day (this exact trap is already documented
+in-repo: `chartTheme.ts` carries a `parseCalendarDate` helper written specifically to defend against it, so a
+naive reimplementation would have walked into a known hole a second time). `Intl.DateTimeFormat` with an
+explicit UTC timezone would also fix it but buys nothing over a plain reorder for one fixed output format,
+while adding an ICU dependency to a function whose whole contract is "always this one shape" — the same
+reasoning that made `formatTimeLabel` a plain string transform rather than reaching for `Intl`.
+
+---
+
+### Two more manual-testing findings: an optional time override on `CopyGroupDialog` (folds into Phase 8b), and logging a saved meal directly from `/meals` (spun out as its own Phase 8c)
+**Date**: 2026-08-01
+**Decision — Finding 4, `CopyGroupDialog` gains an optional "Copy to time" override.** Jeff's complaint: copying
+a group only lets you pick a target *date* — the copy always reuses the original group's exact time, so
+changing the time of a multi-item copied group means editing every item individually afterward. Confirmed
+`copyFoodEntries` already accepts an optional `toTime` and already treats `""` as omitted, so this is a UI-only
+addition. **The control**: a `<select>` using the same 96 `quarterHourOptions()` values every other time control
+in this app uses, preceded by a `value=""` sentinel option reading **"Keep original time(s)"**, which is the
+default — so today's behavior is the default behavior, nothing changes unless the user deliberately picks a
+time. Labeled **"Copy to time"** (not a bare "Time") to avoid colliding with `FoodEntryForm`'s own "Time" label
+and the existing `getByLabel("Time")` test assertions on the same page.
+**Why not pre-fill the group's own current time (rejected)**: this control is *shared* with the multi-select
+"Copy selected" bulk action (Phase 8b already plans to reuse `CopyGroupDialog` there), and a bulk selection
+spanning multiple groups has no single "current time" to pre-fill — any concrete default would silently collapse
+every selected group's time onto one value by default, changing behavior without the user asking for it. That
+the control is shared is what decided this, not a preference for sentinels generally.
+**The bulk-collapse consequence is a feature, disclosed rather than restricted**: picking an explicit override
+time while copying a multi-group selection puts everything at that one new time — the only coherent reading of
+"put these at 6:30 PM," and not a new pattern (`logMealForDay` already stamps one shared `consumed_at` per
+batch). A one-line UI note appears only when the source actually spans more than one distinct instant (so it's
+never shown for a single-group copy, where it would be vacuous).
+**`CopyDayDialog` explicitly excluded** — preserving each entry's own time-of-day is the entire point of a
+whole-day copy; overriding it there would collapse breakfast/lunch/dinner onto one instant. A user who wants
+"some of today's entries, at one new time" already has the right tool at the right granularity: multi-select +
+"Copy selected."
+**Decision — Finding 5, spun out as its own Phase 8c, not folded into 8b (flagged as overrulable).** Jeff wants
+to log a saved meal directly from `/meals` (default: today, floor-of-current-quarter-hour), consistent with
+Finding 4's design. Confirmed `logMealForDay` already has exactly the needed shape — UI-only again. **This is
+the one finding recommended as its own phase rather than bundled into 8b**: unlike the other four, it's a new
+*capability* (not a fix/restyle/missing-control on a surface 8b already opens), it adds a new action surface to
+`/meals` — a screen Phase 8b never touches at all — with its own trigger, defaults, success state, and
+acceptance rows. Applying the same file-reach criterion used for every other finding this session: 8b already
+carries multi-select, two bulk actions, two folded qa notes, a date-format change, and a success-message
+restyle; a sixth feature-sized addition on an unrelated screen would make that checkpoint unreviewable. Mirrors
+why §8 Phase 7c was already split out for less than this, and contrasts directly with "Save selected as a
+meal" (which correctly stays *inside* 8b, because that one isn't independently shippable and shares 8b's own
+files — this one is shippable alone and shares none).
+**Sequenced immediately after Phase 8b** (a real dependency, not manufactured): its success confirmation uses
+the `StatusMessage` component Phase 8b introduces, so building 8c first would mean building that component
+twice.
+**Design — kept consistent with Finding 4 by sharing the underlying control, diverging only where the
+semantics genuinely differ**: both use the same 96-value time `<select>`. Finding 4 is an *optional override*
+over a time that already exists, hence its "keep original" sentinel; Phase 8c's time is *required* for an event
+that has no existing `consumed_at` to keep — a saved meal was never logged with a time — so a "keep original"
+option would be meaningless here and is explicitly not built. Implementation reuses `LogMealDialog` via a new
+optional `meal?: Meal` fixed-meal mode (skips its own meal picker/fetch, renders the name as static text) rather
+than a second hand-copied dialog — the same one-implementation instinct behind `StatusMessage`'s extraction.
+"Log this meal" is placed **first** in each `MealList` card's action row (logging is the point of a saved meal;
+rename/delete/manage are maintenance). No smart same-sitting default (that's `/food`-day-scoped state that has
+no equivalent on `/meals`) — always floor-of-now. **`/meals` gains a browser-timezone dependency for the first
+time** (meals themselves carry no dates, so this screen never needed "today" before) — must use the established
+mount-only-Effect-with-matching-placeholder pattern to avoid a server/client hydration mismatch, called out
+explicitly since it's a lesson this codebase has already learned the hard way elsewhere but isn't visible
+anywhere in `/meals`'s existing code. Success shows a `StatusMessage` naming the meal/date/time, with **no
+refetch** (this writes `food_entries`; the screen renders `meals`/`meal_items`, so nothing on screen needs to
+change) — and must not clear the filter, collapse an expanded card, or remount `MealList`, the exact bug class
+this repo has now shipped broken twice.
+**Explicitly out of Phase 8c**: a quantity/servings multiplier on the logged meal (a real, plausible follow-up
+with its own design question about interacting with per-item quantities — not smuggled in here); logging
+multiple meals at once or any multi-select on `/meals`; navigating to `/food` after logging (same rejected move
+as N-4's — the user is deliberately working in the library, don't move them); any change to `MealList`'s
+expand-by-default behavior, the `/meals` filter, or its two-flat-queries read strategy.
+
+---
+
+### Sixth manual-testing finding: `FoodEntryList` highlights the row currently being edited — folded into Phase 8b as the same commit as the multi-select work
+**Date**: 2026-08-01
+**Decision**: Jeff's finding — editing an entry gives no visual indication in the list of which row is being
+edited. Confirmed by reading the code: `FoodEntryList` receives an `onEdit` callback but no prop at all naming
+the current edit target, so this was a genuine gap, not a styling oversight. `FoodDayView` passes a new
+**`editingEntryId: string | null`** down — **deliberately the id, not the entry object.** This is the load-
+bearing detail: `refresh()` replaces every object in `entries` with a fresh row from the DB while
+`editingEntry` still holds the pre-refresh snapshot, so an object-identity comparison (`entry === editingEntry`)
+would silently stop matching after the very first background refresh. Comparing `entry.id === editingEntryId`
+is the only comparison that can't develop that bug. Confirmed separately that `editingEntry` itself already
+survives a background refresh today (it's `FoodDayView`'s own state, untouched by `refresh()`, and already
+cleared at the existing `handleDayChange` choke point).
+**Treatment**: a `border-l-4 border-l-sage-deep` left accent bar plus a visible "Editing" text label — no
+background fill. A `bg-sage-pale` row tint was the obvious first instinct and was rejected because this list
+already renders a `bg-sage-pale` "From a saved meal" badge, which would visually vanish into a sage-pale row
+background. Reuses the same left-accent-bar vocabulary the new `StatusMessage` component (Finding 3)
+introduces, differentiated by weight rather than a second pattern: `StatusMessage` is bar + fill + icon; the
+edited row is bar-only on its normal surface — judged the honest choice since the two states are genuinely
+related (both are "this is in a notable state" markers), and inventing a second accent idiom (a ring/outline)
+in the same phase that introduces the bar would create a second pattern where one already fits.
+**The edited row's own per-row actions ("Log again"/"Edit"/"Delete") are hidden while it's being edited** — not
+disabled, hidden, following this same phase's already-established "a row in a special state suppresses its
+ordinary actions" rule from multi-select's select mode. Each action is actively wrong to leave live on the row
+being edited: "Edit" would re-target the already-open form, "Log again" would copy the saved (not the
+in-progress, unsaved) values, and "Delete" would destroy the very row the open form is editing out from under
+it — a real dead end, not just visual noise.
+**Editing and select mode can coexist, deliberately** — entering select mode does not cancel an in-progress
+edit (that would silently discard typed changes), and a row being edited can still be checked for a bulk action;
+checked rows get no background tint of their own (the checkbox itself is the indicator), so the two visual
+states don't compete for the same surface.
+**Accessibility**: a visible "Editing" text label (not color alone, per WCAG 1.4.1) is the required part;
+**no live-region announcement** — the reusable test applied here (and worth reusing again): announce a state
+change only when the user didn't cause it or couldn't otherwise know about it. Here the user just clicked
+"Edit" and the form scrolls into view in response, so an announcement would be redundant.
+**One existing behavior this design had to account for**: entering edit mode already `scrollIntoView`s the
+*form*, not the row, so the highlighted row is often below the fold at the moment "Edit" is clicked — meaning
+this highlight's actual value is as a **persistent state marker** (when scrolling back, on a short day where
+both fit, or returning after a distraction), not a transition cue. That's why the treatment is calm rather than
+a flash/pulse, and why a second, row-targeted `scrollIntoView` was considered and explicitly rejected — two
+competing scroll targets would fight each other.
+**One pre-existing gap made newly observable, not fixed**: if the entry being edited disappears from the loaded
+set entirely (deleted elsewhere, then a refresh pulls in the change) while its form is still open, no row
+matches `editingEntryId` and the highlight simply isn't drawn — the save already silently fails today with no
+cue at all in that case, and this change doesn't fix that, only makes the inconsistency observable instead of
+silent. Not fixed here: auto-canceling an edit because a refresh briefly doesn't see its row would risk
+discarding real typed changes on what could be a transient read.
+**Structured as the same commit as Phase 8b's multi-select work** (not a separate commit, unlike the success-
+message restyle) — the first finding this session judged genuinely *coupled* rather than merely co-located
+with 8b's other work: both changes add a per-row visual state to the identical list and both suppress per-row
+actions, so they had to be designed against each other (e.g. confirming a checked row gets no tint, confirming
+the edited row's hidden actions don't conflict with select mode's hidden actions) — splitting them would mean
+reviewing two halves of one interaction rule in isolation.
+
+---
