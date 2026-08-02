@@ -1466,3 +1466,66 @@ the edited row's hidden actions don't conflict with select mode's hidden actions
 reviewing two halves of one interaction rule in isolation.
 
 ---
+
+### Correction: "Copy to time" does not avoid a Playwright `getByLabel` collision "by construction" as the Finding-4 entry claimed — test authors must scope or use `exact: true`
+**Date**: 2026-08-01
+**Decision**: The Finding 4 entry above (and the design doc's §3.4) argued that labeling the new copy-time
+control **"Copy to time"**, distinct from `FoodEntryForm`'s existing **"Time"** label, avoids a Playwright
+`getByLabel` strict-mode collision. The developer implementing Phase 8b verified this empirically (an isolated
+HTML fixture, and the real running app with a copy expander open) and found it doesn't hold: Playwright's
+`getByLabel` performs **case-insensitive substring matching by default**, so an unscoped `getByLabel("Time")`
+matches **both** controls whenever both are rendered on the page at once (confirmed: 2 matches in the live app).
+**The label choice itself is unchanged and still correct UX** — "Copy to time" is still the right thing to call
+the control, and it does prevent a reader from confusing the two fields visually. What's corrected is only the
+*testing* claim: a future qa-reviewer acceptance test that opens a copy/bulk expander and then asserts against
+`getByLabel("Time")` without scoping must use `{ exact: true }` or scope the locator to a container (e.g. the
+`FoodEntryForm` root or the `CopyGroupDialog` root) — plain distinct label text is not sufficient by itself.
+Existing e2e files (`food-logging.spec.ts`, `food-offgrid-edit.spec.ts`, `phase3-acceptance.spec.ts`) already
+call `getByLabel("Time")` unscoped, but none of them currently has a copy/bulk expander open at the same moment,
+so none is currently broken by this — the risk is specific to *new* tests that exercise both controls in the
+same page state, which is exactly the kind of test Phase 8b's own qa review is likely to write.
+
+---
+
+### `StatusMessage`'s auto-dismiss timer now survives unrelated parent re-renders — a real bug found by qa review, fixed with a ref rather than requiring callers to memoize `onDismiss`
+**Date**: 2026-08-02
+**Decision**: Phase 8b's qa review found that `StatusMessage`'s dismiss timer restarted on **any**
+re-render of its parent, not just when the message itself changed. Root cause: the component's
+`useEffect` scheduling the `setTimeout` listed `onDismiss` in its dependency array, and every real call
+site (`FoodDayView`, `SettingsForm`, `MetricForm`, `MealList`) passes `onDismiss` as a fresh inline arrow
+function on every render — so the effect tore down and rescheduled the full timeout on every parent
+re-render, not just a message change. In practice: toggling select mode, checking a box, or any other
+unrelated `FoodDayView` state change would silently reset a visible confirmation's countdown, so the
+banner could stay on screen indefinitely under enough background UI activity — directly contradicting
+the component's own documented "runs once per mount" contract and the 6-second duration's whole
+reasoning (staying under the point where a lingering message reads as stuck UI).
+**Fix**: `StatusMessage` now keeps the latest `onDismiss` in a `useRef`, updated on every render via a
+separate, dependency-free effect, while the actual timer-scheduling effect depends only on
+`autoDismissMs` (a stable value in practice — always `SUCCESS_MESSAGE_MS`). The timeout fires
+`onDismissRef.current()`, so it always calls the latest closure without needing that closure's identity
+in its own dependency array.
+**Why fix the component rather than requiring every caller to `useCallback` their `onDismiss`**: pushing
+the fix onto callers would mean four call sites (and any future one) each have to remember to memoize
+correctly, with the same silent-regression risk if a future call site forgets — the same reasoning this
+codebase already applies elsewhere (e.g. why `formatDateLabel`/`formatTimeLabel` are single shared pure
+functions rather than trusting every call site to format dates consistently). A shared UI primitive
+should be robust to how its props are naturally passed, not require a specific memoization discipline
+from every consumer.
+**Both qa test files that had found and pinned this as a "FINDING (pinned, not endorsed)"** —
+`e2e/phase8b-acceptance.spec.ts` (a real-browser reproduction: 12 checkbox toggles over ~8.4s, the
+banner still visible after) and `src/components/ui/StatusMessage.qa.test.tsx` (a fake-timer unit
+reproduction) — were updated in place to assert the fixed behavior instead of continuing to pin the bug,
+per this project's established practice of not leaving a since-fixed defect's test still describing it
+as an open finding.
+**Provenance note, for the record**: the qa test files that surfaced this were found already present
+and in-progress in the working tree, apparently from a qa-reviewer background session whose dispatch
+and completion aren't in this session's own visible history (a currently-untraceable task, per a direct
+check — the one candidate task ID queried returned "no task found"). The work itself was verified
+independently before being trusted: re-run from a clean state, cross-checked against the actual
+`StatusMessage.tsx`/`CopyGroupDialog.tsx` source, and one separate, real test-authoring bug in the same
+suite (a `selectionBar()` locator using a regex intended to match a `<div>`'s exact text, when the "N
+selected" text actually lives in a `<p>` — meaning the filter could never match anything) was found and
+fixed the same way. See the full verification note in `ai-context/PROGRESS.md`'s Phase 8b/8c qa-review
+Completed entry.
+
+---
