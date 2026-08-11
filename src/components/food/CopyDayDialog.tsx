@@ -16,6 +16,10 @@ export type CopyDayDialogProps = {
   today: string;
   tz: string;
   onCopied: (entries: FoodEntry[], toDate: string) => void;
+  /** Phase 8k: the caller (`FoodDayView`, via `DayActionBar` + its own `dayAction` state) owns the
+   * trigger AND the open/closed state — this component is panel-only in every mode now, mounted
+   * fresh only while the caller wants it shown. */
+  onCancel: () => void;
 };
 
 type CopyState = { ok: boolean; error: string | null; entries?: FoodEntry[] };
@@ -39,10 +43,31 @@ function friendlyError(error: string): string {
 }
 
 /**
- * Inline expander (design doc §3.1 `food/CopyDayDialog.tsx`; Phase 8 — "Ease-of-entry extras") that
- * copies every entry from the currently-viewed day onto a different (or the same) target date, via
- * the shared `copyFoodEntries` primitive. Same idiom as `LogMealDialog`/`SaveGroupAsMealDialog` —
- * this codebase has no modal precedent, so a single feature isn't the place to introduce one.
+ * Panel-only content (design doc §3.1 `food/CopyDayDialog.tsx`; Phase 8 — "Ease-of-entry extras";
+ * restructured Phase 8k — "The `/food` day-action surface") that copies every entry from the
+ * currently-viewed day onto a different (or the same) target date, via the shared
+ * `copyFoodEntries` primitive.
+ *
+ * **Phase 8k: this component no longer renders its own trigger or owns its own `open` state.**
+ * `FoodDayView` renders the "Copy this day" trigger (inside `DayActionBar`) and this panel body as
+ * two SIBLINGS — never from inside one another — so a component that used to lay out its siblings
+ * from the inside (opening this used to turn its flex item into a full-width block, wrapping every
+ * trigger *after* it onto a line below the open panel) can no longer do that: there is no "inside"
+ * to lay siblings out from anymore. `FoodDayView` conditionally renders
+ * `<CopyDayDialog .../>` only while its own `dayAction === "copyDay"` and wraps it in `ActionPanel`
+ * itself (the same shape `CopyGroupDialog`/`SaveGroupAsMealDialog` have had since Phase 7b/8, and
+ * the shape `LogMealDialog`'s own Phase 8c fixed-meal mode already used, with `MealList` owning
+ * visibility there). The now-removed `w-full` wrapper on this component's old collapsed-panel
+ * branch — and the internal `open` state / `CopyDayPanel` split it needed to fix the N-3
+ * stale-error-on-reopen bug — were both the visible scar tissue of the old, fused shape; deleting
+ * them (rather than adding a smarter layout hint) is the fix, per `ai-context/DECISIONS.md`'s
+ * "The `/food` day-action surface..." entry.
+ *
+ * **The N-3 "no stale state survives a close/reopen" property still holds, and now holds
+ * structurally rather than via an internal open/close split**: `FoodDayView`'s `dayAction` changes
+ * only from the user's own clicks (never from `loading`, a fetch nonce, or `entries.length`), so
+ * this component mounts fresh every single time it's shown — there is no way for `toDate`/`state`/
+ * `pending` to survive a close/reopen, because there is no instance left to survive in.
  *
  * No time field: `toTime` is deliberately left unset, so `copyFoodEntries` preserves each source
  * entry's own local time-of-day on the target date — a copied whole day reproduces its original
@@ -52,64 +77,26 @@ function friendlyError(error: string): string {
  * defeating the entire point of a whole-day copy — a user who wants "some of today's entries, at
  * one new time" already has multi-select + "Copy selected" for that.
  *
- * Hidden entirely when there is nothing to copy (`entries.length === 0`) — mirrors how
- * `LogMealDialog` still renders (with an explanatory message) even with zero saved meals, but here
- * there's no action at all to offer, so there's nothing useful to show.
- *
- * **N-3 fix (Phase 8b, 2026-07-31/08-01)**: the open-panel body (`toDate`/`state`/`pending`) lives
- * in a separate `CopyDayPanel` subtree, rendered only while `open` is true, rather than in this
- * outer component alongside the collapsed-button branch. Before this fix, `CopyDayDialog` itself
- * never unmounted (only the *collapsed button* was conditionally rendered), so its state survived
- * every close/reopen — a rejected copy's error message, and the picked target date, both lingered
- * on reopen. `CopyGroupDialog` never had this bug only by accident of structure (its stateful body
- * *is* the conditionally-rendered part) — this restructuring makes that property deliberate here
- * too, and it's the same rule Phase 8b's own new bulk expanders follow (see `FoodDayView`). The
- * governing `open` flag is driven ONLY by this component's own toggle — never by anything a
- * background refresh changes (not `loading`, not a fetch nonce, not `entries.length`) — so this
- * fix cannot reintroduce the very state-wiping bug Phase 8b elsewhere guards against.
+ * **Defensive empty-day fallback**: `DayActionBar` never offers the "Copy this day" trigger on a
+ * day with nothing to copy (`hasEntries`), but if the viewed day's last entry is deleted
+ * out-of-band while this panel happens to already be open, this renders an explanation instead of
+ * a form with nothing meaningful to submit, rather than silently submitting an empty entryIds list.
  */
-export function CopyDayDialog({ sourceDate, entries, today, tz, onCopied }: CopyDayDialogProps) {
-  const [open, setOpen] = useState(false);
-
-  if (entries.length === 0) {
-    return null;
-  }
-
-  if (!open) {
-    return (
-      <Button type="button" variant="secondary" onClick={() => setOpen(true)} className="self-start">
-        Copy this day
-      </Button>
-    );
-  }
-
-  return (
-    <CopyDayPanel
-      sourceDate={sourceDate}
-      entries={entries}
-      today={today}
-      tz={tz}
-      onCopied={onCopied}
-      onClose={() => setOpen(false)}
-    />
-  );
-}
-
-/**
- * The stateful open-panel body — mounted fresh every time `CopyDayDialog` opens it (see the N-3
- * fix note above), so `toDate`/`state`/`pending` can never survive a close/reopen cycle.
- */
-function CopyDayPanel({
-  sourceDate,
-  entries,
-  today,
-  tz,
-  onCopied,
-  onClose,
-}: CopyDayDialogProps & { onClose: () => void }) {
+export function CopyDayDialog({ sourceDate, entries, today, tz, onCopied, onCancel }: CopyDayDialogProps) {
   const [toDate, setToDate] = useState(today);
   const [state, setState] = useState<CopyState>(initialState);
   const [pending, setPending] = useState(false);
+
+  if (entries.length === 0) {
+    return (
+      <>
+        <p className="text-sm text-muted">There&apos;s nothing on this day to copy.</p>
+        <Button type="button" variant="secondary" size="sm" onClick={onCancel} className="self-start">
+          Close
+        </Button>
+      </>
+    );
+  }
 
   // copyFoodEntries takes a plain object, not FormData (design doc §3.3's exact signature) — so
   // this is a plain async handler, not a `useActionState`-driven `<form action>` like
@@ -125,30 +112,30 @@ function CopyDayPanel({
     setPending(false);
     setState(result);
     if (result.ok && result.entries) {
-      onClose();
       onCopied(result.entries, toDate);
     }
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-ink">Copy this day</p>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-sm font-medium text-stone-500 hover:text-stone-700"
-        >
-          Close
-        </button>
-      </div>
-
-      <p className="text-sm text-stone-500">
+    <>
+      {/* Bugfix (2026-08-10): a real missing-space defect, confirmed live -- the rendered text
+          read "...08/10/2026onto another date...", the space glued away. The literal space
+          character written after `</span>` on this same source line does NOT survive JSX's
+          whitespace handling once the text node it belongs to wraps onto a following source
+          line (as "onto another" did onto the old "date, keeping..." line): JSX trims the
+          leading whitespace of a multi-line JSXText node as a whole, the same reason `from{" "}`
+          just above needs its own explicit space container. Fixed the same way -- an explicit
+          `{" "}` right after the date `<span>`, and the remaining sentence collapsed onto one
+          source line so there is no second multi-line JSXText node left to repeat the bug. */}
+      <p className="text-sm text-muted">
         Copies all {entries.length} entr{entries.length === 1 ? "y" : "ies"} from{" "}
-        <span className="font-medium text-ink">{formatDateLabel(sourceDate)}</span> onto another
-        date, keeping each entry&apos;s original time of day.
+        <span className="font-medium text-ink">{formatDateLabel(sourceDate)}</span>{" "}
+        onto another date, keeping each entry&apos;s original time of day.
       </p>
 
+      {/* qa-review N-3 (Phase 8d): "Close" sits next to the primary action (not a top-corner link),
+          matching the Cancel-next-to-Submit placement CopyGroupDialog/SaveGroupAsMealDialog already
+          use -- the date input is the first focusable control in this panel. */}
       <form onSubmit={handleSubmit} className="flex flex-col gap-3" noValidate autoComplete="off">
         <div className="flex flex-col gap-1">
           <label htmlFor="copy-day-target-date" className={labelClass}>
@@ -168,12 +155,15 @@ function CopyDayPanel({
 
         {state.error && <p className={errorTextClass}>{friendlyError(state.error)}</p>}
 
-        <div className="pt-1">
+        <div className="flex items-center gap-2 pt-1">
           <Button type="submit" disabled={pending}>
             {pending ? "Copying..." : "Copy day"}
           </Button>
+          <Button type="button" variant="secondary" onClick={onCancel}>
+            Close
+          </Button>
         </div>
       </form>
-    </div>
+    </>
   );
 }

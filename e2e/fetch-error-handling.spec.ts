@@ -9,7 +9,7 @@ async function logIn(page: Page, user: TestUser) {
   await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/food");
 }
 
 const fail500 = (route: import("@playwright/test").Route) =>
@@ -40,10 +40,16 @@ test.describe("browser-fetch error handling", () => {
     await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
   });
 
-  test("dashboard shows a totals error when the read fails", async ({ page }) => {
+  // Phase 8h retired the dashboard route (`/` now redirects to `/food`, and its
+  // `TodaySummary` component — the previous target of this row — is deleted). Per
+  // ai-context/DECISIONS.md's Phase 8h entry, this row moves to another client-read surface
+  // rather than being dropped, since this suite's whole point is that every browser-side read
+  // has an error+Retry path. `/meals` (MealsView) wasn't otherwise covered here.
+  test("/meals shows an error + Retry when the read fails", async ({ page }) => {
     await page.route("**/rest/v1/**", fail500);
-    await page.goto("/");
-    await expect(page.getByText(/Couldn.t load today.s totals/i)).toBeVisible();
+    await page.goto("/meals");
+    await expect(page.getByText(/Couldn.t load your saved meals/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
   });
 
   test("/trends shows an error + Retry when the read fails, not an infinite spinner", async ({ page }) => {

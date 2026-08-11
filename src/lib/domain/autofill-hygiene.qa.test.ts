@@ -79,17 +79,15 @@ function findTags(re: RegExp): Occurrence[] {
 }
 
 /**
- * The `/meals` components were DELIBERATELY excluded from Phase 8b's sweep (developer's own
- * PROGRESS note: "Phase 8c, not this task, owns /meals") -- and Phase 8c then also did not do
- * them ("deliberately deferred from Phase 8b's sweep to whoever picks that up next"). Listed here
- * so the gap is explicit and counted rather than silently tolerated; design doc §3.4 names all
- * three of these files' controls as in-scope for the convention.
+ * The `/meals` components (`MealForm.tsx`, `MealItemForm.tsx`, `MealsView.tsx`) were previously
+ * excluded from Phase 8b's sweep and left unswept through Phase 8c too -- design doc §3.4 always
+ * named all three files' controls as in-scope for the convention. Closed as its own fix-up
+ * (qa-review N-2) alongside the `MealList.tsx` "Log this meal" surface, which was already covered
+ * because it renders `LogMealDialog` (already swept in Phase 8b). This list stays here, now empty,
+ * so a future regression shows up as a concrete file added back to it rather than a silent
+ * loosening of the assertions below.
  */
-const KNOWN_UNSWEPT = [
-  "components/meals/MealForm.tsx",
-  "components/meals/MealItemForm.tsx",
-  "components/meals/MealsView.tsx",
-];
+const KNOWN_UNSWEPT: string[] = [];
 
 describe("autofill hygiene -- mechanical decay guard over src/", () => {
   const controls = findTags(CONTROL_TAG);
@@ -135,7 +133,7 @@ describe("autofill hygiene -- mechanical decay guard over src/", () => {
     ]);
   });
 
-  it("FINDING (pinned, not endorsed): the /meals controls §3.4 names are still unswept", () => {
+  it("FIXED (was pinned as a FINDING): the /meals controls §3.4 names are now fully swept", () => {
     const unsweptFiles = controls
       .filter((c) => c.autoComplete === null)
       .map((c) => c.file)
@@ -146,11 +144,9 @@ describe("autofill hygiene -- mechanical decay guard over src/", () => {
       .map((f) => f.file)
       .filter((f, i, a) => a.indexOf(f) === i)
       .sort();
-    // Pins the ACTUAL state so it is visible and cannot silently grow.
-    expect(unsweptFiles).toEqual(KNOWN_UNSWEPT);
-    expect(unsweptForms).toEqual([
-      "components/meals/MealForm.tsx",
-      "components/meals/MealItemForm.tsx",
-    ]);
+    // Regression guard: this must stay empty. If a file shows up here, the /meals autofill fix
+    // (qa-review N-2) has regressed.
+    expect(unsweptFiles).toEqual([]);
+    expect(unsweptForms).toEqual([]);
   });
 });

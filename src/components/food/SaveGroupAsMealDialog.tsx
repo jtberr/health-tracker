@@ -120,11 +120,11 @@ export function SaveGroupAsMealDialog({
         {state.fieldErrors?.name && <p className={errorTextClass}>{state.fieldErrors.name}</p>}
       </div>
 
-      <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2">
-        <p className="text-xs font-medium text-stone-500">
+      <div className="rounded-lg border border-line bg-slate-50 px-3 py-2">
+        <p className="text-xs font-medium text-muted">
           {entries.length} item{entries.length === 1 ? "" : "s"} to save
         </p>
-        <ul className="mt-1 flex flex-col gap-0.5 text-sm text-stone-600">
+        <ul className="mt-1 flex flex-col gap-0.5 text-sm text-muted">
           {entries.map((entry) => (
             <li key={entry.id}>
               {entry.quantity !== 1 || entry.unit

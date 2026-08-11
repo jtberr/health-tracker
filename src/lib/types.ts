@@ -99,6 +99,9 @@ export type Meal = {
   id: string;
   user_id: string;
   name: string;
+  /** Phase 8f -- "Saved meals: pinning and duplicating". Not copied when duplicating (a
+   * duplicate always starts unpinned -- see `duplicateMeal` in `lib/actions/meals.ts`). */
+  is_pinned: boolean;
   created_at: string;
   updated_at: string;
 };

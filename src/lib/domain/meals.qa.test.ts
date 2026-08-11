@@ -24,6 +24,10 @@ function meal(overrides: Partial<Meal> & { name: string }): Meal {
   return {
     id: overrides.id ?? "id-" + overrides.name.toLowerCase().replace(/\s+/g, "-"),
     user_id: "user-1",
+    // Phase 8f adds `is_pinned` to the Meal type; defaulted here (mechanically, not a semantic
+    // change to this qa-reviewer-owned file) so every pre-existing fixture in this file keeps
+    // typechecking and keeps its original all-unpinned behavior unchanged.
+    is_pinned: overrides.is_pinned ?? false,
     created_at: overrides.created_at ?? "2026-01-01T00:00:00.000Z",
     updated_at: overrides.updated_at ?? "2026-01-01T00:00:00.000Z",
     ...overrides,

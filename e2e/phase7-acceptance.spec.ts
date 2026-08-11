@@ -37,7 +37,7 @@ async function logIn(page: Page, user: TestUser) {
   await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/food");
 }
 
 type SeedItem = {
@@ -309,7 +309,10 @@ test.describe("Phase7 QA: saved-meal CRUD through the actions", () => {
     ]);
 
     await page.goto("/meals");
-    await page.getByRole("button", { name: "Rename" }).click();
+    // Bugfix (2026-08-10): "Rename" is now an icon-only button named "Rename <meal name>" (was a
+    // plain text "Rename" button) -- a prefix regex is robust to the exact meal name and matches
+    // this project's established convention for icon-only-button assertions elsewhere.
+    await page.getByRole("button", { name: /^Rename/ }).click();
     await page.getByLabel("Meal name").fill("New Name");
     await page.getByRole("button", { name: "Save", exact: true }).click();
     await expect(page.getByText("New Name")).toBeVisible();
@@ -330,7 +333,11 @@ test.describe("Phase7 QA: saved-meal CRUD through the actions", () => {
     await page.goto("/meals");
     await expect(page.getByText("1 item", { exact: false })).toContainText("300 kcal");
 
-    await page.getByRole("button", { name: "Edit" }).click();
+    // Scoped to the item's own full aria-label ("Edit Chips") -- Phase 8f's icon-only pin toggle
+    // uses aria-label={`Pin ${meal.name}`}, and this fixture's meal is literally named "Editable",
+    // so an unscoped `getByRole("button", { name: "Edit" })` (substring match) would also match
+    // "Pin Editable" and throw a Playwright strict-mode violation.
+    await page.getByRole("button", { name: "Edit Chips" }).click();
     await page.getByLabel("Quantity", { exact: true }).fill("5");
     await page.getByRole("button", { name: "Save item" }).click();
 
@@ -784,7 +791,10 @@ test.describe("Phase7 QA: RLS through the meals action surface", () => {
 
   test("updateMeal cannot rename another user's meal", async ({ page }) => {
     await page.goto("/meals");
-    await page.getByRole("button", { name: "Rename" }).click();
+    // Bugfix (2026-08-10): "Rename" is now an icon-only button named "Rename <meal name>" (was a
+    // plain text "Rename" button) -- a prefix regex is robust to the exact meal name and matches
+    // this project's established convention for icon-only-button assertions elsewhere.
+    await page.getByRole("button", { name: /^Rename/ }).click();
     await page.getByLabel("Meal name").fill("Pwned");
     await forceFieldValue(page, 'input[type="hidden"][name="id"]', victimMeal.id);
     await page.getByRole("button", { name: "Save", exact: true }).click();
@@ -881,7 +891,10 @@ test.describe("Phase7 QA: expanded meal state survives a post-mutation refresh",
     ]);
 
     await page.goto("/meals");
-    await expect(page.getByRole("button", { name: "Hide items" })).toBeVisible();
+    // Bugfix (2026-08-10): the expand/collapse control is now an icon-only chevron named
+    // "Hide items for <meal name>"/"Show items for <meal name>" (was a plain "Hide items"/"Manage
+    // items" text button) -- prefix regex, robust to the exact meal name.
+    await expect(page.getByRole("button", { name: /^Hide items/ })).toBeVisible();
 
     await page.getByRole("button", { name: "+ Add item" }).click();
     await page.getByLabel("Name", { exact: true }).fill("StickyB");
@@ -890,7 +903,10 @@ test.describe("Phase7 QA: expanded meal state survives a post-mutation refresh",
     await page.getByRole("button", { name: "Add item", exact: true }).click();
 
     await expect(page.getByText("StickyB")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Hide items" })).toBeVisible();
+    // Bugfix (2026-08-10): the expand/collapse control is now an icon-only chevron named
+    // "Hide items for <meal name>"/"Show items for <meal name>" (was a plain "Hide items"/"Manage
+    // items" text button) -- prefix regex, robust to the exact meal name.
+    await expect(page.getByRole("button", { name: /^Hide items/ })).toBeVisible();
     await expect(page.getByRole("listitem")).toHaveCount(2);
     await expect(page.getByText("Loading", { exact: false })).toHaveCount(0);
   });
@@ -910,7 +926,10 @@ test.describe("Phase7 QA: expanded meal state survives a post-mutation refresh",
       .click();
 
     await expect(page.getByRole("listitem")).toHaveCount(1);
-    await expect(page.getByRole("button", { name: "Hide items" })).toBeVisible();
+    // Bugfix (2026-08-10): the expand/collapse control is now an icon-only chevron named
+    // "Hide items for <meal name>"/"Show items for <meal name>" (was a plain "Hide items"/"Manage
+    // items" text button) -- prefix regex, robust to the exact meal name.
+    await expect(page.getByRole("button", { name: /^Hide items/ })).toBeVisible();
     await expect(page.getByText("Loading", { exact: false })).toHaveCount(0);
   });
 
@@ -921,12 +940,18 @@ test.describe("Phase7 QA: expanded meal state survives a post-mutation refresh",
     ]);
 
     await page.goto("/meals");
-    await page.getByRole("button", { name: "Rename" }).click();
+    // Bugfix (2026-08-10): "Rename" is now an icon-only button named "Rename <meal name>" (was a
+    // plain text "Rename" button) -- a prefix regex is robust to the exact meal name and matches
+    // this project's established convention for icon-only-button assertions elsewhere.
+    await page.getByRole("button", { name: /^Rename/ }).click();
     await page.getByLabel("Meal name").fill("Renamed Meal");
     await page.getByRole("button", { name: "Save", exact: true }).click();
 
     await expect(page.getByText("Renamed Meal")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Hide items" })).toBeVisible();
+    // Bugfix (2026-08-10): the expand/collapse control is now an icon-only chevron named
+    // "Hide items for <meal name>"/"Show items for <meal name>" (was a plain "Hide items"/"Manage
+    // items" text button) -- prefix regex, robust to the exact meal name.
+    await expect(page.getByRole("button", { name: /^Hide items/ })).toBeVisible();
     await expect(page.getByText("RenA", { exact: true })).toBeVisible();
   });
 });
@@ -996,7 +1021,11 @@ test.describe("Phase7 QA: FoodLookupPanel reuse inside MealItemForm", () => {
     await expect(page.getByRole("button", { name: "Look up a food (barcode or search)" })).toBeVisible();
     await page.getByRole("button", { name: "Cancel" }).click();
 
-    await page.getByRole("button", { name: "Edit" }).click();
+    // Scoped to the item's own full aria-label ("Edit AlreadySaved") -- this fixture's meal is
+    // named "Edit Lookup Meal", so the pin toggle's `aria-label="Pin Edit Lookup Meal"` would also
+    // match an unscoped substring `getByRole("button", { name: "Edit" })` (see the identical note
+    // above in "editing an item recalculates the meal total...").
+    await page.getByRole("button", { name: "Edit AlreadySaved" }).click();
     await expect(page.getByRole("button", { name: "Look up a food (barcode or search)" })).toHaveCount(0);
   });
 });

@@ -73,17 +73,17 @@ export function WeightChart({ series, weightUnit }: WeightChartProps) {
   return (
     <Card className="flex flex-col gap-3 p-4 sm:p-5">
       <div className="flex flex-col gap-1">
-        <h2 className="font-serif text-lg font-semibold text-ink">
+        <h2 className="text-lg font-semibold text-ink">
           Weight{hasBodyFat ? " & body fat" : ""}
         </h2>
-        <div className="flex flex-wrap gap-4 text-xs text-stone-500">
+        <div className="flex flex-wrap gap-4 text-xs text-muted">
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-sage-deep" aria-hidden="true" />
+            <span className="h-2 w-2 rounded-full bg-accent" aria-hidden="true" />
             Weight ({weightUnit})
           </span>
           {hasBodyFat && (
             <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-clay" aria-hidden="true" />
+              <span className="h-2 w-2 rounded-full bg-accent-warm" aria-hidden="true" />
               Body fat %
             </span>
           )}
@@ -133,10 +133,10 @@ export function WeightChart({ series, weightUnit }: WeightChartProps) {
                 type="monotone"
                 dataKey="weight"
                 name="weight"
-                className="text-sage-deep"
+                className="text-accent"
                 stroke="currentColor"
                 strokeWidth={2}
-                dot={makeDot("text-sage-deep", "weight")}
+                dot={makeDot("text-accent", "weight")}
                 connectNulls
                 isAnimationActive={false}
               />
@@ -146,10 +146,10 @@ export function WeightChart({ series, weightUnit }: WeightChartProps) {
                   type="monotone"
                   dataKey="bodyFatPct"
                   name="bodyFatPct"
-                  className="text-clay"
+                  className="text-accent-warm"
                   stroke="currentColor"
                   strokeWidth={2}
-                  dot={makeDot("text-clay", "bodyFatPct")}
+                  dot={makeDot("text-accent-warm", "bodyFatPct")}
                   connectNulls
                   isAnimationActive={false}
                 />
@@ -158,9 +158,9 @@ export function WeightChart({ series, weightUnit }: WeightChartProps) {
           </ResponsiveContainer>
         </div>
       ) : (
-        <p className="text-sm text-stone-500">
+        <p className="text-sm text-muted">
           No weight logged in this range yet.{" "}
-          <a href="/metrics" className="font-medium text-sage-deep hover:text-sage-deep/80">
+          <a href="/metrics" className="font-medium text-accent hover:text-accent/80">
             Log your weight
           </a>{" "}
           to see a trend.

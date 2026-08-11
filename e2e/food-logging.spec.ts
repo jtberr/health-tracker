@@ -22,7 +22,7 @@ async function logIn(page: Page, user: TestUser) {
   await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/food");
 }
 
 function tomorrowLocalDateStr(): string {
@@ -182,8 +182,11 @@ test.describe("Phase 3 — core food logging loop", () => {
     await page.getByRole("button", { name: "Add entry" }).click();
     await expect(page.getByText("Chips")).toBeVisible();
 
+    // 2026-08-07 (Phase 8g): "Delete" is back on the entry row (an icon-only button, reversing
+    // Phase 8d's edit-form placement) and is guarded by a window.confirm naming the entry.
     const row = page.locator("li", { hasText: "Chips" });
-    await row.getByRole("button", { name: "Delete" }).click();
+    page.once("dialog", (dialog) => dialog.accept());
+    await row.getByRole("button", { name: /Delete/ }).click();
     await expect(page.getByText("Chips")).toHaveCount(0);
   });
 });
@@ -227,7 +230,13 @@ test.describe("Phase 3 — protein % and ratio-of-sums (DB-seeded fixtures)", ()
     ]);
 
     await page.goto("/food");
-    await page.getByLabel("Day").fill(day);
+    // { exact: true } (2026-08-10): DayNavigator's chevron buttons now carry aria-label="Previous
+    // day"/"Next day" (icon-only, per that component's own doc comment) -- Playwright's getByLabel
+    // does case-insensitive SUBSTRING matching by default, so an unscoped getByLabel("Day") now
+    // strict-mode-collides with those two buttons as well as the real <label>Day</label>. Same
+    // collision class, same fix shape, as every prior instance in ai-context/DECISIONS.md's
+    // "Copy to time" / getByLabel collision entries.
+    await page.getByLabel("Day", { exact: true }).fill(day);
 
     const proteinRow = page.locator("li", { hasText: "Protein snack" });
     await expect(proteinRow).toContainText("50%");
@@ -262,7 +271,13 @@ test.describe("Phase 3 — protein % and ratio-of-sums (DB-seeded fixtures)", ()
     ]);
 
     await page.goto("/food");
-    await page.getByLabel("Day").fill(day);
+    // { exact: true } (2026-08-10): DayNavigator's chevron buttons now carry aria-label="Previous
+    // day"/"Next day" (icon-only, per that component's own doc comment) -- Playwright's getByLabel
+    // does case-insensitive SUBSTRING matching by default, so an unscoped getByLabel("Day") now
+    // strict-mode-collides with those two buttons as well as the real <label>Day</label>. Same
+    // collision class, same fix shape, as every prior instance in ai-context/DECISIONS.md's
+    // "Copy to time" / getByLabel collision entries.
+    await page.getByLabel("Day", { exact: true }).fill(day);
 
     // DailyTotals shows the day-level ratio-of-sums %, not the ~36.7% average of the two entries.
     await expect(page.getByText("32%", { exact: true })).toBeVisible();
@@ -293,7 +308,13 @@ test.describe("Phase 3 — protein % and ratio-of-sums (DB-seeded fixtures)", ()
     ]);
 
     await page.goto("/food");
-    await page.getByLabel("Day").fill(day);
+    // { exact: true } (2026-08-10): DayNavigator's chevron buttons now carry aria-label="Previous
+    // day"/"Next day" (icon-only, per that component's own doc comment) -- Playwright's getByLabel
+    // does case-insensitive SUBSTRING matching by default, so an unscoped getByLabel("Day") now
+    // strict-mode-collides with those two buttons as well as the real <label>Day</label>. Same
+    // collision class, same fix shape, as every prior instance in ai-context/DECISIONS.md's
+    // "Copy to time" / getByLabel collision entries.
+    await page.getByLabel("Day", { exact: true }).fill(day);
 
     await expect(page.locator("section")).toHaveCount(2);
   });
@@ -325,7 +346,13 @@ test.describe("Phase 3 — protein % and ratio-of-sums (DB-seeded fixtures)", ()
     ]);
 
     await page.goto("/food");
-    await page.getByLabel("Day").fill(day);
+    // { exact: true } (2026-08-10): DayNavigator's chevron buttons now carry aria-label="Previous
+    // day"/"Next day" (icon-only, per that component's own doc comment) -- Playwright's getByLabel
+    // does case-insensitive SUBSTRING matching by default, so an unscoped getByLabel("Day") now
+    // strict-mode-collides with those two buttons as well as the real <label>Day</label>. Same
+    // collision class, same fix shape, as every prior instance in ai-context/DECISIONS.md's
+    // "Copy to time" / getByLabel collision entries.
+    await page.getByLabel("Day", { exact: true }).fill(day);
 
     await expect(page.locator("section")).toHaveCount(1);
     const group = page.locator("section");
@@ -423,7 +450,16 @@ test.describe("Food entry form — Clear button and edit/smart-default isolation
 
     // Add a brand-new entry via the ordinary smart-default flow (no explicit time change) -- this
     // becomes the tracker's reference point going forward.
-    await page.getByLabel("Name").fill("Fresh1");
+    //
+    // { exact: true } on every "Name" lookup below is REQUIRED, not decorative, once the entry is
+    // renamed to "OldEntryRenamed": that row's own icon-only row actions (2026-08-07, Phase 8g)
+    // carry aria-labels like "Log again OldEntryRenamed" -- and "OldEntryRenamed" contains "Name"
+    // as a case-insensitive substring ("...reNAMEd..."), so an unscoped getByLabel("Name") strict-
+    // mode-collides with those buttons the moment the renamed row is fully rendered (not being
+    // edited). Same collision class already documented in ai-context/DECISIONS.md's "Copy to time
+    // does not avoid a Playwright getByLabel collision..." entry -- exact:true, not scoping, is
+    // what actually fixes it here since the real <label>'s accessible name is the bare word "Name".
+    await page.getByLabel("Name", { exact: true }).fill("Fresh1");
     await page.getByLabel("Total calories").fill("10");
     await page.getByLabel("Total protein (g)").fill("1");
     await page.getByRole("button", { name: "Add entry" }).click();
@@ -431,14 +467,14 @@ test.describe("Food entry form — Clear button and edit/smart-default isolation
 
     // Edit the OLD entry -- change only its name, never its time.
     await page.locator("li", { hasText: "OldEntry" }).getByRole("button", { name: "Edit" }).click();
-    await page.getByLabel("Name").fill("OldEntryRenamed");
+    await page.getByLabel("Name", { exact: true }).fill("OldEntryRenamed");
     await page.getByRole("button", { name: "Save changes" }).click();
     await expect(page.getByText("OldEntryRenamed")).toBeVisible();
 
     // Add a second brand-new entry via the default flow again. If editing the old entry had
     // incorrectly moved the smart default backward to its (still-within-window) time, this would
     // default to -- and group with -- OldEntryRenamed instead of continuing to group with Fresh1.
-    await page.getByLabel("Name").fill("Fresh2");
+    await page.getByLabel("Name", { exact: true }).fill("Fresh2");
     await page.getByLabel("Total calories").fill("10");
     await page.getByLabel("Total protein (g)").fill("1");
     await page.getByRole("button", { name: "Add entry" }).click();

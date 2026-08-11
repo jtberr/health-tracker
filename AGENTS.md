@@ -133,6 +133,14 @@ to the `developer` — no design doc needed.
 **At the end of every session:**
 - Update `ai-context/PROGRESS.md` — move completed items to done, update what's in progress
 - Add any new decisions to `ai-context/DECISIONS.md` with the reasoning
+- **If the session's output is a design, not code** (an architect pass that produced a plan but no
+  implementation): `ai-context/PROGRESS.md` must say so explicitly — "Phase X designed, ready for
+  developer" — in Completed or Up Next, the same way Phase 8b/8c's designs were flagged. A decision
+  recorded only in `ai-context/DECISIONS.md`, with no matching PROGRESS.md pointer, is invisible to
+  whichever session picks up work next and will get silently skipped. This is exactly what happened
+  to Phase 8e/8f's 2026-08-05 design work — it sat unflagged until Jeff found it missing by testing
+  (2026-08-07, see `ai-context/PROGRESS.md`'s "Up Next" item 11). A design isn't done until the next
+  session can find it without reading `DECISIONS.md` cover to cover.
 
 **The AI has no memory between sessions.** PROGRESS.md is the handoff.
 

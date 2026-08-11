@@ -61,9 +61,9 @@ export function LoginForm() {
 
       <SubmitButton />
 
-      <p className="text-center text-sm text-stone-600">
+      <p className="text-center text-sm text-muted">
         No account?{" "}
-        <Link href="/signup" className="font-medium text-sage-deep underline">
+        <Link href="/signup" className="font-medium text-accent underline">
           Sign up
         </Link>
       </p>

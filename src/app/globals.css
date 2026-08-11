@@ -10,33 +10,59 @@
  */
 @source "../";
 
+/* Phase 8i (2026-08-09/10): "Visual identity v2" -- cool canvas + blue/orange accents, no serif,
+ * an explicit reversal of the 2026-07-25 warm-paper + sage/clay identity's PALETTE and TYPOGRAPHY
+ * (its STRUCTURE -- tokens here, primitives in components/ui/, no raw hex in components -- stands
+ * unchanged; see ai-context/DECISIONS.md's Phase 8i entry for the full nine-token contrast table
+ * and reasoning). Nine tokens replace six. */
 :root {
-  --paper: #fbf8f1;
-  --ink: #23211c;
-  --sage: #a9be8c;
-  --sage-deep: #5c7444;
-  --sage-pale: #e3ead6;
-  --clay: #c97452;
-  --background: var(--paper);
+  --canvas: #f1f5f9;
+  --surface: #ffffff;
+  --ink: #0f172a;
+  --muted: #475569;
+  --line: #cbd5e1;
+  --line-strong: #64748b;
+  --accent: #1d4ed8;
+  --accent-soft: #dbeafe;
+  --accent-warm: #c2410c;
+  --background: var(--canvas);
   --foreground: var(--ink);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-paper: var(--paper);
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
   --color-ink: var(--ink);
-  --color-sage: var(--sage);
-  --color-sage-deep: var(--sage-deep);
-  --color-sage-pale: var(--sage-pale);
-  --color-clay: var(--clay);
-  --font-sans: var(--font-geist-sans);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-warm: var(--accent-warm);
+  --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
-  --font-serif: var(--font-fraunces);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Phase 8d (2026-08-05) — `components/ui/Tooltip.tsx`'s "does not render on touch at all" rule.
+ * A CSS capability query, deliberately NOT user-agent sniffing and NOT a JS `ontouchstart` test
+ * (both misclassify hybrid laptops with both a touchscreen and a precise pointer). The tooltip
+ * `<div>` is always present in the DOM once its trigger is open/hovered/focused (so
+ * `aria-describedby` always resolves to a real element) but stays `display: none` — and therefore
+ * not "visible" to any test/assistive-tech query — everywhere except a genuine hover-capable,
+ * fine-pointer device with the tooltip's own `data-open="true"`. See Tooltip.tsx's doc comment. */
+.tooltip-panel {
+  display: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .tooltip-panel[data-open="true"] {
+    display: block;
+  }
 }

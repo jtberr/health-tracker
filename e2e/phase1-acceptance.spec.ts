@@ -64,11 +64,11 @@ test.describe("session lifecycle (independent)", () => {
     await page.getByRole("button", { name: "Log in" }).click();
   }
 
-  test("valid login reaches the dashboard (unambiguous signal: Log out control)", async ({
+  test("valid login reaches /food (Phase 8h: the dashboard route redirects there; unambiguous signal: Log out control)", async ({
     page,
   }) => {
     await logIn(page, user.email, user.password);
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL("/food");
     await expect(page.getByRole("button", { name: "Log out" })).toBeVisible();
     // Email shown in the nav specifically (role-scoped to avoid the body duplicate).
     await expect(page.getByRole("navigation").getByText(user.email)).toBeVisible();
@@ -76,18 +76,18 @@ test.describe("session lifecycle (independent)", () => {
 
   test("session persists across a full reload", async ({ page }) => {
     await logIn(page, user.email, user.password);
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL("/food");
     await page.reload();
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL("/food");
     await expect(page.getByRole("button", { name: "Log out" })).toBeVisible();
   });
 
   test("session persists when navigating away and back to a protected route", async ({ page }) => {
     await logIn(page, user.email, user.password);
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL("/food");
     await page.goto("/login"); // visit an unauthenticated page
     await page.goto("/"); // come back — middleware-refreshed cookie should still authenticate
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL("/food");
     await expect(page.getByRole("button", { name: "Log out" })).toBeVisible();
   });
 
@@ -96,19 +96,19 @@ test.describe("session lifecycle (independent)", () => {
     browser,
   }) => {
     await logIn(page, user.email, user.password);
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL("/food");
     const storage = await page.context().storageState();
     const ctx2 = await browser.newContext({ storageState: storage });
     const page2 = await ctx2.newPage();
     await page2.goto("/");
-    await expect(page2).toHaveURL("/");
+    await expect(page2).toHaveURL("/food");
     await expect(page2.getByRole("button", { name: "Log out" })).toBeVisible();
     await ctx2.close();
   });
 
   test("logging out clears the session and re-gates protected routes", async ({ page }) => {
     await logIn(page, user.email, user.password);
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL("/food");
     await page.getByRole("button", { name: "Log out" }).click();
     await expect(page).toHaveURL(/\/login$/);
     await page.goto("/");

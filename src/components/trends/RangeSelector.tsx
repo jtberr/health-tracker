@@ -12,7 +12,7 @@ import { TREND_RANGES, type TrendRange } from "@/lib/domain/trends";
  */
 export function RangeSelector({ range }: { range: TrendRange }) {
   return (
-    <div className="inline-flex w-fit items-center gap-1 rounded-full border border-stone-200 bg-white p-1 shadow-sm">
+    <div className="inline-flex w-fit items-center gap-1 rounded-full border border-line bg-white p-1 shadow-sm">
       {TREND_RANGES.map((option) => {
         const isActive = option === range;
         return (
@@ -21,7 +21,7 @@ export function RangeSelector({ range }: { range: TrendRange }) {
             href={`/trends?range=${option}`}
             aria-current={isActive ? "page" : undefined}
             className={`rounded-full px-3 py-1.5 text-sm font-medium transition-colors ${
-              isActive ? "bg-sage-pale text-ink" : "text-stone-600 hover:bg-stone-100 hover:text-ink"
+              isActive ? "bg-accent-soft text-ink" : "text-muted hover:bg-slate-100 hover:text-ink"
             }`}
           >
             {option}d

@@ -5,7 +5,7 @@ import { useFormStatus } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { queryTimeoutSignal } from "@/lib/supabase/query-timeout";
 import { logMealForDay, type LogMealActionState } from "@/lib/actions/meals";
-import { floorToQuarterHour, quarterHourOptions } from "@/lib/domain/datetime";
+import { floorToQuarterHour, quarterHourOptionGroups } from "@/lib/domain/datetime";
 import { groupMealItemsByMeal } from "@/lib/domain/meal-items";
 import { sortMealsByName } from "@/lib/domain/meals";
 import { sumEntries } from "@/lib/domain/totals";
@@ -14,8 +14,8 @@ import { errorTextClass, inputClass, labelClass } from "@/components/ui/styles";
 import type { FoodEntry, Meal, MealItem } from "@/lib/types";
 
 const initialActionState: LogMealActionState = { ok: false, error: null };
-/** Static — the same 96 buckets regardless of date/tz — so it's built once at module scope. */
-const TIME_OPTIONS = quarterHourOptions();
+/** Static — the same 3 <optgroup>s regardless of date/tz (Phase 8e) — built once at module scope. */
+const TIME_OPTION_GROUPS = quarterHourOptionGroups();
 
 export type LogMealDialogProps = {
   /** The day currently being viewed on `/food` — the dialog's date defaults here. Omit (fixed-meal
@@ -34,12 +34,17 @@ export type LogMealDialogProps = {
    * keeps the date/time fields, the `logMealForDay` error-code→message mapping, the cap wiring and
    * the tz handling in exactly one place — see ai-context/DECISIONS.md's Phase 8c entry. */
   meal?: Meal;
-  /** Phase 8c: the parent (`MealList`) owns whether this expander is rendered at all — mirroring
-   * `FoodEntryList`'s group-action expanders (`SaveGroupAsMealDialog`/`CopyGroupDialog`) — so a
-   * dismiss click calls this instead of an internal open/close toggle. Only meaningful (and only
-   * read) when `meal` is supplied; `/food`'s self-toggling usage manages its own open/close state
-   * internally and does not pass this. */
-  onCancel?: () => void;
+  /** Phase 8k: REQUIRED in every mode now, not just fixed-meal mode. This component is panel-only
+   * regardless of `meal` — it owns no `open` state of its own — so every caller supplies the trigger
+   * AND owns visibility (`MealList`'s `cardAction` for fixed-meal mode, unchanged since Phase 8c;
+   * `FoodDayView`'s `dayAction` for picker mode, new in Phase 8k — see `DayActionBar.tsx` and
+   * `ai-context/DECISIONS.md`'s "The `/food` day-action surface..." entry). Previously picker mode
+   * self-toggled via an internal `open` boolean and rendered its own collapsed-button branch; that
+   * was the root cause of a real layout bug (opening this or `CopyDayDialog` from the same flex row
+   * as their own trigger turned that flex item full-width, wrapping every trigger *after* it below
+   * the open panel) — moving both onto the panel-only shape `CopyGroupDialog`/`SaveGroupAsMealDialog`
+   * already had fixes it structurally rather than with a smarter layout hint. */
+  onCancel: () => void;
 };
 
 function SubmitButton() {
@@ -51,34 +56,58 @@ function SubmitButton() {
   );
 }
 
+/** One picker `<option>` — factored out since it's now rendered from up to two different filtered
+ * lists (Phase 8f's pinned/unpinned `<optgroup>`s) as well as the flat no-pinned-meals case, and
+ * must render byte-identically in all three so 7c's name-first label invariant can't drift between
+ * them. The meal name comes first, before the kcal/item-count parenthetical (native type-ahead
+ * prefix-matches the option's text). */
+function MealOption({ meal, items }: { meal: Meal; items: MealItem[] }) {
+  const totals = sumEntries(items);
+  return (
+    <option value={meal.id}>
+      {meal.name} ({totals.calories} kcal, {items.length} item{items.length === 1 ? "" : "s"})
+    </option>
+  );
+}
+
 /**
  * Pick a saved meal + date/time and log it as a batch of `food_entries` (design doc §3.1/§8
  * Phase 7 `food/LogMealDialog.tsx`), via the `logMealForDay` server action.
  *
- * Implemented as an inline expand/collapse panel — matching the existing `FoodLookupPanel`/
- * "Add detail" expander convention already used on `/food` — rather than a native `<dialog>` or a
- * modal overlay: this codebase has no modal precedent yet, and the expander keeps this screen's
- * interaction pattern consistent instead of introducing a new one for a single feature.
+ * Implemented as a panel expander — matching the existing `FoodLookupPanel`/"Add detail" expander
+ * convention already used on `/food` — rather than a native `<dialog>` or a modal overlay: this
+ * codebase has no modal precedent yet, and the expander keeps this screen's interaction pattern
+ * consistent instead of introducing a new one for a single feature.
  *
  * Fetches the user's meals independently of `MealsView` on `/meals` (same "each screen owns its
- * own read" convention as `TodaySummary`/`FoodDayView`/`TrendsView`) — only while open, so a page
- * load of `/food` never pays for a saved-meals read the user may not use that visit. **Fixed-meal
- * mode (`meal` prop supplied, Phase 8c) skips this fetch entirely** — there is nothing to pick,
- * so there is nothing to load.
+ * own read" convention as `TodaySummary`/`FoodDayView`/`TrendsView`) — only while mounted, so a
+ * page load of `/food` never pays for a saved-meals read the user may not use that visit.
+ * **Fixed-meal mode (`meal` prop supplied, Phase 8c) skips this fetch entirely** — there is
+ * nothing to pick, so there is nothing to load.
  *
- * Two distinct rendering shapes, controlled by whether `meal` is supplied:
- *  - **Picker mode** (`/food`, `meal` omitted): self-toggling — renders its own "Log a saved meal"
- *    trigger button, then (once clicked) a bordered card with a header/"Close" button, a meals
- *    fetch with its own loading/error/empty states, and the `<select>` meal picker.
- *  - **Fixed-meal mode** (`/meals`'s `MealList`, `meal` supplied): the parent already renders the
- *    card chrome and its own toggle button (mirroring `FoodEntryList`'s "Save as meal"/"Cancel"
- *    toggle for `SaveGroupAsMealDialog`), so this renders ONLY the form body — the meal's name as
- *    static text instead of a picker, plus a bottom "Cancel" button (calling `onCancel`) alongside
- *    Submit, matching `SaveGroupAsMealDialog`/`CopyGroupDialog`'s own bottom Submit+Cancel row
- *    rather than duplicating a second dismiss affordance inside this component.
+ * **Panel-only in EVERY mode (Phase 8k)** — this component owns no `open`/visibility state of its
+ * own in either mode and renders no trigger button; the caller mounts it only while it should be
+ * shown, and unmounts it (by no longer rendering it) to close it:
+ *  - **Picker mode** (`/food`, `meal` omitted): `FoodDayView` renders the "Log a saved meal"
+ *    trigger (inside `DayActionBar`) and, only while its own `dayAction === "logMeal"`, this
+ *    component wrapped in `ActionPanel heading="Log a saved meal"` — the identical shape
+ *    fixed-meal mode already had. Before Phase 8k this self-toggled via an internal `open` boolean
+ *    and rendered its own collapsed-button branch and `ActionPanel` wrap; that fused shape (a
+ *    component laying out its own trigger AND panel from the same position in `FoodDayView`'s flex
+ *    row) was the root cause of a real layout bug — opening this (or `CopyDayDialog`, the other
+ *    self-toggling component in that row) turned that row's flex item full-width, wrapping every
+ *    trigger *after* it below the open panel. See `DayActionBar.tsx` and
+ *    `ai-context/DECISIONS.md`'s "The `/food` day-action surface..." entry.
+ *  - **Fixed-meal mode** (`/meals`'s `MealList`, `meal` supplied): unchanged since Phase 8c — the
+ *    parent already renders the card chrome, its own toggle button, and its own `ActionPanel`
+ *    wrapper (mirroring `FoodEntryList`'s "Save as meal"/"Copy this group" pattern), so this
+ *    renders ONLY the form body — the meal's name as static text instead of a picker.
+ *
+ * Both modes end with the same bottom Submit+Cancel row (`SaveGroupAsMealDialog`/
+ * `CopyGroupDialog`'s convention) — Cancel always calls the caller's `onCancel`, which is what
+ * closes this panel in either mode now.
  */
 export function LogMealDialog({ selectedDate, today, tz, onLogged, meal, onCancel }: LogMealDialogProps) {
-  const [open, setOpen] = useState(false);
   const [supabase] = useState(() => createClient());
   const [meals, setMeals] = useState<Meal[]>([]);
   const [itemsByMeal, setItemsByMeal] = useState<Record<string, MealItem[]>>({});
@@ -98,7 +127,10 @@ export function LogMealDialog({ selectedDate, today, tz, onLogged, meal, onCance
 
   useEffect(() => {
     // Fixed-meal mode never fetches — there's no picker to populate (see the module doc comment).
-    if (isFixedMeal || !open) return;
+    // Phase 8k: this component is now mounted by the caller only while it should be shown, so
+    // there's no separate `open` gate to check here anymore — every mount of picker mode wants
+    // this fetch to run.
+    if (isFixedMeal) return;
     let cancelled = false;
     (async () => {
       // Inside an async closure, not the synchronous effect body itself, so these setState calls
@@ -140,34 +172,21 @@ export function LogMealDialog({ selectedDate, today, tz, onLogged, meal, onCance
     return () => {
       cancelled = true;
     };
-  }, [isFixedMeal, open, supabase]);
+  }, [isFixedMeal, supabase]);
 
   useEffect(() => {
     if (state.ok && state.entries) {
-      // Closes this panel and hands the logged entries up to the caller on a successful submit —
-      // the same "react to the action's settled state" pattern `FoodEntryForm`/`MetricForm` use
-      // for their own `onSaved` effects. In picker mode `setOpen` is local-only (unlike those,
-      // which only call a callback prop), so it needs its own suppression; in fixed-meal mode
-      // there's no `open` state to reset — the parent (`MealList`) owns visibility and closes this
-      // itself in its own `onLogged` handler, mirroring how `FoodEntryList` closes
-      // `SaveGroupAsMealDialog`/`CopyGroupDialog` from ITS OWN `onSaved`/`onCopied` handlers rather
-      // than from inside those components.
-      if (!isFixedMeal) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setOpen(false);
-      }
+      // Hands the logged entries up to the caller on a successful submit — the same "react to the
+      // action's settled state" pattern `FoodEntryForm`/`MetricForm` use for their own `onSaved`
+      // effects. Phase 8k: there's no local `open` state to reset in EITHER mode anymore — the
+      // caller owns visibility in both (`FoodDayView`'s `dayAction` for picker mode, `MealList`'s
+      // `cardAction` for fixed-meal mode) and closes this from its own `onLogged` handler, the same
+      // pattern `FoodEntryList` already uses to close `SaveGroupAsMealDialog`/`CopyGroupDialog` from
+      // ITS OWN `onSaved`/`onCopied` handlers rather than from inside those components.
       onLogged(state.entries);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
-
-  if (!isFixedMeal && !open) {
-    return (
-      <Button type="button" variant="secondary" onClick={() => setOpen(true)} className="self-start">
-        Log a saved meal
-      </Button>
-    );
-  }
 
   // Shared between both modes — the ONLY thing that differs between them is the meal picker vs.
   // static name (below) and the surrounding chrome (further below). Assembled once so the
@@ -199,15 +218,31 @@ export function LogMealDialog({ selectedDate, today, tz, onLogged, meal, onCance
             <option value="" disabled>
               Choose a meal...
             </option>
-            {meals.map((option) => {
-              const items = itemsByMeal[option.id] ?? [];
-              const totals = sumEntries(items);
-              return (
-                <option key={option.id} value={option.id}>
-                  {option.name} ({totals.calories} kcal, {items.length} item{items.length === 1 ? "" : "s"})
-                </option>
-              );
-            })}
+            {/* Phase 8f: "Pinned" / "All meals" <optgroup>s, ONLY when something is pinned --
+                the same portable-content mechanism as Phase 8e's time-picker grouping, for the
+                same <option>-CSS reason. `meals` is already sortMealsByName-ordered (pinned-first,
+                then alphabetical within each block), so a plain filter below preserves that order
+                inside each optgroup -- 7c's name-first label invariant is untouched either way
+                (optgroups don't alter option text, so native type-ahead still prefix-matches the
+                meal name). */}
+            {meals.some((option) => option.is_pinned) ? (
+              <>
+                <optgroup label="Pinned">
+                  {meals.filter((option) => option.is_pinned).map((option) => (
+                    <MealOption key={option.id} meal={option} items={itemsByMeal[option.id] ?? []} />
+                  ))}
+                </optgroup>
+                <optgroup label="All meals">
+                  {meals.filter((option) => !option.is_pinned).map((option) => (
+                    <MealOption key={option.id} meal={option} items={itemsByMeal[option.id] ?? []} />
+                  ))}
+                </optgroup>
+              </>
+            ) : (
+              meals.map((option) => (
+                <MealOption key={option.id} meal={option} items={itemsByMeal[option.id] ?? []} />
+              ))
+            )}
           </select>
           {state.fieldErrors?.mealId && <p className={errorTextClass}>{state.fieldErrors.mealId}</p>}
         </div>
@@ -242,11 +277,22 @@ export function LogMealDialog({ selectedDate, today, tz, onLogged, meal, onCance
             defaultValue={defaultTime}
             className={`${inputClass} tabular-nums`}
           >
-            {TIME_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value} className="tabular-nums">
-                {option.label}
-              </option>
-            ))}
+            {/* Bugfix (2026-08-10): <optgroup> dropped entirely (not just its label) -- a
+                headless <optgroup> still reserves a blank row in Chromium. See FoodEntryForm.tsx's
+                identical comment, the one source of truth for this reasoning; kept in sync
+                manually since TIME_OPTION_GROUPS/the option markup is duplicated per call site,
+                not shared. */}
+            {TIME_OPTION_GROUPS.flatMap((group) =>
+              group.options.map((option) => (
+                <option
+                  key={option.value}
+                  value={option.value}
+                  className={group.deEmphasized ? "tabular-nums bg-slate-100" : "tabular-nums"}
+                >
+                  {option.label}
+                </option>
+              )),
+            )}
           </select>
           {state.fieldErrors?.logTime && <p className={errorTextClass}>{state.fieldErrors.logTime}</p>}
         </div>
@@ -270,45 +316,46 @@ export function LogMealDialog({ selectedDate, today, tz, onLogged, meal, onCance
 
       <div className="flex items-center gap-2 pt-1">
         <SubmitButton />
-        {meal && (
-          <Button type="button" variant="secondary" onClick={() => onCancel?.()}>
-            Cancel
-          </Button>
-        )}
+        {/* Cancel/Close is rendered in BOTH modes (unchanged since Phase 8f) -- now ALWAYS calling
+            the caller's `onCancel` in both modes (Phase 8k), since neither mode owns any `open`
+            state of its own to close anymore. */}
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
       </div>
     </form>
   );
 
   if (meal) {
-    // Fixed-meal mode: the parent (`MealList`) already provides the card chrome and its own
-    // toggle button (see the module doc comment) — render only the form body.
+    // Fixed-meal mode: the parent (`MealList`) already provides the card chrome, its own toggle
+    // button, and its own `ActionPanel` wrapper (see the module doc comment) — render only the
+    // form body.
     return formBody;
   }
 
-  return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-ink">Log a saved meal</p>
-        <button
-          type="button"
-          onClick={() => setOpen(false)}
-          className="text-sm font-medium text-stone-500 hover:text-stone-700"
-        >
-          Close
-        </button>
-      </div>
+  // Picker mode: the caller (`FoodDayView`) wraps this in `ActionPanel heading="Log a saved meal"`
+  // itself, exactly as it wraps every other day-level/bulk expander (Phase 8k) -- this renders only
+  // the loading/error/empty/form content. The loading/error/empty states get a lightweight "Close"
+  // fallback (the form's own Cancel row above only exists once `formBody` itself renders), so the
+  // panel is always dismissable regardless of fetch state.
+  const canShowForm = !loading && !loadError && meals.length > 0;
 
-      {loading ? (
-        <p className="text-sm text-stone-500">Loading your saved meals…</p>
-      ) : loadError ? (
-        <p className={errorTextClass}>Couldn&apos;t load your saved meals.</p>
-      ) : meals.length === 0 ? (
-        <p className="text-sm text-stone-500">
+  return (
+    <>
+      {loading && <p className="text-sm text-muted">Loading your saved meals…</p>}
+      {!loading && loadError && <p className={errorTextClass}>Couldn&apos;t load your saved meals.</p>}
+      {!loading && !loadError && meals.length === 0 && (
+        <p className="text-sm text-muted">
           You don&apos;t have any saved meals yet — create one on the Meals page.
         </p>
-      ) : (
-        formBody
       )}
-    </div>
+      {canShowForm ? (
+        formBody
+      ) : (
+        <Button type="button" variant="secondary" size="sm" onClick={onCancel} className="self-start">
+          Close
+        </Button>
+      )}
+    </>
   );
 }

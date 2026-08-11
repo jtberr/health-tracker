@@ -2,13 +2,13 @@
 
 import { useState, type FormEvent } from "react";
 import { copyFoodEntries } from "@/lib/actions/food";
-import { formatTimeLabel, quarterHourOptions } from "@/lib/domain/datetime";
+import { formatTimeLabel, quarterHourOptionGroups } from "@/lib/domain/datetime";
 import { Button } from "@/components/ui/Button";
 import { errorTextClass, inputClass, labelClass } from "@/components/ui/styles";
 import type { FoodEntry } from "@/lib/types";
 
-/** Static — the same 96 buckets regardless of date/tz — so it's built once at module scope. */
-const TIME_OPTIONS = quarterHourOptions();
+/** Static — the same 3 <optgroup>s regardless of date/tz (Phase 8e) — built once at module scope. */
+const TIME_OPTION_GROUPS = quarterHourOptionGroups();
 
 export type CopyGroupDialogProps = {
   /** The entries to copy — display-only preview; the action always re-reads these rows from the
@@ -112,11 +112,11 @@ export function CopyGroupDialog({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-3" noValidate autoComplete="off">
-      <div className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2">
-        <p className="text-xs font-medium text-stone-500">
+      <div className="rounded-lg border border-line bg-slate-50 px-3 py-2">
+        <p className="text-xs font-medium text-muted">
           {entries.length} item{entries.length === 1 ? "" : "s"} to copy
         </p>
-        <ul className="mt-1 flex flex-col gap-0.5 text-sm text-stone-600">
+        <ul className="mt-1 flex flex-col gap-0.5 text-sm text-muted">
           {entries.map((entry) => (
             <li key={entry.id}>
               {entry.quantity !== 1 || entry.unit
@@ -155,12 +155,25 @@ export function CopyGroupDialog({
             onChange={(e) => setToTime(e.target.value)}
             className={`${inputClass} tabular-nums`}
           >
+            {/* The sentinel is NOT a time -- it stays OUTSIDE and above every <optgroup> (design
+                doc §3.4/§6 Phase 8e), so it can never be mistaken for one of the 96 real values. */}
             <option value="">{spansMultipleInstants ? "Keep original times" : "Keep original time"}</option>
-            {TIME_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value} className="tabular-nums">
-                {option.label}
-              </option>
-            ))}
+            {/* Bugfix (2026-08-10): <optgroup> dropped entirely (not just its label) -- a
+                headless <optgroup> still reserves a blank row in Chromium. See FoodEntryForm.tsx's
+                identical comment, the one source of truth for this reasoning; kept in sync
+                manually since TIME_OPTION_GROUPS/the option markup is duplicated per call site,
+                not shared. */}
+            {TIME_OPTION_GROUPS.flatMap((group) =>
+              group.options.map((option) => (
+                <option
+                  key={option.value}
+                  value={option.value}
+                  className={group.deEmphasized ? "tabular-nums bg-slate-100" : "tabular-nums"}
+                >
+                  {option.label}
+                </option>
+              )),
+            )}
           </select>
         </div>
       </div>
@@ -168,7 +181,7 @@ export function CopyGroupDialog({
       {/* Disclose the grouping consequence ONLY when it can actually differ -- a single-group
           copy produces one group either way, so the note would be vacuous there (§3.4). */}
       {spansMultipleInstants && (
-        <p className="text-xs text-stone-500">
+        <p className="text-xs text-muted">
           {toTime
             ? `All ${entries.length} entries will be copied to ${formatTimeLabel(toTime)} as a single meal group.`
             : "Each entry keeps its own time of day."}

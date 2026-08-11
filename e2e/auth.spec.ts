@@ -40,16 +40,18 @@ test.describe("login / logout / persistent session", () => {
     await deleteTestUser(user.id);
   });
 
-  test("logging in with valid credentials reaches the dashboard", async ({ page }) => {
+  test("logging in with valid credentials reaches /food (the dashboard route redirects there, Phase 8h)", async ({
+    page,
+  }) => {
     await page.goto("/login");
     await page.getByLabel("Email").fill(user.email);
     await page.getByLabel("Password").fill(user.password);
     await page.getByRole("button", { name: "Log in" }).click();
 
-    await expect(page).toHaveURL("/");
-    // The email renders both in the nav and the dashboard body, so getByText(user.email) is
-    // ambiguous (Playwright strict mode). The "Log out" control is unique and just as clear a
-    // signal that login succeeded and the dashboard rendered.
+    await expect(page).toHaveURL("/food");
+    // The email renders both in the nav and elsewhere on the page in some flows, so
+    // getByText(user.email) is ambiguous (Playwright strict mode). The "Log out" control is
+    // unique and just as clear a signal that login succeeded and the app shell rendered.
     await expect(page.getByRole("button", { name: "Log out" })).toBeVisible();
   });
 
@@ -68,11 +70,11 @@ test.describe("login / logout / persistent session", () => {
     await page.getByLabel("Email").fill(user.email);
     await page.getByLabel("Password").fill(user.password);
     await page.getByRole("button", { name: "Log in" }).click();
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL("/food");
 
     await page.reload();
 
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL("/food");
     // See note above: scope to "Log out" rather than the ambiguous email text.
     await expect(page.getByRole("button", { name: "Log out" })).toBeVisible();
   });
@@ -82,12 +84,14 @@ test.describe("login / logout / persistent session", () => {
     await page.getByLabel("Email").fill(user.email);
     await page.getByLabel("Password").fill(user.password);
     await page.getByRole("button", { name: "Log in" }).click();
-    await expect(page).toHaveURL("/");
+    await expect(page).toHaveURL("/food");
 
     await page.getByRole("button", { name: "Log out" }).click();
     await expect(page).toHaveURL(/\/login$/);
 
-    // Confirm the session is really gone, not just the current page's UI state.
+    // Confirm the session is really gone, not just the current page's UI state. Visits "/",
+    // which — for an authenticated user — would redirect to "/food" (Phase 8h); for a logged-out
+    // one it must still be gated to /login.
     await page.goto("/");
     await expect(page).toHaveURL(/\/login$/);
   });

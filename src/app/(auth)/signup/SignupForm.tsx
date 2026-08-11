@@ -24,9 +24,9 @@ export function SignupForm() {
   if (state.info) {
     return (
       <div className="flex flex-col gap-3 text-center">
-        <h1 className="font-serif text-2xl font-semibold text-ink">Almost there</h1>
-        <p className="text-sm text-stone-600">{state.info}</p>
-        <Link href="/login" className="text-sm font-medium text-sage-deep underline">
+        <h1 className="text-2xl font-semibold text-ink">Almost there</h1>
+        <p className="text-sm text-muted">{state.info}</p>
+        <Link href="/login" className="text-sm font-medium text-accent underline">
           Back to log in
         </Link>
       </div>
@@ -91,9 +91,9 @@ export function SignupForm() {
 
       <SubmitButton />
 
-      <p className="text-center text-sm text-stone-600">
+      <p className="text-center text-sm text-muted">
         Already have an account?{" "}
-        <Link href="/login" className="font-medium text-sage-deep underline">
+        <Link href="/login" className="font-medium text-accent underline">
           Log in
         </Link>
       </p>

@@ -16,7 +16,7 @@ export default async function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <h1 className="font-serif text-2xl font-semibold tracking-tight text-ink">Settings</h1>
+      <h1 className="text-2xl font-semibold tracking-tight text-ink">Settings</h1>
       {goals ? (
         <SettingsForm initialGoals={goals} />
       ) : (

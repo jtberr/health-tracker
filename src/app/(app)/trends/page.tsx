@@ -25,7 +25,7 @@ export default async function TrendsPage({
 
   return (
     <div className="flex flex-col gap-5">
-      <h1 className="font-serif text-2xl font-semibold tracking-tight text-ink">Trends</h1>
+      <h1 className="text-2xl font-semibold tracking-tight text-ink">Trends</h1>
       <TrendsView
         range={range}
         weightUnit={goals?.weight_unit ?? "kg"}

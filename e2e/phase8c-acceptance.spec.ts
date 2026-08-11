@@ -23,7 +23,7 @@ async function logIn(page: Page, user: TestUser) {
   await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/food");
 }
 
 function todayUtc(): string {
@@ -102,7 +102,18 @@ function flooredNow(): string {
 }
 
 async function openLogExpander(page: Page, mealName: string) {
-  const cards = page.locator("div").filter({ has: page.getByRole("button", { name: "Log this meal" }) });
+  // Bugfix (2026-08-10): scoped to `div.shadow-sm` (a class unique to `Card`'s own rendered root,
+  // per Card.tsx -- the header `<div>` inside it also matches "has Log this meal" + the meal name
+  // text, but does NOT carry `shadow-sm`) rather than relying on `.last()` picking the innermost
+  // matching div by document order. That implicit assumption happened to resolve to the header div
+  // specifically, which broke every caller of this helper the moment MealList.tsx moved its
+  // expand/collapse chevron to be a sibling of the header rather than a descendant of it (Jeff's
+  // direct request, see ai-context/DECISIONS.md) -- callers that then searched within `target` for
+  // that chevron, or for anything else outside the header, silently timed out. Scoping to the real
+  // card root fixes this at the root instead of re-guessing `.last()`/`.first()`.
+  const cards = page
+    .locator("div.shadow-sm")
+    .filter({ has: page.getByRole("button", { name: "Log this meal" }) });
   const target = cards.filter({ hasText: mealName }).last();
   await target.getByRole("button", { name: "Log this meal" }).click();
   await expect(page.locator("#log-meal-date")).toBeVisible();
@@ -326,10 +337,18 @@ test.describe("Phase8c QA: logging a saved meal from /meals", () => {
     await expect(page.getByText("QA8c Zebra oats")).toHaveCount(0);
 
     // Collapse ONE card so there is a non-default expansion state to preserve.
-    const cards = page.locator("div").filter({ has: page.getByRole("button", { name: "Log this meal" }) });
+    // Bugfix (2026-08-10): the expand/collapse control is now an icon-only chevron named
+    // "Hide items for <meal>"/"Show items for <meal>" (was a plain "Hide items"/"Manage items"
+    // text button) -- prefix regex, robust to the exact meal name. Also scoped to `div.shadow-sm`
+    // (the real Card root, not the header div) -- see openLogExpander's identical comment above
+    // for why: the chevron now lives OUTSIDE the header div (a sibling, in the white gap below
+    // it), so a `salad` scoped to just the header can no longer find it at all.
+    const cards = page
+      .locator("div.shadow-sm")
+      .filter({ has: page.getByRole("button", { name: "Log this meal" }) });
     const salad = cards.filter({ hasText: "QA8c Chicken salad" }).last();
-    await salad.getByRole("button", { name: "Hide items" }).click();
-    await expect(salad.getByRole("button", { name: "Manage items" })).toBeVisible();
+    await salad.getByRole("button", { name: /^Hide items/ }).click();
+    await expect(salad.getByRole("button", { name: /^Show items/ })).toBeVisible();
     await expect(page.getByText("QA8c CS1")).toHaveCount(0);
 
     // Count Supabase reads from here on -- a refetch would show up as new /rest/v1 requests.
@@ -349,7 +368,7 @@ test.describe("Phase8c QA: logging a saved meal from /meals", () => {
     await expect(page.getByLabel("Filter meals")).toHaveValue("chicken");
     await expect(page.getByText("Showing 2 of 3")).toBeVisible();
     await expect(page.getByText("QA8c Zebra oats")).toHaveCount(0);
-    await expect(salad.getByRole("button", { name: "Manage items" })).toBeVisible();
+    await expect(salad.getByRole("button", { name: /^Show items/ })).toBeVisible();
     await expect(page.getByText("QA8c CS1")).toHaveCount(0);
     // The other card is still expanded.
     await expect(page.getByText("QA8c CB1")).toBeVisible();
@@ -374,6 +393,15 @@ test.describe("Phase8c QA: logging a saved meal from /meals", () => {
     await page.goto("/meals");
     await expect(page.getByRole("button", { name: "Log this meal" })).toBeVisible();
 
+    // Bugfix (2026-08-10, second pass): "Rename" and the pin both moved OUT of this row entirely
+    // (Rename sits next to the meal name; pin is absolutely positioned in the header's own
+    // top-right corner) -- neither was ever a member of this row even under the first bugfix pass
+    // above. The expand/collapse chevron ALSO moved out, a second time, from inside the header's
+    // own corner (this row's immediate context) to a genuine sibling row below the whole header,
+    // in the white gap -- so it's no longer a descendant of `rowEl` (this row div) at all, and the
+    // `lastAriaLabel` check from the first pass no longer has anything to find. Re-derived once
+    // more against what's actually still true: this row is now exactly three text buttons, "Log
+    // this meal" first, with "Duplicate"/"Delete" the other two members and nothing else.
     const labels = await page.evaluate(() => {
       const btn = Array.from(document.querySelectorAll("button")).find(
         (b) => (b.textContent ?? "").trim() === "Log this meal",
@@ -383,10 +411,7 @@ test.describe("Phase8c QA: logging a saved meal from /meals", () => {
         ? Array.from(rowEl.querySelectorAll("button")).map((b) => (b.textContent ?? "").trim())
         : [];
     });
-    expect(labels[0]).toBe("Log this meal");
-    expect(labels).toContain("Hide items");
-    expect(labels).toContain("Rename");
-    expect(labels).toContain("Delete");
+    expect(labels).toEqual(["Log this meal", "Duplicate", "Delete"]);
   });
 
   test("/food's own LogMealDialog picker path is unregressed by the new fixed-meal mode", async ({ page }) => {
@@ -396,8 +421,14 @@ test.describe("Phase8c QA: logging a saved meal from /meals", () => {
     await page.goto("/food");
     await page.getByRole("button", { name: "Log a saved meal" }).click();
 
-    // Still a real picker with the placeholder option, not a fixed meal.
-    const picker = page.getByLabel("Meal");
+    // Still a real picker with the placeholder option, not a fixed meal. Scoped with { exact:
+    // true } (Phase 8f): the open panel is now wrapped in `ActionPanel heading="Log a saved
+    // meal"`, whose `role="region" aria-labelledby=...` gives it an accessible name that CONTAINS
+    // "Meal" as a case-insensitive substring -- an unscoped `getByLabel("Meal")` therefore matches
+    // both the region and the real <select>, exactly the same class of collision already recorded
+    // in ai-context/DECISIONS.md's "Copy to time does not avoid a Playwright getByLabel
+    // collision..." entry.
+    const picker = page.getByLabel("Meal", { exact: true });
     await expect(picker).toBeVisible();
     await expect(picker.locator("option")).toHaveCount(2);
     await picker.selectOption({ index: 1 });

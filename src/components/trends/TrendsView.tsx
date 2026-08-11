@@ -129,14 +129,14 @@ export function TrendsView({ range, weightUnit, calorieGoal, proteinGoal }: Tren
       <RangeSelector range={range} />
 
       {today === null || loading ? (
-        <p className="text-sm text-stone-500">Loading…</p>
+        <p className="text-sm text-muted">Loading…</p>
       ) : loadError ? (
         <div className="flex items-center gap-3">
           <p className="text-sm text-red-600">Couldn&apos;t load trend data.</p>
           <button
             type="button"
             onClick={() => setRetryCount((n) => n + 1)}
-            className="text-sm font-medium text-sage-deep hover:text-sage-deep/80"
+            className="text-sm font-medium text-accent hover:text-accent/80"
           >
             Retry
           </button>

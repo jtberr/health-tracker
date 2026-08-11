@@ -29,6 +29,15 @@ import { CHART_GRID_COLOR, CHART_TICK_COLOR, formatAxisDate, formatTooltipDate }
  * on each `ReferenceLine` extends the axis to include it, since Recharts' `"auto"` Y-axis domain is
  * otherwise computed only from the `Line` data and would silently discard (not clip) a
  * `ReferenceLine` outside that range (its default `ifOverflow` is `"discard"`).
+ *
+ * **Colour assignment is an EXPLICIT SWAP, not a naive token rename (2026-08-09/10, Phase 8i).**
+ * Calories was `--sage-deep` and protein was `--clay`; a mechanical rename would give calories
+ * `--accent` and protein `--accent-warm` (preserving the old primary/secondary roles). Instead
+ * calories takes `--accent-warm` and protein takes `--accent`, per the design doc's explicit
+ * instruction ("calories should take --accent-warm so the chart agrees with the goal card's bar
+ * colour" — Phase 8j's `DailyTotals` calorie bar is also `--accent-warm`). `WeightChart` does NOT
+ * get this swap: its weight series is `--accent`, body-fat is `--accent-warm`, the ordinary
+ * (non-swapped) mapping.
  */
 
 type ChartPoint = {
@@ -74,25 +83,25 @@ export function IntakeChart({ series, calorieGoal, proteinGoal }: IntakeChartPro
   return (
     <Card className="flex flex-col gap-3 p-4 sm:p-5">
       <div className="flex flex-col gap-1">
-        <h2 className="font-serif text-lg font-semibold text-ink">Calories &amp; protein</h2>
-        <div className="flex flex-wrap gap-4 text-xs text-stone-500">
+        <h2 className="text-lg font-semibold text-ink">Calories &amp; protein</h2>
+        <div className="flex flex-wrap gap-4 text-xs text-muted">
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-sage-deep" aria-hidden="true" />
+            <span className="h-2 w-2 rounded-full bg-accent-warm" aria-hidden="true" />
             Calories
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="h-2 w-2 rounded-full bg-clay" aria-hidden="true" />
+            <span className="h-2 w-2 rounded-full bg-accent" aria-hidden="true" />
             Protein (g)
           </span>
           {calorieGoal !== null && (
             <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full border border-dashed border-sage-deep" aria-hidden="true" />
+              <span className="h-2 w-2 rounded-full border border-dashed border-accent-warm" aria-hidden="true" />
               Calorie goal
             </span>
           )}
           {proteinGoal !== null && (
             <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full border border-dashed border-clay" aria-hidden="true" />
+              <span className="h-2 w-2 rounded-full border border-dashed border-accent" aria-hidden="true" />
               Protein goal
             </span>
           )}
@@ -139,7 +148,7 @@ export function IntakeChart({ series, calorieGoal, proteinGoal }: IntakeChartPro
                 <ReferenceLine
                   yAxisId="calories"
                   y={calorieGoal}
-                  className="text-sage-deep"
+                  className="text-accent-warm"
                   stroke="currentColor"
                   strokeDasharray="4 4"
                   ifOverflow="extendDomain"
@@ -149,7 +158,7 @@ export function IntakeChart({ series, calorieGoal, proteinGoal }: IntakeChartPro
                 <ReferenceLine
                   yAxisId="protein"
                   y={proteinGoal}
-                  className="text-clay"
+                  className="text-accent"
                   stroke="currentColor"
                   strokeDasharray="4 4"
                   ifOverflow="extendDomain"
@@ -160,10 +169,10 @@ export function IntakeChart({ series, calorieGoal, proteinGoal }: IntakeChartPro
                 type="monotone"
                 dataKey="calories"
                 name="calories"
-                className="text-sage-deep"
+                className="text-accent-warm"
                 stroke="currentColor"
                 strokeWidth={2}
-                dot={makeDot("text-sage-deep", "calories")}
+                dot={makeDot("text-accent-warm", "calories")}
                 connectNulls
                 isAnimationActive={false}
               />
@@ -172,10 +181,10 @@ export function IntakeChart({ series, calorieGoal, proteinGoal }: IntakeChartPro
                 type="monotone"
                 dataKey="proteinG"
                 name="proteinG"
-                className="text-clay"
+                className="text-accent"
                 stroke="currentColor"
                 strokeWidth={2}
-                dot={makeDot("text-clay", "proteinG")}
+                dot={makeDot("text-accent", "proteinG")}
                 connectNulls
                 isAnimationActive={false}
               />
@@ -183,9 +192,9 @@ export function IntakeChart({ series, calorieGoal, proteinGoal }: IntakeChartPro
           </ResponsiveContainer>
         </div>
       ) : (
-        <p className="text-sm text-stone-500">
+        <p className="text-sm text-muted">
           No food logged in this range yet.{" "}
-          <a href="/food" className="font-medium text-sage-deep hover:text-sage-deep/80">
+          <a href="/food" className="font-medium text-accent hover:text-accent/80">
             Log some food
           </a>{" "}
           to see a trend.

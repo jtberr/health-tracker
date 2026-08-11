@@ -13,7 +13,7 @@ async function logIn(page: Page, user: TestUser) {
   await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/food");
 }
 
 function isoDaysFromNow(days: number): string {
@@ -137,10 +137,26 @@ test.describe("Phase4 QA goals CRUD + ensure-row", () => {
     await deleteTestUser(user.id);
   });
 
-  test("first Settings visit ensures a default row (kg, no targets) rather than erroring", async ({ page }) => {
+  // 2026-08-10 (Phase 8j, "Daily goal progress on /food"): `getGoals()`'s ensure-row upsert gained
+  // a THIRD read-only caller, `/food` -- and this describe block's own shared `beforeEach` above
+  // logs in via `logIn()`, which lands on `/food` (Phase 8h: `/` redirects there), not `/settings`.
+  // So by the time this test's body runs, the default row has ALREADY been created by the login
+  // step itself -- "before Settings, there are zero rows" is no longer true, and was never actually
+  // the invariant worth proving; it was an artifact of `/settings` being the only ensure-row caller
+  // at the time this test was written (see ai-context/DECISIONS.md's Phase 8j entry, which already
+  // recorded this exact "ensure-row gains a caller" consequence as known and accepted). The real
+  // invariant -- a fresh user's ensure-row default is correct (kg, both targets null) and visiting
+  // `/settings` afterward is idempotent and never errors, regardless of WHICH screen created the
+  // row first -- is unchanged and still proven below.
+  test("the ensure-row default is correct (kg, no targets) and visiting Settings afterward is idempotent, never erroring", async ({
+    page,
+  }) => {
     const client = await createUserClient(user);
-    const before = await client.from("user_goals").select("*");
-    expect(before.data ?? []).toHaveLength(0);
+    const afterLogin = await client.from("user_goals").select("*");
+    expect(afterLogin.data ?? []).toHaveLength(1);
+    expect(afterLogin.data![0].weight_unit).toBe("kg");
+    expect(afterLogin.data![0].daily_calorie_target).toBeNull();
+    expect(afterLogin.data![0].daily_protein_target_g).toBeNull();
 
     await page.goto("/settings");
     await expect(page.getByRole("button", { name: "Save settings" })).toBeVisible();

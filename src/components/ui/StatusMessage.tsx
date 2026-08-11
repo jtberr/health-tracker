@@ -37,10 +37,13 @@ export type StatusMessageProps = {
  * `role="status"` makes this actually announced to assistive tech, which the old pill never was
  * (the same live-region gap already flagged for the `/meals` filter, Phase 7c N-3).
  *
- * Contrast guardrail (2026-07-25 token table): `--sage-deep` on `--sage-pale` is ~4.2:1, under AA
- * for small text — so `sage-deep` appears here ONLY as the left border and the decorative icon
- * (both non-text elements, judged against the 3:1 threshold, which 4.2:1 clears), never as text on
- * this tint. All real text stays `--ink` on `--sage-pale` (~13:1).
+ * Contrast guardrail (2026-07-25 token table; superseded by Phase 8i's token swap, 2026-08-09/10,
+ * but the RULE is kept anyway): the old `--sage-deep` on `--sage-pale` was ~4.2:1, under AA for
+ * small text, so the accent appeared here ONLY as the left border and the decorative icon. The new
+ * `--accent` on `--accent-soft` is ~5.49:1 (clears AA text outright), but the same convention is
+ * kept — `--accent` stays border/icon-only, never text — so the emphasis ladder maps mechanically
+ * with no component's text colour needing to be re-decided. All real text stays `--ink` on
+ * `--accent-soft` (~14.6:1).
  *
  * **The auto-dismiss timer is keyed by this component's own mount, not by the message text.** A
  * caller that wants a repeated identical message to get a full fresh duration (fixing the real,
@@ -83,13 +86,13 @@ export function StatusMessage({ message, autoDismissMs, onDismiss }: StatusMessa
   return (
     <div
       role="status"
-      className="flex w-full items-start gap-2 rounded-lg border-l-4 border-l-sage-deep bg-sage-pale px-4 py-3 text-sm text-ink"
+      className="flex w-full items-start gap-2 rounded-lg border-l-4 border-l-accent bg-accent-soft px-4 py-3 text-sm text-ink"
     >
       <svg
         aria-hidden="true"
         viewBox="0 0 20 20"
         fill="currentColor"
-        className="mt-0.5 h-4 w-4 flex-none text-sage-deep"
+        className="mt-0.5 h-4 w-4 flex-none text-accent"
       >
         <path
           fillRule="evenodd"

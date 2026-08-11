@@ -96,6 +96,103 @@ export function quarterHourOptions(): { value: string; label: string }[] {
 }
 
 /**
+ * A group of quarter-hour `<option>`s for the time `<select>`'s `<optgroup>` partitioning (2026-08-08
+ * addition, Phase 8e) — see `quarterHourOptionGroups` below.
+ */
+export type QuarterHourGroup = {
+  /** Not rendered as a visible `<optgroup label>` any more (2026-08-09 bugfix — see the call
+   * sites' own comments); kept on this type as a stable React `key` and for the unit tests below,
+   * which still pin the three groups' identities. */
+  label: string;
+  /** A hint the caller MAY render as a dimmed option BACKGROUND (originally text color; changed
+   * 2026-08-09, Jeff's explicit call — see `ai-context/DECISIONS.md`) where the platform honours
+   * `<option>` CSS (Windows/Linux desktop browsers; NOT macOS/iOS or any mobile platform picker,
+   * which either ignore `<option>` styling or render a native picker that doesn't expose it at
+   * all — see `ai-context/DECISIONS.md`'s "Time-picker shading..." entry). Carries no behavior:
+   * every option in every group stays present, selectable, and ordered regardless of this flag. */
+  deEmphasized: boolean;
+  options: { value: string; label: string }[];
+};
+
+/**
+ * Partitions `quarterHourOptions()`'s flat 96-option list into three `<optgroup>`s for scanning
+ * (design doc §3.4/§8 Phase 8e, `ai-context/DECISIONS.md`'s "Time-picker shading: three
+ * `<optgroup>`s are the portable mechanism...", 2026-08-05): **Early (12 AM – 6 AM)** (24 options,
+ * hours 0-5), **Daytime (6 AM – 8:00 PM inclusive)** (57 options, hours 6-19 plus exactly `20:00`),
+ * **Late (after 8:00 PM – 12 AM)** (15 options, `20:15` through `23:45`). 24 + 57 + 15 = 96.
+ *
+ * **The Daytime/Late boundary is deliberately AFTER `20:00`, not AT `20:00`** (2026-08-10, Jeff's
+ * direct request: "shade the entries AFTER 8:00 PM, leave 8:00 PM unshaded") — `20:00` itself
+ * reads as Daytime is the load-bearing detail; the two group filters below compare the full
+ * `HH:MM` STRING against `"20:00"`, not just the hour, since hour-alone comparison can't
+ * distinguish `20:00` from `20:15`/`20:30`/`20:45` (all hour 20). String comparison is safe and
+ * correct here because every value is zero-padded `HH:MM`, which sorts lexicographically
+ * identically to chronological order.
+ *
+ * PRESENTATION ONLY, and this is the load-bearing property: every option keeps its 24-hour `HH:MM`
+ * value and zero-padded 12-hour label unchanged, all 96 stay present/selectable/in order, and
+ * `groups.flatMap(g => g.options)` deep-equals `quarterHourOptions()` exactly — the identity that
+ * mechanically proves nothing was lost, duplicated, or reordered by the partition (asserted in the
+ * unit tests below, and again in §6's acceptance suite). `<optgroup>` is content (a group *label* is
+ * text, unlike `<option>` CSS, which macOS/iOS and every mobile platform picker either ignore or
+ * can't expose at all — the same "content is portable, CSS is a bonus" reasoning the
+ * zero-padded-label decision already established) — so this is the load-bearing mechanism; the
+ * `deEmphasized` flag on Early/Late is a best-effort bonus on top, not the fix.
+ *
+ * Pure/static — no injected "now" — since every day has the same 96 buckets/3 groups regardless of
+ * tz or date, mirroring `quarterHourOptions()` itself.
+ */
+export function quarterHourOptionGroups(): QuarterHourGroup[] {
+  const options = quarterHourOptions();
+  const hourOf = (value: string): number => Number(value.slice(0, 2));
+  return [
+    { label: "Early (12 AM – 6 AM)", deEmphasized: true, options: options.filter((o) => hourOf(o.value) < 6) },
+    {
+      label: "Daytime (6 AM – 8:00 PM)",
+      deEmphasized: false,
+      options: options.filter((o) => hourOf(o.value) >= 6 && o.value <= "20:00"),
+    },
+    { label: "Late (after 8:00 PM – 12 AM)", deEmphasized: true, options: options.filter((o) => o.value > "20:00") },
+  ];
+}
+
+/**
+ * Which of `quarterHourOptionGroups()`'s three groups (0 = Early, 1 = Daytime, 2 = Late) an
+ * arbitrary `HH:MM` time belongs to — works for any on-grid OR off-grid value (e.g. a
+ * legacy/tampered `09:07`). Needed so `FoodEntryForm`'s off-grid edit invariant (an
+ * unrepresentable stored time gets defensively injected as an extra selected option — see that
+ * component) can inject into the RIGHT group instead of dropping the option or appending it
+ * outside every group, either of which would silently reintroduce the exact time-rewriting bug
+ * that invariant exists to prevent.
+ *
+ * The Early/Daytime split (`hour < 6`) is hour-only, since that boundary sits on a whole hour. The
+ * Daytime/Late split is NOT hour-only (2026-08-10) — `20:00` is Daytime but `20:15`/`20:30`/`20:45`
+ * (same hour) are Late, matching `quarterHourOptionGroups()`'s own boundary exactly, which a unit
+ * test enforces by checking every one of the 96 real options against this function directly. Only
+ * hour 20 needs the extra minute check; every other hour is unambiguous from the hour alone.
+ *
+ * Malformed input (unparseable hour) falls back to the Daytime group (index 1) — a safe, harmless
+ * default for a value this function was never meant to receive; it never throws.
+ */
+export function quarterHourGroupIndexFor(value: string): number {
+  // A leading-digit regex match, not a bare `Number(value.slice(0, 2))` — the latter would treat
+  // "" as hour 0 (Number("") === 0, not NaN) and misclassify it as Early instead of falling back.
+  const match = /^(\d{1,2})/.exec(value);
+  if (!match) return 1;
+  const hour = Number(match[1]);
+  if (!Number.isFinite(hour)) return 1;
+  if (hour < 6) return 0;
+  if (hour < 20) return 1;
+  if (hour > 20) return 2;
+  // hour === 20: Daytime only at exactly 20:00; any other (or unparseable/malformed) minute on
+  // this hour is Late. A missing/malformed minute defaults to 0 -- the same "safe, harmless
+  // default" posture as the function's overall malformed-input fallback.
+  const minuteMatch = /^\d{1,2}:(\d{2})/.exec(value);
+  const minute = minuteMatch ? Number(minuteMatch[1]) : 0;
+  return minute === 0 ? 1 : 2;
+}
+
+/**
  * Converts a wall-clock date + time entered *as if local to `tz`* into a UTC ISO instant.
  * E.g. `localInputToUtcInTz("2026-07-15", "12:00", "America/New_York")` -> the UTC instant that
  * is noon in New York on that date (accounting for whatever DST rule applies that day).
@@ -196,6 +293,35 @@ export function formatDateLabel(isoDate: string): string {
   if (!match) return isoDate;
   const [, year, month, day] = match;
   return `${month}/${day}/${year}`;
+}
+
+/**
+ * Shifts an ISO `YYYY-MM-DD` calendar date by `deltaDays` (2026-08-05 addition, Phase 8d) — the
+ * whole of the Previous/Next-day buttons' logic (`components/ui/DayNavigator.tsx`). E.g.
+ * `shiftIsoDate("2026-07-29", 1) -> "2026-07-30"`; correctly crosses month/year/leap-day
+ * boundaries because `Date.UTC` normalizes an out-of-range day-of-month itself.
+ *
+ * MUST use `Date.UTC` on the split parts and MUST NOT go via `new Date(iso)`, which parses as UTC
+ * midnight and then reports LOCAL calendar fields once you read them back with getters other than
+ * the UTC ones — the exact off-by-one trap `formatDateLabel` and
+ * `components/trends/chartTheme.ts`'s `parseCalendarDate` already exist to avoid (this is the
+ * third time it's come up). Pure calendar arithmetic: no tz argument is needed or wanted, since the
+ * caller already holds an ISO local date and wants the adjacent one, not a re-derivation from an
+ * instant.
+ *
+ * Anything not matching the exact `YYYY-MM-DD` shape is returned unchanged — never throws, never
+ * produces "NaN-NaN-NaN".
+ */
+export function shiftIsoDate(isoDate: string, deltaDays: number): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!match) return isoDate;
+  const [, yearStr, monthStr, dayStr] = match;
+  const shiftedMs = Date.UTC(Number(yearStr), Number(monthStr) - 1, Number(dayStr) + deltaDays);
+  const shifted = new Date(shiftedMs);
+  const year = String(shifted.getUTCFullYear()).padStart(4, "0");
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(shifted.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 /**

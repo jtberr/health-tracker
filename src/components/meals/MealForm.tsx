@@ -46,10 +46,11 @@ export function MealForm({ editingMeal = null, onSaved, onCancel }: MealFormProp
   return (
     <form
       action={formAction}
-      className="flex flex-col items-start gap-3 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:flex-row sm:items-end sm:p-5"
+      className="flex flex-col items-start gap-3 rounded-xl border border-line bg-white p-4 shadow-sm sm:flex-row sm:items-end sm:p-5"
       noValidate
+      autoComplete="off"
     >
-      {isEditing && <input type="hidden" name="id" value={editingMeal!.id} />}
+      {isEditing && <input type="hidden" name="id" value={editingMeal!.id} autoComplete="off" />}
       <div className="flex w-full flex-1 flex-col gap-1">
         <label htmlFor={`${idPrefix}-meal-name`} className={labelClass}>
           Meal name
@@ -62,6 +63,7 @@ export function MealForm({ editingMeal = null, onSaved, onCancel }: MealFormProp
           defaultValue={editingMeal?.name ?? ""}
           placeholder="e.g. Breakfast burrito"
           className={inputClass}
+          autoComplete="off"
         />
         {state.fieldErrors?.name && <p className={errorTextClass}>{state.fieldErrors.name}</p>}
         {state.error && !state.fieldErrors && <p className={errorTextClass}>{state.error}</p>}

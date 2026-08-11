@@ -31,7 +31,7 @@ async function logIn(page: Page, user: TestUser) {
   await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/food");
 }
 
 function todayUtc(): string {
@@ -315,20 +315,30 @@ test.describe("Phase8 QA: copy a meal group", () => {
     await group.getByRole("button", { name: "Save as meal" }).click();
     await expect(group.getByLabel("Meal name")).toBeVisible();
 
+    // 2026-08-05 (Phase 8d): the header's SIBLING action is now hidden entirely while the other
+    // is active (design doc §3.4 "the header's sibling action is hidden too") -- so "Copy this
+    // group" isn't just inert, it isn't rendered at all until the open panel is closed first.
+    await expect(group.getByRole("button", { name: "Copy this group" })).toHaveCount(0);
+    await group.getByRole("button", { name: "Close" }).click();
+    await expect(group.getByLabel("Meal name")).toHaveCount(0);
+
     await group.getByRole("button", { name: "Copy this group" }).click();
     await expect(group.getByLabel("Copy to date")).toBeVisible();
     await expect(group.getByLabel("Meal name")).toHaveCount(0);
   });
 
-  test("FINDING (N): with a copy expander open, two different buttons in the same group both read Cancel", async ({ page }) => {
+  test("with a copy expander open, the header toggle reads Close, leaving exactly one Cancel in the group (closes Phase 7b N-3 / Phase 8 N-5)", async ({ page }) => {
     await seedEntries(client, user, [
       { name: "QA8 Ambig", caloriesPerUnit: 100, proteinGPerUnit: 5, consumedAt: todayAt("17:30") },
     ]);
     await page.goto("/food");
     const group = await openCopyGroup(page, "QA8 Ambig");
-    // Documents the recurrence of Phase 7b's deferred N-3 on the new "Copy this group" control:
-    // the header toggle flips to "Cancel" while the dialog already has its own "Cancel".
-    await expect(group.getByRole("button", { name: "Cancel" })).toHaveCount(2);
+    // 2026-08-05 (Phase 8d) fixed this: the header toggle now reads "Close" while its own panel
+    // is open, so exactly one "Cancel" remains in the group (the dialog's own). Previously pinned
+    // as a FINDING (Phase 8 qa-review N-5, recurring Phase 7b's N-3) -- this now asserts the fix
+    // in place, rather than continuing to describe a bug that no longer exists.
+    await expect(group.getByRole("button", { name: "Cancel" })).toHaveCount(1);
+    await expect(group.getByRole("button", { name: "Close" })).toHaveCount(1);
   });
 });
 
@@ -610,9 +620,9 @@ test.describe("Phase8 QA: isolation, regression guards, non-goals", () => {
     await expect(page.locator('input[type="checkbox"]')).toHaveCount(0);
   });
 
-  test("no copy/quick-add control was added to the dashboard", async ({ page }) => {
-    await page.goto("/");
-    await expect(page.getByRole("button", { name: /Copy/i })).toHaveCount(0);
-    await expect(page.getByRole("button", { name: /Log again/i })).toHaveCount(0);
-  });
+  // Retired 2026-08-10 (Phase 8h): this guard asserted no copy/quick-add control existed on the
+  // dashboard route. Phase 8h removed the dashboard entirely (`/` now redirects straight to
+  // `/food`, which legitimately has Copy/Log-again controls), so the assertion is vacuous by
+  // design rather than something to keep passing — see ai-context/DECISIONS.md's Phase 8h entry
+  // and ai-context/PROGRESS.md's Phase 8h Completed entry.
 });

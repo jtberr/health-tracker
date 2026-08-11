@@ -144,21 +144,21 @@ export function MealsView() {
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="self-start text-sm font-medium text-sage-deep hover:text-sage-deep/80"
+          className="self-start text-sm font-medium text-accent hover:text-accent/80"
         >
           + New meal
         </button>
       )}
 
       {!hasLoadedOnce && loading ? (
-        <p className="text-sm text-stone-500">Loading…</p>
+        <p className="text-sm text-muted">Loading…</p>
       ) : loadError ? (
         <div className="flex items-center gap-3">
           <p className="text-sm text-red-600">Couldn&apos;t load your saved meals.</p>
           <button
             type="button"
             onClick={() => refresh()}
-            className="text-sm font-medium text-sage-deep hover:text-sage-deep/80"
+            className="text-sm font-medium text-accent hover:text-accent/80"
           >
             Retry
           </button>
@@ -178,9 +178,10 @@ export function MealsView() {
                   onChange={(event) => setFilterQuery(event.target.value)}
                   placeholder="e.g. chicken"
                   className={inputClass}
+                  autoComplete="off"
                 />
               </div>
-              <p className="text-sm text-stone-500">
+              <p className="text-sm text-muted">
                 {isFiltering
                   ? `Showing ${visibleMeals.length} of ${meals.length}`
                   : `${meals.length} saved meal${meals.length === 1 ? "" : "s"}`}
@@ -189,7 +190,7 @@ export function MealsView() {
           )}
 
           {noMatches ? (
-            <div className="rounded-2xl border border-dashed border-stone-300 px-4 py-8 text-center text-sm text-stone-500">
+            <div className="rounded-xl border border-dashed border-line px-4 py-8 text-center text-sm text-muted">
               No meals match &quot;{filterQuery.trim()}&quot;.
             </div>
           ) : (

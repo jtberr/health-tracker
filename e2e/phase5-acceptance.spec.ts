@@ -22,7 +22,7 @@ async function logIn(page: Page, user: TestUser) {
   await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/food");
 }
 
 /** YYYY-MM-DD `n` days before now, in UTC -- pairs with test.use({ timezoneId: "UTC" }). */

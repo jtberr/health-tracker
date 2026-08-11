@@ -10,7 +10,7 @@ async function logIn(page: Page, user: TestUser) {
   await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/food");
 }
 
 function isoDaysFromNow(days: number): string {
@@ -36,7 +36,10 @@ test.describe("Phase3 QA grouping edge cases", () => {
       { user_id: user.id, name: "ItemB", quantity: 1, calories_per_unit: 100, protein_g_per_unit: 5, consumed_at: at(day, "12:01"), consumed_tz: "UTC" },
     ]);
     await page.goto("/food");
-    await page.getByLabel("Day").fill(day);
+    // { exact: true } (2026-08-10): see food-logging.spec.ts's identical comment -- DayNavigator's
+    // icon-only chevrons now carry aria-label="Previous day"/"Next day", colliding with the real
+    // <label>Day</label> under Playwright's default substring matching.
+    await page.getByLabel("Day", { exact: true }).fill(day);
     await expect(page.getByText("ItemA")).toBeVisible();
     await expect(page.locator("section")).toHaveCount(2);
   });
@@ -50,7 +53,10 @@ test.describe("Phase3 QA grouping edge cases", () => {
     }));
     await client.from("food_entries").insert(rows);
     await page.goto("/food");
-    await page.getByLabel("Day").fill(day);
+    // { exact: true } (2026-08-10): see food-logging.spec.ts's identical comment -- DayNavigator's
+    // icon-only chevrons now carry aria-label="Previous day"/"Next day", colliding with the real
+    // <label>Day</label> under Playwright's default substring matching.
+    await page.getByLabel("Day", { exact: true }).fill(day);
     await expect(page.getByText("Graze0")).toBeVisible();
     await expect(page.locator("section")).toHaveCount(5);
   });
@@ -70,7 +76,10 @@ test.describe("Phase3 QA ratio-of-sums correctness", () => {
       { user_id: user.id, name: "BigCarb", quantity: 1, calories_per_unit: 900, protein_g_per_unit: 5, consumed_at: at(day, "09:00"), consumed_tz: "UTC" },
     ]);
     await page.goto("/food");
-    await page.getByLabel("Day").fill(day);
+    // { exact: true } (2026-08-10): see food-logging.spec.ts's identical comment -- DayNavigator's
+    // icon-only chevrons now carry aria-label="Previous day"/"Next day", colliding with the real
+    // <label>Day</label> under Playwright's default substring matching.
+    await page.getByLabel("Day", { exact: true }).fill(day);
     await expect(page.getByText("ShakeExtreme")).toBeVisible();
     await expect(page.getByText("18%", { exact: true })).toBeVisible();
     await expect(page.getByText(/81/)).toHaveCount(0);
@@ -82,7 +91,10 @@ test.describe("Phase3 QA ratio-of-sums correctness", () => {
       { user_id: user.id, name: "OverHundred", quantity: 1, calories_per_unit: 100, protein_g_per_unit: 30, consumed_at: at(day, "10:00"), consumed_tz: "UTC" },
     ]);
     await page.goto("/food");
-    await page.getByLabel("Day").fill(day);
+    // { exact: true } (2026-08-10): see food-logging.spec.ts's identical comment -- DayNavigator's
+    // icon-only chevrons now carry aria-label="Previous day"/"Next day", colliding with the real
+    // <label>Day</label> under Playwright's default substring matching.
+    await page.getByLabel("Day", { exact: true }).fill(day);
     await expect(page.locator("li", { hasText: "OverHundred" })).toContainText("120%");
   });
 });
@@ -157,7 +169,10 @@ test.describe("Phase3 QA form flow, future cap, delete totals", () => {
     await page.getByRole("button", { name: "Add entry" }).click();
     await expect(page.getByText("SnackOne")).toBeVisible();
     await expect(page.getByText("300", { exact: true }).first()).toBeVisible();
-    await page.locator("li", { hasText: "SnackOne" }).getByRole("button", { name: "Delete" }).click();
+    // 2026-08-07 (Phase 8g): "Delete" is back on the entry row (icon-only, reversing Phase 8d's
+    // edit-form placement) and is guarded by a window.confirm naming the entry.
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.locator("li", { hasText: "SnackOne" }).getByRole("button", { name: /Delete/ }).click();
     await expect(page.getByText("SnackOne")).toHaveCount(0);
     await expect(page.locator("p", { hasText: /^0$/ }).first()).toBeVisible();
   });
@@ -194,7 +209,8 @@ test.describe("Phase3 QA tz-preserved-on-edit deviation 4", () => {
       { user_id: user.id, name: "TokyoFish", quantity: 1, calories_per_unit: 200, protein_g_per_unit: 36, consumed_at: tokyoInstant, consumed_tz: "Asia/Tokyo" },
     ]);
     await page.goto("/food");
-    await page.getByLabel("Day").fill(tokyoDay);
+    // { exact: true } -- see the other DayNavigator collision comments in this file.
+    await page.getByLabel("Day", { exact: true }).fill(tokyoDay);
     await expect(page.getByText("TokyoRice")).toBeVisible();
     await expect(page.locator("section")).toHaveCount(1);
     await page.locator("li", { hasText: "TokyoRice" }).getByRole("button", { name: "Edit" }).click();

@@ -1,29 +1,17 @@
-import type { Metadata } from "next";
-import { createClient } from "@/lib/supabase/server";
-import { TodaySummary } from "@/components/food/TodaySummary";
-
-export const metadata: Metadata = { title: "Dashboard — Health Tracker" };
+import { redirect } from "next/navigation";
 
 /**
- * Dashboard. Phase 3 ("Core food logging loop", docs/architecture/food-weight-tracker.md §8)
- * adds today's food totals (incl. day protein %) + a link into the full food log; weight/goals/
- * charts/lookup/meals/copy are still later phases per that section's scope.
+ * The dashboard route is retired, not rebuilt (Phase 8h,
+ * docs/architecture/food-weight-tracker.md §3.4/§4). Every candidate for a dashboard either
+ * already existed one click away (`DailyTotals` on `/food`, the charts on `/trends`) or belongs
+ * on the screen it is actually about (last-logged weight/body fat now lives on `/metrics`) — so
+ * the page itself was a literal duplicate of `/food`'s totals behind an extra click, in an app
+ * whose first-stated priority is that logging must be fast.
+ *
+ * The `/` route is deliberately KEPT (not deleted, not repointed elsewhere) so the auth callback,
+ * the sign-in redirect, and the header wordmark (`(app)/layout.tsx`'s `<Link href="/">`) all keep
+ * working completely untouched — this is a one-line redirect, not a routing refactor.
  */
-export default async function DashboardPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  return (
-    <div className="flex flex-col gap-8">
-      <div className="flex flex-col gap-1.5">
-        <h1 className="font-serif text-2xl font-semibold tracking-tight text-ink">Welcome back</h1>
-        <p className="text-sm text-stone-500">
-          You&apos;re logged in as <span className="font-medium text-stone-700">{user?.email}</span>.
-        </p>
-      </div>
-      <TodaySummary />
-    </div>
-  );
+export default function DashboardPage() {
+  redirect("/food");
 }

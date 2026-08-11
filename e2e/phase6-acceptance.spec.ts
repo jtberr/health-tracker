@@ -22,7 +22,7 @@ async function logIn(page: Page, user: TestUser) {
   await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/food");
 }
 
 async function entriesFor(user: TestUser) {
@@ -161,7 +161,14 @@ test.describe("Phase6 QA: barcode flow (mocked Open Food Facts via the app proxy
     await openLookup(page);
     await page.getByRole("tab", { name: "Barcode" }).click();
     await page.getByLabel("Barcode (UPC/EAN)").fill(code);
-    await page.getByRole("button", { name: "Look up" }).click();
+    // { exact: true } (Phase 8k): the lookup DisclosureButton trigger now stays rendered while
+    // open (design doc §3.4, finding 1 -- "the trigger stays rendered while open"), so its label
+    // "Look up a food (barcode or search)" is on screen at the same time as this panel's own
+    // "Look up" submit button -- an unscoped substring match collides with both, the same
+    // getByLabel/getByRole locator-collision class already documented four times in
+    // ai-context/DECISIONS.md's "Copy to time does not avoid a Playwright getByLabel
+    // collision..." entry and its addenda.
+    await page.getByRole("button", { name: "Look up", exact: true }).click();
   }
 
   test("a match prefills name, quantity, unit and per-unit nutrition", async ({ page }) => {
@@ -442,7 +449,14 @@ test.describe("Phase6 QA: the lookup panel must never submit the outer food-entr
     await openLookup(page);
     await page.getByRole("tab", { name: "Barcode" }).click();
     await page.getByLabel("Barcode (UPC/EAN)").fill("012345678905");
-    await page.getByRole("button", { name: "Look up" }).click();
+    // { exact: true } (Phase 8k): the lookup DisclosureButton trigger now stays rendered while
+    // open (design doc §3.4, finding 1 -- "the trigger stays rendered while open"), so its label
+    // "Look up a food (barcode or search)" is on screen at the same time as this panel's own
+    // "Look up" submit button -- an unscoped substring match collides with both, the same
+    // getByLabel/getByRole locator-collision class already documented four times in
+    // ai-context/DECISIONS.md's "Copy to time does not avoid a Playwright getByLabel
+    // collision..." entry and its addenda.
+    await page.getByRole("button", { name: "Look up", exact: true }).click();
     await expect(page.getByText("No match found")).toBeVisible();
     await page.waitForTimeout(1000);
 
@@ -466,7 +480,7 @@ test.describe("Phase6 QA: the lookup panel must never submit the outer food-entr
     expect(await entriesFor(user)).toHaveLength(0);
   });
 
-  test("the tab, Close and expander controls do not submit the entry form either", async ({ page }) => {
+  test("the tab, expander-dismiss and expander controls do not submit the entry form either", async ({ page }) => {
     await page.goto("/food");
     await page.getByLabel("Name").fill("Must not be saved by chrome controls");
     await page.getByLabel("Total calories").fill("115");
@@ -475,8 +489,11 @@ test.describe("Phase6 QA: the lookup panel must never submit the outer food-entr
     await openLookup(page);
     await page.getByRole("tab", { name: "Barcode" }).click();
     await page.getByRole("tab", { name: "Search" }).click();
-    await page.getByRole("button", { name: "Close" }).click();
-    await page.getByRole("button", { name: "+ Add detail (quantity, unit)" }).click();
+    // FoodLookupPanel's own separate "Close" link was retired (Phase 8k) -- the DisclosureButton
+    // trigger itself is now the SOLE dismissal control, toggled again via its own aria-expanded
+    // state (see ai-context/DECISIONS.md's "The /food day-action surface..." entry, finding 1).
+    await page.getByRole("button", { name: "Look up a food (barcode or search)" }).click();
+    await page.getByRole("button", { name: "Add detail (quantity, unit)" }).click();
     await page.waitForTimeout(1000);
 
     expect(await entriesFor(user)).toHaveLength(0);
@@ -497,11 +514,14 @@ test.describe("Phase6 QA: a prefilled candidate must never be silently mis-total
   // BLOCKING FINDING (expected to fail until fixed -- see the QA report).
   // FoodEntryForm renders hidden overrides <input name="quantity" value="1"> and
   // <input name="unit" value=""> whenever the detail section is collapsed. After a lookup pick
-  // the detail section is auto-expanded, but the "Hide detail" button is still offered; clicking
-  // it re-activates those overrides while the calories field keeps its PER-UNIT value and its
-  // "Calories per unit" label. A 100 g / 2.02 kcal-per-g candidate (the basis the majority of
-  // USDA search results and every serving-less OFF product come back on) then saves as
-  // 1 x 2.02 = 2 kcal instead of 202 kcal, with nothing on screen indicating the loss.
+  // the detail section is auto-expanded, but the "Add detail" toggle (Phase 8k: one persistent
+  // DisclosureButton with a rotating chevron, replacing the old separate "+ Add detail (quantity,
+  // unit)"/"Hide detail" pair -- see ai-context/DECISIONS.md's "The /food day-action surface..."
+  // entry, finding 1) is still offered; clicking it again re-collapses the detail section while the
+  // calories field keeps its PER-UNIT value and its "Calories per unit" label. A 100 g / 2.02
+  // kcal-per-g candidate (the basis the majority of USDA search results and every serving-less OFF
+  // product come back on) then saves as 1 x 2.02 = 2 kcal instead of 202 kcal, with nothing on
+  // screen indicating the loss.
   test("collapsing Add detail after a pick must not silently drop the candidate quantity", async ({ page }) => {
     await mockSearch(page, (route) =>
       route.fulfill({
@@ -519,7 +539,7 @@ test.describe("Phase6 QA: a prefilled candidate must never be silently mis-total
     await page.getByRole("button", { name: "Use this" }).click();
     await expect(page.getByRole("spinbutton", { name: "Quantity" })).toHaveValue("100");
 
-    await page.getByRole("button", { name: "Hide detail" }).click();
+    await page.getByRole("button", { name: "Add detail (quantity, unit)" }).click();
     await page.getByRole("button", { name: "Add entry" }).click();
     await expect(page.getByText("Per-100g candidate")).toBeVisible();
 

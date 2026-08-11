@@ -1,23 +1,15 @@
 import { Card } from "@/components/ui/Card";
 
+/**
+ * Phase 8i (2026-08-09/10, "Visual identity v2"): the decorative "sage arc" motif is DELETED, not
+ * recolored — the reference direction is explicitly undecorated, and recolouring it would keep
+ * `--sage` (a token this round doesn't replace) alive for its one remaining consumer. See
+ * ai-context/DECISIONS.md's Phase 8i entry ("Deleting the sage arc rather than restyling it").
+ */
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="relative flex flex-1 items-center justify-center overflow-hidden bg-paper px-4 py-16">
-      <svg
-        aria-hidden="true"
-        viewBox="0 0 400 400"
-        className="pointer-events-none absolute -top-16 left-1/2 h-[520px] w-[520px] -translate-x-1/2 text-sage"
-      >
-        <path
-          d="M20 300 C 120 60, 280 60, 380 220"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="10"
-          strokeLinecap="round"
-          opacity="0.35"
-        />
-      </svg>
-      <Card className="relative w-full max-w-sm p-8">{children}</Card>
+    <div className="flex flex-1 items-center justify-center bg-canvas px-4 py-16">
+      <Card className="w-full max-w-sm p-8">{children}</Card>
     </div>
   );
 }

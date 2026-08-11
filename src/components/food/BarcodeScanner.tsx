@@ -12,6 +12,29 @@ export type BarcodeScannerProps = {
 };
 
 /**
+ * Bugfix (2026-08-10): `Html5Qrcode.stop()` throws SYNCHRONOUSLY (not a rejected promise) when
+ * called on a scanner that hasn't reached its "running/paused" state yet — e.g. while the browser's
+ * own camera-permission prompt is still pending, `scanner.start()`'s promise hasn't resolved, but
+ * `scannerRef.current` is already set (see the effect below). A real, reproduced crash: start a
+ * camera scan, then switch to manual entry and submit before the permission prompt resolves —
+ * unmounting the panel runs the cleanup effect, which used to call `.stop().catch(() => {})`. The
+ * `.catch()` only guards an async rejection; it never even attaches if `.stop()` throws before
+ * returning a promise at all, so the throw propagated as an uncaught error and crashed the page
+ * (Next.js's "Runtime Error" overlay, not a graceful failure). A plain try/catch around the call
+ * catches BOTH failure shapes — the synchronous throw, and (via the chained `.catch`) an async
+ * rejection if `.stop()` does return a promise that later rejects for some other reason.
+ */
+function safeStop(scanner: Html5Qrcode | null) {
+  if (!scanner) return;
+  try {
+    scanner.stop()?.catch(() => {});
+  } catch {
+    // Wasn't running/paused -- nothing to stop, and nothing to report; this is the expected,
+    // harmless outcome of a stop racing a still-pending start (see the doc comment above).
+  }
+}
+
+/**
  * Barcode entry/scan UI (design doc §3.1 `food/BarcodeScanner.tsx`). Manual digit entry is the
  * always-available primary path — it works on every device/browser and needs no permissions, so
  * it's rendered unconditionally. An optional "Scan with camera" control layers `html5-qrcode` on
@@ -33,6 +56,15 @@ export function BarcodeScanner({ onSubmitBarcode, disabled = false }: BarcodeSca
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  // Bugfix (2026-08-10), paired with `safeStop` below: `scanner.start()` is async and doesn't
+  // resolve until the browser's camera permission prompt is answered -- if a stop is requested
+  // (explicit "Stop scanning", or this component unmounting) WHILE that's still pending,
+  // `safeStop` silently no-ops (start() hasn't reached the "running" state yet, so there's
+  // nothing to stop YET). Without this flag, the camera could then actually start moments later
+  // with no code path left to stop it -- exactly the "left running in the background" outcome the
+  // unmount effect's own comment already says it wants to prevent, but couldn't fully guarantee.
+  // Set whenever a stop is requested; checked once `start()` actually resolves.
+  const stopRequestedRef = useRef(false);
 
   // Feature-detect on mount only (never during render/SSR): `navigator` doesn't exist on the
   // server, so computing this synchronously during render would either throw or -- if guarded --
@@ -48,7 +80,8 @@ export function BarcodeScanner({ onSubmitBarcode, disabled = false }: BarcodeSca
   useEffect(() => {
     // Make sure the camera is never left running in the background past this component's life.
     return () => {
-      scannerRef.current?.stop().catch(() => {});
+      stopRequestedRef.current = true;
+      safeStop(scannerRef.current);
       scannerRef.current = null;
     };
   }, []);
@@ -60,12 +93,11 @@ export function BarcodeScanner({ onSubmitBarcode, disabled = false }: BarcodeSca
   }
 
   function stopScanning() {
+    stopRequestedRef.current = true;
     const scanner = scannerRef.current;
     scannerRef.current = null;
     setScanning(false);
-    if (scanner) {
-      scanner.stop().catch(() => {});
-    }
+    safeStop(scanner);
   }
 
   /** Only flips the state that triggers the camera-start Effect below -- see that Effect's doc
@@ -88,6 +120,7 @@ export function BarcodeScanner({ onSubmitBarcode, disabled = false }: BarcodeSca
   useEffect(() => {
     if (!scanning) return;
     let cancelled = false;
+    stopRequestedRef.current = false;
 
     (async () => {
       try {
@@ -121,6 +154,14 @@ export function BarcodeScanner({ onSubmitBarcode, disabled = false }: BarcodeSca
             // Fires continuously while no code is in frame yet -- expected, not an error.
           },
         );
+        // start() just resolved -- the camera is now actually running. If a stop was requested
+        // (or this effect was cancelled) WHILE that was in flight, `stopScanning`/the unmount
+        // cleanup already ran and found nothing to stop (see `stopRequestedRef`'s doc comment
+        // above) -- the camera is now orphaned unless stopped for real here.
+        if (cancelled || stopRequestedRef.current) {
+          safeStop(scanner);
+          if (scannerRef.current === scanner) scannerRef.current = null;
+        }
       } catch {
         if (cancelled) return;
         setScanError("Couldn't start the camera. Enter the code manually instead.");

@@ -5,12 +5,14 @@ import { createClient } from "@/lib/supabase/client";
 import { queryTimeoutSignal } from "@/lib/supabase/query-timeout";
 import { browserTimeZone, floorToQuarterHour, formatDateLabel, localDateInTz } from "@/lib/domain/datetime";
 import { copyFoodEntries, deleteFoodEntry } from "@/lib/actions/food";
-import { errorTextClass, inputClass, labelClass } from "@/components/ui/styles";
-import { Button } from "@/components/ui/Button";
+import { errorTextClass } from "@/components/ui/styles";
+import { ActionPanel } from "@/components/ui/ActionPanel";
+import { DayNavigator } from "@/components/ui/DayNavigator";
 import { StatusMessage, SUCCESS_MESSAGE_MS } from "@/components/ui/StatusMessage";
 import { CopyDayDialog } from "./CopyDayDialog";
 import { CopyGroupDialog } from "./CopyGroupDialog";
 import { DailyTotals } from "./DailyTotals";
+import { DayActionBar } from "./DayActionBar";
 import { EntrySelectionBar } from "./EntrySelectionBar";
 import { FoodEntryForm } from "./FoodEntryForm";
 import { FoodEntryList } from "./FoodEntryList";
@@ -52,11 +54,84 @@ import type { DailyFoodTotals, FoodEntry, Meal } from "@/lib/types";
  * component in this codebase to hold local UI state a background refresh could wipe (after
  * `MealsView` in Phase 7 and `FoodEntryList` in Phase 7b, both of which shipped broken) — see
  * ai-context/DECISIONS.md's "Phase 8b designed..." entry for the full reasoning.
+ *
+ * **`tz`/`today` resolved in a mount-only Effect, not at render time (2026-08-06, Phase 8d fix —
+ * a real bug found and root-caused during this phase's own verification, not incidental scope
+ * creep: see ai-context/PROGRESS.md's Phase 8d entry and ai-context/DECISIONS.md).** Next.js still
+ * renders this Client Component once on the server (SSR) before hydrating on the client, and
+ * `browserTimeZone()` disagrees between the server's own system tz and the user's actual browser
+ * tz whenever they differ (in practice: routinely, since this repo's dev sandbox runs on
+ * `America/Chicago` while a test/production browser may be pinned to `UTC` or anything else) —
+ * producing a genuine SSR/client hydration mismatch on every value downstream of `today`
+ * (`DayNavigator`'s `max`, the date input's `value`, etc.), not just a cosmetic console warning.
+ * This is the exact same class of problem `MetricForm.tsx`/`MealsView.tsx`/`TrendsView.tsx` already
+ * solve with the established "mount-only Effect + matching placeholder" pattern, and this component
+ * now follows the identical shape: `FoodDayView` (below) owns ONLY that resolution, rendering the
+ * same "Loading…" placeholder on the server pass and the client's first pass (both see `tz`/`today`
+ * as `null`) until the Effect resolves them — so there is nothing for server and client to
+ * disagree about on first paint. Everything else (the day-log state machine, all the handlers, the
+ * actual UI) is unchanged and now lives in `FoodDayViewContent`, which receives the already-
+ * resolved `tz`/`today` as required (non-null) props — mirroring `MetricForm`'s own
+ * `MetricForm`/`MetricEntryForm` split exactly, not a new pattern invented for this file.
  */
-export function FoodDayView() {
+export type FoodDayViewProps = {
+  /** `user_goals.daily_calorie_target`, read server-side by `food/page.tsx` (Phase 8j) — `null`
+   * when the user hasn't set one. Threaded straight through to `DailyTotals`; this component makes
+   * no decisions based on it itself. */
+  calorieGoal?: number | null;
+  /** `user_goals.daily_protein_target_g` — see `calorieGoal` above. */
+  proteinGoal?: number | null;
+};
+
+export function FoodDayView({ calorieGoal = null, proteinGoal = null }: FoodDayViewProps) {
+  const [tz, setTz] = useState<string | null>(null);
+  const [today, setToday] = useState<string | null>(null);
+
+  // Client-only: resolves the browser's actual timezone/date post-mount, avoiding the SSR/client
+  // hydration mismatch described above. Reads a client-only browser API (Intl timezone) on mount;
+  // there's no external subscription to attach a callback to instead, so the setState calls below
+  // are justifiably synchronous — the same pattern MetricForm/MealsView/TrendsView already use.
+  useEffect(() => {
+    const resolvedTz = browserTimeZone();
+    const resolvedToday = localDateInTz(new Date(), resolvedTz);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTz(resolvedTz);
+    setToday(resolvedToday);
+  }, []);
+
+  // Same placeholder on the server pass and the client's first pass (both have tz === null),
+  // which is what keeps hydration in sync — see the module doc comment above.
+  if (tz === null || today === null) {
+    return <p className="text-sm text-muted">Loading…</p>;
+  }
+
+  return (
+    <FoodDayViewContent
+      tz={tz}
+      today={today}
+      calorieGoal={calorieGoal}
+      proteinGoal={proteinGoal}
+    />
+  );
+}
+
+/**
+ * Everything `FoodDayView` used to own directly, unchanged, now receiving the already-resolved
+ * `tz`/`today` as required props instead of computing them itself — see the file doc comment above
+ * for why this split exists (the 2026-08-06 Phase 8d hydration-mismatch fix).
+ */
+function FoodDayViewContent({
+  tz,
+  today,
+  calorieGoal,
+  proteinGoal,
+}: {
+  tz: string;
+  today: string;
+  calorieGoal: number | null;
+  proteinGoal: number | null;
+}) {
   const supabase = useMemo(() => createClient(), []);
-  const [tz] = useState(() => browserTimeZone());
-  const today = useMemo(() => localDateInTz(new Date(), tz), [tz]);
   const [selectedDate, setSelectedDate] = useState(today);
   const [entries, setEntries] = useState<FoodEntry[]>([]);
   const [totals, setTotals] = useState<DailyFoodTotals | null>(null);
@@ -95,6 +170,16 @@ export function FoodDayView() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkAction, setBulkAction] = useState<"copy" | "save" | null>(null);
+
+  // Phase 8k -- "The /food day-action surface". Which day-level panel (if any) is open, driven
+  // ONLY by the user's own clicks -- never by `loading`, a fetch nonce, `entries.length`, or the
+  // selection (the standing N-3/Phase 8b unmount rule, restated here because moving this state to
+  // a new owner is exactly the moment it gets re-derived wrong -- see
+  // ai-context/DECISIONS.md's "The /food day-action surface..." entry). `DayActionBar` renders the
+  // three triggers with NO panel of its own; this is the single slot deciding which panel (if any)
+  // renders as a SIBLING beneath it -- the same shape `FoodEntryList.groupAction` and
+  // `MealList.cardAction` already use, so opening one closes any other for free.
+  const [dayAction, setDayAction] = useState<"logMeal" | "copyDay" | null>(null);
 
   // The EFFECTIVE selection: intersected against the currently-loaded entries, so an id that
   // vanished out-of-band (deleted elsewhere, then a refresh pulls in the change) simply drops out
@@ -179,6 +264,9 @@ export function FoodDayView() {
     setSelectMode(false);
     setSelectedIds(new Set());
     setBulkAction(null);
+    // Phase 8k -- an open day panel (e.g. a picked "Copy to date") must not survive a day switch
+    // either; this choke point already resets everything else this component's action UI owns.
+    setDayAction(null);
     setSelectedDate(date);
   }
 
@@ -204,9 +292,44 @@ export function FoodDayView() {
     setSavedMessage(null);
   }
 
+  // 2026-08-07 (Phase 8g): "Delete" moves back onto the entry row -- an explicit reversal of
+  // Phase 8d, not a bug report against it (ai-context/DECISIONS.md, "Delete returns to the
+  // food-entry row..."). Jeff's read, after actually using the edit-form placement, is that "edit
+  // an item in order to delete it" is an unintuitive extra step, not a safety feature. The mis-tap
+  // risk Phase 8d was protecting against moves to a `window.confirm()` naming the entry, owned
+  // HERE (not in FoodEntryList, the presentational list) -- mirroring MealList.handleDeleteMeal's
+  // exact shape, the same pattern already used for this exact class of action.
+  //
+  // qa-review N-4 (Phase 8d, kept verbatim): the original version discarded deleteFoodEntry's
+  // { ok, error } result and unconditionally cleared editingEntry -- so a FAILED delete silently
+  // closed the user's open edit form while the entry survived untouched, with zero feedback. Still
+  // routed through the same `actionError` channel every other action-failure already uses, and
+  // `editingEntry` is only cleared on actual success -- and only when the just-deleted entry is the
+  // one currently open for edit (new in Phase 8g: any row can now be deleted, not just the one
+  // being edited, so a plain unconditional clear would be wrong).
   function handleDelete(entry: FoodEntry) {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`Delete "${entry.name}"? This can't be undone.`)
+    ) {
+      return;
+    }
     startTransition(async () => {
-      await deleteFoodEntry(entry.id);
+      const result = await deleteFoodEntry(entry.id);
+      if (!result.ok) {
+        // Never echo a raw Postgres error string verbatim to the UI (same posture as
+        // friendlyCopyError and every other friendlyError in this codebase).
+        setActionError(
+          result.error === "unauthenticated"
+            ? "You've been signed out — please log in again."
+            : "Couldn't delete this entry. Please try again.",
+        );
+        return;
+      }
+      setActionError(null);
+      if (editingEntry?.id === entry.id) {
+        setEditingEntry(null);
+      }
       refresh(selectedDate);
     });
   }
@@ -227,6 +350,9 @@ export function FoodDayView() {
       setLastConsumedAt(entries[0].consumed_at);
     }
     setEditingEntry(null);
+    // Phase 8k -- a successful log "spends" the day panel; close it, mirroring how a successful
+    // day/group copy already closes CopyDayDialog's own panel below.
+    setDayAction(null);
     showSavedMessage("Meal logged.");
     refresh(selectedDate);
   }
@@ -337,45 +463,57 @@ export function FoodDayView() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center gap-3">
-        <label htmlFor="food-day" className={labelClass}>
-          Day
-        </label>
-        <input
-          id="food-day"
-          type="date"
-          max={today}
-          value={selectedDate}
-          onChange={(e) => handleDayChange(e.target.value)}
-          autoComplete="off"
-          className={inputClass}
-        />
-      </div>
+      <DayNavigator id="food-day" value={selectedDate} today={today} onChange={handleDayChange} />
 
-      <DailyTotals totals={totals} />
+      <DailyTotals totals={totals} calorieGoal={calorieGoal} proteinGoal={proteinGoal} />
 
-      <div className="flex flex-wrap items-start gap-3">
-        <LogMealDialog selectedDate={selectedDate} today={today} tz={tz} onLogged={handleMealLogged} />
-        <CopyDayDialog
-          sourceDate={selectedDate}
-          entries={entries}
-          today={today}
-          tz={tz}
-          onCopied={handleCopied}
-        />
-        {/* Phase 8b -- "Select entries" is absent on a day with no entries, and hidden once select
-            mode is already active (its counterpart, "Done", lives in EntrySelectionBar below). */}
-        {entries.length > 0 && !selectMode && (
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => setSelectMode(true)}
-            className="self-start"
-          >
-            Select entries
-          </Button>
-        )}
-      </div>
+      {/* Phase 8k -- "The /food day-action surface". DayActionBar renders ONLY the three triggers,
+          never a panel of its own; whichever panel is open (if any) renders as a SIBLING directly
+          beneath it, never as DayActionBar's own child -- see DayActionBar.tsx's doc comment and
+          ai-context/DECISIONS.md's "The /food day-action surface..." entry for the layout bug this
+          structure fixes by construction. Hidden entirely while `selectMode` is true: "Select
+          entries" and the other two triggers are mutually exclusive states of the same bar. */}
+      {!selectMode && (
+        <>
+          <DayActionBar
+            hasEntries={entries.length > 0}
+            onOpenLogMeal={() => setDayAction("logMeal")}
+            onOpenCopyDay={() => setDayAction("copyDay")}
+            onEnterSelectMode={() => {
+              setSelectMode(true);
+              // Entering select mode closes any open day panel -- select mode and the day panels
+              // are mutually exclusive (design doc §3.4).
+              setDayAction(null);
+            }}
+          />
+          {dayAction === "logMeal" && (
+            <ActionPanel heading="Log a saved meal">
+              <LogMealDialog
+                selectedDate={selectedDate}
+                today={today}
+                tz={tz}
+                onLogged={handleMealLogged}
+                onCancel={() => setDayAction(null)}
+              />
+            </ActionPanel>
+          )}
+          {dayAction === "copyDay" && (
+            <ActionPanel heading="Copy this day">
+              <CopyDayDialog
+                sourceDate={selectedDate}
+                entries={entries}
+                today={today}
+                tz={tz}
+                onCopied={(copiedEntries, toDate) => {
+                  handleCopied(copiedEntries, toDate);
+                  setDayAction(null);
+                }}
+                onCancel={() => setDayAction(null)}
+              />
+            </ActionPanel>
+          )}
+        </>
+      )}
 
       {savedMessage && (
         <StatusMessage
@@ -400,15 +538,34 @@ export function FoodDayView() {
 
       {/* Phase 8b -- hoisted structurally ABOVE the loading/error ternary below (not nested inside
           any of its branches), so select mode, the selection, and an open bulk expander can never
-          be unmounted by a background refresh -- see the module doc comment. */}
+          be unmounted by a background refresh -- see the module doc comment.
+          Phase 8k: the WHOLE of select mode is now ONE `ActionPanel`, not `EntrySelectionBar` plus
+          a second, separately-ringed bulk panel underneath it -- level 3 of the emphasis ladder
+          means "an action is waiting for you to finish it", and rendering it twice, nested, for one
+          action would dilute that exactly as a permanently-accented toolbar would (the same
+          reasoning that keeps `ActionPanel` off `FoodEntryForm`). Keyed on `bulkAction` so choosing
+          a bulk action REMOUNTS this panel -- which is what makes `ActionPanel`'s own
+          scroll-into-view + focus-first-control fire for the newly-opened FORM, not the bar. The
+          heading names the step you're on. `bulkAction` (like `dayAction`/`selectMode` above)
+          changes only from a user click, so this does not violate the N-3 unmount rule. */}
       {selectMode && (
-        <>
+        <ActionPanel
+          key={bulkAction ?? "select"}
+          heading={
+            bulkAction === "copy"
+              ? "Copy selected"
+              : bulkAction === "save"
+                ? "Save selected as a meal"
+                : "Select entries"
+          }
+        >
           <EntrySelectionBar
             selectedCount={selectedEntries.length}
             onCopySelected={() => setBulkAction("copy")}
             onSaveSelectedAsMeal={() => setBulkAction("save")}
             onClear={() => setSelectedIds(new Set())}
             onDone={handleExitSelectMode}
+            bulkFormOpen={bulkAction !== null}
           />
           {bulkAction === "copy" && (
             <CopyGroupDialog
@@ -431,18 +588,18 @@ export function FoodDayView() {
               entriesNotFoundMessage="Couldn't find those entries — try reselecting and saving again."
             />
           )}
-        </>
+        </ActionPanel>
       )}
 
       {!hasLoadedOnce && loading ? (
-        <p className="text-sm text-stone-500">Loading…</p>
+        <p className="text-sm text-muted">Loading…</p>
       ) : loadError ? (
         <div className="flex items-center gap-3">
           <p className="text-sm text-red-600">Couldn&apos;t load this day&apos;s entries.</p>
           <button
             type="button"
             onClick={() => refresh(selectedDate)}
-            className="text-sm font-medium text-sage-deep hover:text-sage-deep/80"
+            className="text-sm font-medium text-accent hover:text-accent/80"
           >
             Retry
           </button>
@@ -453,8 +610,8 @@ export function FoodDayView() {
           today={today}
           tz={tz}
           onEdit={setEditingEntry}
-          onDelete={handleDelete}
           onLogAgain={handleLogAgain}
+          onDelete={handleDelete}
           onGroupSavedAsMeal={handleGroupSavedAsMeal}
           onGroupCopied={handleCopied}
           editingEntryId={editingEntry ? editingEntry.id : null}

@@ -43,6 +43,15 @@ import type { FoodEntry, Meal, MealItem } from "@/lib/types";
  * in its code path (see ai-context/DECISIONS.md and the design doc's §3.3/§5 for the full
  * reasoning, including why a failed item-insert is handled with a compensating delete rather than
  * a database transaction).
+ *
+ * **`setMealPinned`/`duplicateMeal`** (Phase 8f — "Saved meals: pinning and duplicating") round
+ * out the meal→meal direction. `duplicateMeal` is `createMealFromEntries`'s structural twin one
+ * level up: id in, re-read via the RLS-scoped client, never client-supplied values, the same
+ * `meal_not_found` code and compensating-delete contract — differing only in that `sort_order` is
+ * *preserved* from the source (a saved meal already has a user-curated order; a food entry does
+ * not), and `is_pinned` is never copied onto the duplicate. `setMealPinned` is a plain toggle with
+ * no RLS policy of its own — see the migration comment and design doc §3.2 for why an ALTER on an
+ * already-RLS-enabled table needs none, and why that claim must be verified by query, not assumed.
  */
 
 export type MealActionState = {
@@ -272,6 +281,143 @@ export async function createMealFromEntries(
   // what makes "the source entries are byte-identical before and after" true regardless of what a
   // future edit here might be tempted to add (see the design doc's §5 risk on this).
   return { ok: true, error: null, meal: meal as Meal };
+}
+
+// -------------------------------------------------------------------------------------------
+// setMealPinned / duplicateMeal (Phase 8f -- "Saved meals: pinning and duplicating",
+// 2026-08-05/08). Both follow this file's established shape: a plain-argument action like
+// deleteMeal/reorderMealItems for the toggle, and a useActionState/FormData action shaped exactly
+// like createMealFromEntries for the form that prompts for a name -- see design doc §3.3.
+// -------------------------------------------------------------------------------------------
+
+export async function setMealPinned(mealId: string, isPinned: boolean): Promise<MealsActionResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { ok: false, error: "unauthenticated" };
+  }
+
+  // `.eq("user_id", user.id)` is belt-and-suspenders on top of RLS (`meals_update_own` already
+  // constrains this update, on both `using` and `with check`, to rows the caller owns -- see the
+  // Phase 8f migration comment / design doc §3.2) -- same posture as every other mutation here.
+  const { error } = await supabase
+    .from("meals")
+    .update({ is_pinned: isPinned })
+    .eq("id", mealId)
+    .eq("user_id", user.id);
+
+  if (error) {
+    return { ok: false, error: error.message };
+  }
+
+  return { ok: true, error: null };
+}
+
+export async function duplicateMeal(
+  _prevState: MealActionState,
+  formData: FormData,
+): Promise<MealActionState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { ok: false, error: "unauthenticated" };
+  }
+
+  const mealId = String(formData.get("mealId") ?? "");
+  const name = String(formData.get("name") ?? "").trim();
+  const validation = validateMealInput({ name });
+  if (!validation.ok) {
+    const fieldErrors: Partial<Record<MealField, string>> = {};
+    for (const e of validation.errors) fieldErrors[e.field] = e.message;
+    return { ok: false, error: "Please fix the highlighted errors.", fieldErrors };
+  }
+
+  // --- Ownership re-read (the exact same pattern as logMealForDay/createMealFromEntries above):
+  // resolve the SOURCE meal and its items via the RLS-scoped `supabase` client -- never
+  // service-role, never a client-supplied item list. A foreign or nonexistent `mealId` resolves to
+  // zero rows here; reuse `meal_not_found` (logMealForDay's code for the identical condition)
+  // rather than minting a new one for the same thing (design doc §3.3).
+  const { data: sourceMeal, error: mealError } = await supabase
+    .from("meals")
+    .select("id")
+    .eq("id", mealId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (mealError) {
+    return { ok: false, error: mealError.message };
+  }
+  if (!sourceMeal) {
+    return { ok: false, error: "meal_not_found" };
+  }
+
+  const { data: sourceItems, error: itemsReadError } = await supabase
+    .from("meal_items")
+    .select("*")
+    .eq("meal_id", mealId)
+    .eq("user_id", user.id)
+    .order("sort_order", { ascending: true });
+
+  if (itemsReadError) {
+    return { ok: false, error: itemsReadError.message };
+  }
+
+  // `is_pinned` is deliberately NOT copied -- the duplicate always starts unpinned (design doc
+  // §3.2/§3.3/§5): pinning describes the user's current shortlist, not the meal's content, and a
+  // duplicate exists to be edited into something else.
+  const { data: newMeal, error: createError } = await supabase
+    .from("meals")
+    .insert({ user_id: user.id, name })
+    .select()
+    .single();
+
+  if (createError || !newMeal) {
+    return { ok: false, error: createError?.message ?? "Couldn't create the meal." };
+  }
+
+  const items = (sourceItems ?? []) as MealItem[];
+  // An empty source meal (zero items) duplicates successfully into an empty meal -- deliberately
+  // NOT rejected the way createMealFromEntries rejects `no_entries` (design doc §3.3): an empty
+  // meal is a state `createMeal` itself already produces, so refusing to duplicate one would be an
+  // arbitrary asymmetry. `logMealForDay` still refuses to log it (`empty_meal`).
+  if (items.length > 0) {
+    // sort_order is PRESERVED from the source item, NOT renumbered 0..N-1 -- this is the one place
+    // a developer is most likely to reach for the wrong helper (`mealItemsFromEntries` assigns
+    // fresh order because food entries have no order of their own; a saved meal already has a
+    // user-curated one, and reproducing it is the entire point of a duplicate — see design doc
+    // §3.3/§5, "Two 'copy a meal by value' paths now exist and must not drift").
+    const { error: itemsWriteError } = await supabase.from("meal_items").insert(
+      items.map((item) => ({
+        meal_id: (newMeal as Meal).id,
+        user_id: user.id,
+        name: item.name,
+        quantity: item.quantity,
+        unit: item.unit,
+        calories_per_unit: item.calories_per_unit,
+        protein_g_per_unit: item.protein_g_per_unit,
+        sort_order: item.sort_order,
+      })),
+    );
+
+    if (itemsWriteError) {
+      // Compensating delete -- the exact same contract as createMealFromEntries's
+      // (ai-context/DECISIONS.md "createMealFromEntries atomicity...", reused verbatim here since
+      // supabase-js exposes no cross-statement transaction). If this delete itself also fails, the
+      // residual state is a named, empty, user-deletable meal -- knowingly accepted, same as above.
+      await supabase.from("meals").delete().eq("id", (newMeal as Meal).id).eq("user_id", user.id);
+      return { ok: false, error: itemsWriteError.message };
+    }
+  }
+
+  // Nothing above ever issues an UPDATE or DELETE against the SOURCE meal or its items -- this
+  // action is strictly read-only on the source, by there simply being no such statement in this
+  // function's code path (design doc §3.3/§5, same reasoning as createMealFromEntries's
+  // read-only-on-food_entries guarantee).
+  return { ok: true, error: null, meal: newMeal as Meal };
 }
 
 // -------------------------------------------------------------------------------------------

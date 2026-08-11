@@ -1,13 +1,14 @@
 "use client";
 
-import { useActionState, useEffect, useId, useMemo, useState, useTransition } from "react";
+import { useActionState, useCallback, useEffect, useId, useMemo, useState, useTransition } from "react";
 import { useFormStatus } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { queryTimeoutSignal } from "@/lib/supabase/query-timeout";
 import { deleteDailyMetric, upsertDailyMetric, type DailyMetricActionState } from "@/lib/actions/metrics";
-import { browserTimeZone, localDateInTz } from "@/lib/domain/datetime";
-import { weightForDisplay } from "@/lib/domain/units";
+import { browserTimeZone, formatDateLabel, localDateInTz } from "@/lib/domain/datetime";
+import { formatWeight, weightForDisplay } from "@/lib/domain/units";
 import { Button } from "@/components/ui/Button";
+import { DayNavigator } from "@/components/ui/DayNavigator";
 import { StatusMessage, SUCCESS_MESSAGE_MS } from "@/components/ui/StatusMessage";
 import { errorTextClass, inputClass, labelClass } from "@/components/ui/styles";
 import type { DailyMetric, WeightUnit } from "@/lib/types";
@@ -58,6 +59,14 @@ export function MetricForm({ weightUnit }: MetricFormProps) {
   const [existing, setExisting] = useState<DailyMetric | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  // Phase 8h: "last logged weight/body fat" line, independent of `selectedDate`/`existing` above
+  // (which track the currently-BROWSED day, not the most-recently-LOGGED one). Fetched once on
+  // mount (once `tz` resolves) and re-fetched after a save/delete so it never goes stale without a
+  // reload -- the entire reason this is a client read instead of a simpler Server Component one
+  // (see ai-context/DECISIONS.md's Phase 8h entry). Failure here is deliberately silent: this is a
+  // "nice to know" line, not a primary read, and the day-entry fetch above already owns this
+  // screen's error+Retry path.
+  const [lastLogged, setLastLogged] = useState<DailyMetric | null>(null);
 
   // Client-only: resolves the browser's actual timezone/date post-mount, avoiding an SSR/client
   // hydration mismatch (see the module doc comment above).
@@ -107,6 +116,32 @@ export function MetricForm({ weightUnit }: MetricFormProps) {
     };
   }, [supabase, selectedDate]);
 
+  const fetchLastLogged = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from("daily_metrics")
+        .select("*")
+        .order("metric_date", { ascending: false })
+        .limit(1)
+        .abortSignal(queryTimeoutSignal())
+        .maybeSingle();
+      if (!error) {
+        setLastLogged((data ?? null) as DailyMetric | null);
+      }
+    } catch {
+      // Silently ignored -- see the state declaration's doc comment above.
+    }
+  }, [supabase]);
+
+  // Runs once tz resolves (the mount-only effect above sets it exactly once) -- deliberately NOT
+  // keyed on `selectedDate`, since "most recently logged" doesn't depend on which day is browsed.
+  // Same justified `react-hooks/set-state-in-effect` suppression as the day-entry fetch above.
+  useEffect(() => {
+    if (tz === null) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchLastLogged();
+  }, [tz, fetchLastLogged]);
+
   async function refetch() {
     if (selectedDate === null) return;
     setLoading(true);
@@ -133,35 +168,36 @@ export function MetricForm({ weightUnit }: MetricFormProps) {
   // Same placeholder on the server pass and the client's first pass (both have tz === null),
   // which is what keeps hydration in sync — see the module doc comment.
   if (tz === null || today === null || selectedDate === null) {
-    return <p className="text-sm text-stone-500">Loading…</p>;
+    return <p className="text-sm text-muted">Loading…</p>;
   }
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex items-center gap-3">
-        <label htmlFor="metric-day" className={labelClass}>
-          Day
-        </label>
-        <input
-          id="metric-day"
-          type="date"
-          max={today}
-          value={selectedDate}
-          onChange={(e) => setSelectedDate(e.target.value)}
-          autoComplete="off"
-          className={inputClass}
-        />
-      </div>
+      {/* Phase 8h: "last logged" line, null-safe -- absent entirely (not "Last logged: —") when
+          the user has never logged a metric. Deliberately independent of `selectedDate`/`today`. */}
+      {lastLogged && (
+        <p className="text-sm text-muted">
+          Last logged: {formatWeight(lastLogged.weight_kg, weightUnit)}
+          {lastLogged.body_fat_pct != null && ` · ${lastLogged.body_fat_pct}% body fat`} on{" "}
+          {formatDateLabel(lastLogged.metric_date)}
+        </p>
+      )}
+
+      {/* 2026-08-05 (Phase 8d, its own commit -- see ai-context/DECISIONS.md): shares
+          `components/ui/DayNavigator.tsx` with `/food`'s `FoodDayView`, so the cap/disabled rules/
+          wording can't diverge between the two screens. `/metrics` has no `handleDayChange`-style
+          choke point to bypass (unlike `/food`), so this wires straight to `setSelectedDate`. */}
+      <DayNavigator id="metric-day" value={selectedDate} today={today} onChange={setSelectedDate} />
 
       {loading ? (
-        <p className="text-sm text-stone-500">Loading…</p>
+        <p className="text-sm text-muted">Loading…</p>
       ) : loadError ? (
         <div className="flex items-center gap-3">
           <p className={errorTextClass}>Couldn&apos;t load this day&apos;s entry.</p>
           <button
             type="button"
             onClick={() => refetch()}
-            className="text-sm font-medium text-sage-deep hover:text-sage-deep/80"
+            className="text-sm font-medium text-accent hover:text-accent/80"
           >
             Retry
           </button>
@@ -174,8 +210,14 @@ export function MetricForm({ weightUnit }: MetricFormProps) {
           tz={tz}
           weightUnit={weightUnit}
           existing={existing}
-          onSaved={(metric) => setExisting(metric)}
-          onDeleted={() => refetch()}
+          onSaved={(metric) => {
+            setExisting(metric);
+            fetchLastLogged();
+          }}
+          onDeleted={() => {
+            refetch();
+            fetchLastLogged();
+          }}
         />
       )}
     </div>
@@ -248,7 +290,7 @@ function MetricEntryForm({
   return (
     <form
       action={formAction}
-      className="flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5"
+      className="flex flex-col gap-4 rounded-xl border border-line bg-white p-4 shadow-sm sm:p-5"
       noValidate
       autoComplete="off"
     >
@@ -257,7 +299,7 @@ function MetricEntryForm({
       <input type="hidden" name="weightUnit" value={weightUnit} autoComplete="off" />
 
       {existing && (
-        <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-sage-pale px-3 py-1 text-xs font-medium text-ink">
+        <p className="inline-flex w-fit items-center gap-1.5 rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-ink">
           Already logged for {selectedDate === today ? "today" : "this day"} — saving overwrites it.
         </p>
       )}

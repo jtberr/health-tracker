@@ -32,7 +32,7 @@ async function logIn(page: Page, user: TestUser) {
   await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/food");
 }
 
 function todayUtc(): string {
@@ -248,9 +248,12 @@ test.describe("Phase8b QA: select mode", () => {
     await page.goto("/food");
     await expect(row(page, "QA8b Eggs")).toBeVisible();
 
-    await expect(page.getByRole("button", { name: "Log again" })).toHaveCount(3);
-    await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(3);
-    await expect(page.getByRole("button", { name: "Delete" })).toHaveCount(3);
+    // 2026-08-07 (Phase 8d/8g note): "Delete" is back on the row (Phase 8g reversed Phase 8d's
+    // edit-form placement) as a third icon-only action alongside Log again/Edit -- present outside
+    // select mode, hidden inside it, exactly like the other two.
+    await expect(page.getByRole("button", { name: /Log again/ })).toHaveCount(3);
+    await expect(page.getByRole("button", { name: /Edit/ })).toHaveCount(3);
+    await expect(page.getByRole("button", { name: /Delete/ })).toHaveCount(3);
     await expect(page.getByRole("button", { name: "Save as meal" })).toHaveCount(2);
     await expect(page.getByRole("button", { name: "Copy this group" })).toHaveCount(2);
     await expect(page.locator('input[type="checkbox"]')).toHaveCount(0);
@@ -269,7 +272,8 @@ test.describe("Phase8b QA: select mode", () => {
 
     await page.getByRole("button", { name: "Done" }).click();
     await expect(page.locator('input[type="checkbox"]')).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Log again" })).toHaveCount(3);
+    await expect(page.getByRole("button", { name: /Log again/ })).toHaveCount(3);
+    await expect(page.getByRole("button", { name: /Delete/ })).toHaveCount(3);
     await expect(page.getByRole("button", { name: "Copy this group" })).toHaveCount(2);
     await expect(page.getByRole("button", { name: "Select entries" })).toBeVisible();
   });
@@ -911,8 +915,8 @@ test.describe("Phase8b QA: editing-row highlight", () => {
       };
     });
     expect(styles.borderLeftWidth).toBe("4px");
-    // --sage-deep is #5C7444.
-    expect(styles.borderLeftColor).toBe("rgb(92, 116, 68)");
+    // --accent is #1D4ED8 (2026-08-09/10, Phase 8i -- was --sage-deep #5C7444).
+    expect(styles.borderLeftColor).toBe("rgb(29, 78, 216)");
     // Transparent (inherits the card surface) -- i.e. no fill of its own.
     expect(styles.backgroundColor).toBe("rgba(0, 0, 0, 0)");
   });
@@ -947,13 +951,18 @@ test.describe("Phase8b QA: editing-row highlight", () => {
     await row(page, "QA8b Ed Three").getByRole("button", { name: "Edit" }).click();
     await expect(page.getByText("Editing", { exact: true })).toHaveCount(1);
 
-    // Delete a DIFFERENT entry out-of-band and force a real refresh through the app. refresh()
-    // replaces every entry object; an implementation comparing objects rather than ids silently
-    // stops matching here.
+    // Delete two DIFFERENT entries out-of-band via the admin client (deliberately not the UI's own
+    // row-level Delete -- this test's subject is a background refresh triggered by SOMETHING ELSE,
+    // "Log again" below, not the delete path itself) and force a real refresh through the app via a
+    // different row's "Log again". refresh() replaces every entry object; an implementation
+    // comparing objects rather than ids silently stops matching here.
     const admin = createAdminClient();
     const four = seeded.find((e) => e.name === "QA8b Ed Four");
+    const one = seeded.find((e) => e.name === "QA8b Ed One");
     await admin.from("food_entries").delete().eq("id", four!.id);
-    await row(page, "QA8b Ed One").getByRole("button", { name: "Delete" }).click();
+    await admin.from("food_entries").delete().eq("id", one!.id);
+    await row(page, "QA8b Ed Two").getByRole("button", { name: "Log again" }).click();
+    await expect(page.getByText(/Logged .QA8b Ed Two. again/)).toBeVisible();
     await expect(row(page, "QA8b Ed One")).toHaveCount(0);
     await expect(row(page, "QA8b Ed Four")).toHaveCount(0);
 
@@ -961,15 +970,19 @@ test.describe("Phase8b QA: editing-row highlight", () => {
     await expect(row(page, "QA8b Ed Three").getByText("Editing", { exact: true })).toBeVisible();
   });
 
-  test("the edited row hides its own Log again/Edit/Delete while other rows keep theirs, and Log again on another row still works without cancelling the edit", async ({ page }) => {
+  test("the edited row hides its own Log again/Edit while other rows keep theirs, and Log again on another row still works without cancelling the edit", async ({ page }) => {
     await seedFour();
     await page.goto("/food");
     await row(page, "QA8b Ed Two").getByRole("button", { name: "Edit" }).click();
 
+    // 2026-08-07 (Phase 8g): "Delete" is back on the row as a third icon-only action -- it's
+    // suppressed on the edited row exactly like Log again/Edit (all three live in the same
+    // conditional), and the edit form no longer has a Delete control of its own at all.
     const edited = row(page, "QA8b Ed Two");
     await expect(edited.getByRole("button", { name: "Log again" })).toHaveCount(0);
     await expect(edited.getByRole("button", { name: "Edit" })).toHaveCount(0);
     await expect(edited.getByRole("button", { name: "Delete" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Delete entry" })).toHaveCount(0);
 
     const other = row(page, "QA8b Ed Three");
     await expect(other.getByRole("button", { name: "Log again" })).toHaveCount(1);
@@ -1005,7 +1018,11 @@ test.describe("Phase8b QA: editing-row highlight", () => {
 
     await page.goto("/food");
     await page.getByRole("button", { name: "Log a saved meal" }).click();
-    await page.getByLabel("Meal").selectOption({ index: 1 });
+    // { exact: true } (Phase 8f): the open picker is now wrapped in an `ActionPanel` whose
+    // accessible name ("Log a saved meal") contains "Meal" as a substring -- an unscoped
+    // getByLabel("Meal") would also match that region (see ai-context/DECISIONS.md's "Copy to
+    // time does not avoid a Playwright getByLabel collision..." entry for the same class of bug).
+    await page.getByLabel("Meal", { exact: true }).selectOption({ index: 1 });
     await page.getByRole("button", { name: "Log meal" }).click();
     await expect(page.getByText("Meal logged.")).toBeVisible();
 
@@ -1017,13 +1034,14 @@ test.describe("Phase8b QA: editing-row highlight", () => {
     const badge = badgeRow.getByText("From a saved meal");
     await expect(badge).toBeVisible();
 
-    // Still a PILL on a sage-pale fill, with ink text -- unchanged by the edit state, and the row
-    // behind it still has no fill of its own, so the badge cannot vanish into it.
+    // Still a PILL on an accent-soft fill, with ink text -- unchanged by the edit state, and the
+    // row behind it still has no fill of its own, so the badge cannot vanish into it.
     const badgeStyles = await badge.evaluate((el) => {
       const cs = getComputedStyle(el);
       return { bg: cs.backgroundColor, radius: cs.borderRadius, color: cs.color };
     });
-    expect(badgeStyles.bg).toBe("rgb(227, 234, 214)");
+    // --accent-soft is #DBEAFE (2026-08-09/10, Phase 8i -- was --sage-pale #E3EAD6).
+    expect(badgeStyles.bg).toBe("rgb(219, 234, 254)");
     expect(isPillRadius(badgeStyles.radius)).toBe(true);
     await settle(page);
     const rowBg = await badgeRow.evaluate((el) => getComputedStyle(el).backgroundColor);
@@ -1294,16 +1312,17 @@ test.describe("Phase8b QA: StatusMessage", () => {
     expect(isPillRadius(s.radius)).toBe(false);
     expect(s.fontSize).toBe("14px");
     expect(s.borderLeftWidth).toBe("4px");
-    // sage-deep accent bar, sage-pale surface, ink text -- the recorded contrast guardrail:
-    // sage-deep is used ONLY as a non-text element here.
-    expect(s.borderLeftColor).toBe("rgb(92, 116, 68)");
-    expect(s.background).toBe("rgb(227, 234, 214)");
-    expect(s.color).toBe("rgb(35, 33, 28)");
+    // accent bar, accent-soft surface, ink text (2026-08-09/10, Phase 8i -- was sage-deep/
+    // sage-pale/the old ink) -- the recorded contrast guardrail: accent is used ONLY as a
+    // non-text element here.
+    expect(s.borderLeftColor).toBe("rgb(29, 78, 216)");
+    expect(s.background).toBe("rgb(219, 234, 254)");
+    expect(s.color).toBe("rgb(15, 23, 42)");
     expect(s.paddingLeft).toBe("16px");
     expect(Math.round(s.width)).toBe(Math.round(s.parentWidth));
   });
 
-  test("no descendant of the banner renders sage-deep TEXT on the sage-pale tint (the ~4.2:1 trap)", async ({ page }) => {
+  test("no descendant of the banner renders accent TEXT on the accent-soft tint (the old ~4.2:1 trap this token swap dissolved, but the RULE is kept anyway)", async ({ page }) => {
     await page.goto("/food");
     await addEntry(page, "QA8b SM Contrast", "100");
     const banner = page.locator('[role="status"]').filter({ hasText: "Entry added." });
@@ -1323,7 +1342,7 @@ test.describe("Phase8b QA: StatusMessage", () => {
     });
     expect(textColors.length).toBeGreaterThan(0);
     for (const c of textColors) {
-      expect(c).toBe("rgb(35, 33, 28)");
+      expect(c).toBe("rgb(15, 23, 42)");
     }
   });
 
@@ -1345,7 +1364,11 @@ test.describe("Phase8b QA: StatusMessage", () => {
     });
     await page.goto("/food");
     await page.getByRole("button", { name: "Log a saved meal" }).click();
-    await page.getByLabel("Meal").selectOption({ index: 1 });
+    // { exact: true } (Phase 8f): the open picker is now wrapped in an `ActionPanel` whose
+    // accessible name ("Log a saved meal") contains "Meal" as a substring -- an unscoped
+    // getByLabel("Meal") would also match that region (see ai-context/DECISIONS.md's "Copy to
+    // time does not avoid a Playwright getByLabel collision..." entry for the same class of bug).
+    await page.getByLabel("Meal", { exact: true }).selectOption({ index: 1 });
     await page.getByRole("button", { name: "Log meal" }).click();
     const badge = page.getByText("From a saved meal");
     await expect(badge).toBeVisible();
@@ -1605,7 +1628,7 @@ test.describe("Phase8b QA: autofill hygiene and label collisions", () => {
     }
   });
 
-  test("FINDING (pinned, not endorsed): /meals controls were NOT swept -- the filter, meal name and item fields still carry no hint", async ({ page }) => {
+  test("FIXED (was pinned as a FINDING): /meals controls are now swept -- the filter, meal name and item fields all carry autocomplete=off", async ({ page }) => {
     const { data: meal } = await client
       .from("meals")
       .insert({ user_id: user.id, name: "QA8b AC meal" })
@@ -1623,13 +1646,24 @@ test.describe("Phase8b QA: autofill hygiene and label collisions", () => {
     await page.goto("/meals");
     await expect(page.getByText("QA8b AC meal")).toBeVisible();
 
+    // Open every surface on /meals that renders controls: the "New meal" form, an item's "Manage
+    // items" -> "+ Add item" form (already expanded by default -- see MealList's expand-by-default
+    // convention), and rename.
+    await page.getByRole("button", { name: "+ New meal" }).click();
+    await page.getByRole("button", { name: "+ Add item" }).click();
+    // Bugfix (2026-08-10): "Rename" is now an icon-only button named "Rename <meal name>".
+    await page.getByRole("button", { name: /^Rename/ }).click();
+
     const controls = await controlAttrs(page);
     const unhinted = appControls(controls).filter((c) => c.ac !== "off");
-    // The design doc explicitly names the /meals filter, meal name and item fields as in-scope for
-    // this convention. Neither Phase 8b (which excluded /meals by instruction) nor Phase 8c
-    // (which deferred it again) delivered them. Pinned so the gap is visible and countable.
-    expect(unhinted.length).toBeGreaterThan(0);
-    expect(unhinted.some((c) => c.id === "meal-filter")).toBe(true);
+    // Fixed as part of qa-review N-2: every /meals control is now hinted. Pinned as an empty-result
+    // regression guard rather than a passing-but-unverified assertion.
+    expect(unhinted, JSON.stringify(unhinted)).toEqual([]);
+
+    const forms = await page.locator("form").evaluateAll((els) =>
+      els.map((e) => e.getAttribute("autocomplete")),
+    );
+    expect(forms.filter((f) => f !== "off")).toEqual([]);
   });
 
   test("label collision: getByLabel('Time', exact) still resolves to exactly ONE control with a copy expander open; the UNSCOPED substring form does NOT", async ({ page }) => {

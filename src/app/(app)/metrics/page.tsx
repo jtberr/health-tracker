@@ -17,7 +17,7 @@ export default async function MetricsPage() {
 
   return (
     <div className="flex flex-col gap-5">
-      <h1 className="font-serif text-2xl font-semibold tracking-tight text-ink">Weight &amp; body fat</h1>
+      <h1 className="text-2xl font-semibold tracking-tight text-ink">Weight &amp; body fat</h1>
       <MetricForm weightUnit={weightUnit} />
     </div>
   );

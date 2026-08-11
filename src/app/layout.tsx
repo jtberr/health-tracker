@@ -1,21 +1,20 @@
 import type { Metadata } from "next";
-import { Fraunces, Geist, Geist_Mono } from "next/font/google";
+import { Geist_Mono, Inter } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// Phase 8i (2026-08-09/10, "Visual identity v2"): Fraunces is removed entirely (the registration,
+// the --font-fraunces variable, and every font-serif class in src/) and Geist Sans is swapped for
+// Inter as the sole body/UI/heading face -- Jeff's resolution of the design doc's one open
+// question, per ai-context/DECISIONS.md's Phase 8i entry: "one import and one CSS variable ...
+// zero component changes, because everything already resolves through --font-sans." Geist Mono is
+// unaffected -- nothing about the code/mono face needed to change.
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
 });
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
-// Headings/wordmark/large stat numerals only — Geist Sans stays the body/UI/data face (see
-// ai-context/DECISIONS.md "Visual identity: warm-paper + sage/clay palette, Fraunces-for-headings…").
-const fraunces = Fraunces({
-  variable: "--font-fraunces",
   subsets: ["latin"],
 });
 
@@ -30,10 +29,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} h-full antialiased`}
-    >
+    <html lang="en" className={`${inter.variable} ${geistMono.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
   );

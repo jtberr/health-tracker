@@ -176,12 +176,15 @@ src/
     manifest.ts                   ← Next.js MetadataRoute.Manifest (name, icons, display:'standalone', start_url)
     icon.png / apple-icon.png     ← home-screen + full-screen icons
     (auth)/
+      layout.tsx                  ← (Phase 8l) centred card + the app wordmark above it; no decorative motif (8i deleted the arc)
       login/page.tsx / signup/page.tsx
+      forgot-password/page.tsx    ← (Phase 8m) request a reset link; neutral confirmation, never an account-existence oracle
+      reset-password/page.tsx     ← (Phase 8m) set a new password; server-side session check first (no session → "link expired", not a dead form)
     (app)/                        ← authenticated group; layout enforces session; has a "Log out" control
       layout.tsx                  ← server-side session check → redirect /login if none; nav; signOut action
-      page.tsx                    ← Dashboard: today's totals only (incl. day protein %), via TodaySummary — deliberately minimal, see §4
-      food/page.tsx               ← Food log for a selected day (grouped list, add/edit/delete, log-from-meal, copy-day, copy-group, multi-select bulk actions)
-      meals/page.tsx              ← Saved-meals library CRUD + (Phase 8c) "Log this meal" per card
+      page.tsx                    ← (Phase 8h) `redirect("/food")` — the dashboard route is retired, not rebuilt; see §3.4/§4
+      food/page.tsx               ← Food log for a selected day (grouped list, add/edit/delete, log-from-meal, copy-day, copy-group, multi-select bulk actions, prev/next-day nav)
+      meals/page.tsx              ← Saved-meals library CRUD + (Phase 8c) "Log this meal" + (Phase 8f) pin / duplicate per card
       metrics/page.tsx            ← Weight + body-fat daily entry (upsert)
       trends/page.tsx             ← Charts
       settings/page.tsx           ← Goals + weight-unit preference
@@ -193,31 +196,45 @@ src/
     food/FoodLookupPanel.tsx      ← barcode + description tabs → picked FoodCandidate (client)
     food/BarcodeScanner.tsx       ← camera scan via html5-qrcode; manual code fallback (client)
     food/FoodEntryList.tsx        ← day's entries grouped by exact consumed_at; per-group protein-% rollup; per-entry protein %; group-header action bar ("Save as meal", "Copy this group"); "Log again"; per-row selection checkboxes in select mode (client)
-    food/EntrySelectionBar.tsx    ← Phase 8b: "N selected" + "Copy selected" / "Save selected as a meal" / Clear / Done; rendered by FoodDayView above the list (client)
-    food/CopyDayDialog.tsx        ← pick a target date → copyFoodEntries(all source-day ids) (client)
+    food/EntrySelectionBar.tsx    ← Phase 8b: "N selected" + "Copy selected" / "Save selected as a meal" / Clear / Done; (8k) rendered INSIDE the select-mode ActionPanel, and its buttons are suppressed while a bulk panel is open (client)
+    food/CopyDayDialog.tsx        ← pick a target date → copyFoodEntries(all source-day ids); (8k) panel-only — the caller owns the trigger and the open state (client)
     food/CopyGroupDialog.tsx      ← pick a target date + an OPTIONAL time override ("Keep original time" default) → copyFoodEntries; serves BOTH a group header and a multi-select selection (client)
-    food/LogMealDialog.tsx        ← date/time (max=today, 15-min grid) → logMealForDay; picks a meal on /food, or (Phase 8c) takes a fixed `meal` prop for /meals (client)
+    food/LogMealDialog.tsx        ← date/time (max=today, 15-min grid) → logMealForDay; picks a meal on /food, or (Phase 8c) takes a fixed `meal` prop for /meals; (8k) panel-only in BOTH modes — every caller owns the trigger (client)
+    food/DayActionBar.tsx         ← Phase 8k: the three /food day-level triggers in one row ("Log a saved meal" / "Copy this day" / "Select entries"), each with a supplementary Tooltip; renders NO panel itself (client)
     food/SaveGroupAsMealDialog.tsx ← name a logged group OR a multi-select selection → createMealFromEntries; inline expander, not a modal (client)
-    food/DailyTotals.tsx          ← day sum + day-level protein % (ratio-of-sums)
+    food/DailyTotals.tsx          ← day sum + day-level protein %; (Phase 8j) goal-relative progress bars + "N remaining" when a target is set
     meals/MealsView.tsx           ← client orchestrator: reads meals+items, owns the name-filter box + counts (client)
-    meals/MealList.tsx / MealForm.tsx / MealItemForm.tsx  ← meal CRUD; MealItemForm keeps qty/unit/per-unit always visible
+    meals/MealList.tsx / MealForm.tsx / MealItemForm.tsx  ← meal CRUD; MealItemForm keeps qty/unit/per-unit always visible; MealList card row carries log/pin/duplicate/rename/delete
+    meals/DuplicateMealDialog.tsx ← Phase 8f: name the copy ("<name> (copy)" prefilled) → duplicateMeal; inline expander (client)
     metrics/MetricForm.tsx / settings/SettingsForm.tsx
     trends/WeightChart.tsx / IntakeChart.tsx / RangeSelector.tsx
-    ui/…
+    ui/DayNavigator.tsx           ← Phase 8d: ‹ Previous day / date input / Next day ›, shared by /food and /metrics; "Next" disabled on today (client)
+    ui/ActionPanel.tsx            ← Phase 8d: the emphasis wrapper for an inline action awaiting completion (heading + sage-deep ring + sage-pale fill)
+    ui/Tooltip.tsx                ← Phase 8d: hover/focus supplementary tooltip, pointer-devices only (role="tooltip" + aria-describedby); never the sole source of a control's meaning (client)
+    ui/icons.tsx                  ← Phase 8d: inline SVG glyphs (repeat / pencil / trash / pin), Lucide geometry, aria-hidden, currentColor — no icon-library dependency
+    ui/StatusMessage.tsx          ← Phase 8b: transient success banner (left accent bar, role="status", 6s auto-dismiss)
+    ui/ProgressBar.tsx            ← Phase 8j: thin decorative goal bar (aria-hidden; the numbers beside it carry the information)
+    ui/DisclosureButton.tsx       ← Phase 8k: the standard "reveal optional detail" toggle — real button chrome + rotating chevron + aria-expanded/aria-controls (client)
+    ui/Wordmark.tsx               ← Phase 8l: the one "Health Tracker" wordmark, used by the app header AND the auth layout — one source of truth for the app's name
+    ui/…                          ← Button / Card / NavLink / styles.ts
   lib/
     supabase/server.ts / supabase/client.ts   ← persistent session, auto-refresh
     domain/totals.ts              ← pure: sum entries/meal items
     domain/nutrition.ts           ← pure: proteinCaloriePct((protein×4)/calories×100); used per entry, per group, per day
+    domain/goal-progress.ts       ← Phase 8j, pure: goalProgress(consumed, target) → consumed/target/remaining/pct/barPct/isOver, or null when no target
     domain/entry-grouping.ts      ← pure: groupByConsumedAt — exact-timestamp grouping of logged entries (NOT saved meals)
     domain/meal-items.ts          ← pure: groupMealItemsByMeal; computeReorderedSortOrders; mealItemsFromEntries (entries → meal-item drafts)
-    domain/meals.ts               ← pure: sortMealsByName; filterMealsByName — meal-level (not item-level) library ordering/filtering
+    domain/meals.ts               ← pure: sortMealsByName (pinned-first from 8f); filterMealsByName; duplicateMealName — meal-level (not item-level) library ordering/filtering/naming
     domain/quantity.ts            ← pure: lineTotal(qty×perUnit); perUnitFromTotal(total÷qty)
-    domain/datetime.ts            ← pure: local↔UTC (tz-aware), browser tz, future-day cap, smart-default consumed_at, quarter-hour floor, validate
+    domain/datetime.ts            ← pure: local↔UTC (tz-aware), browser tz, future-day cap, smart-default consumed_at, quarter-hour floor + option groups, day shift, validate
     domain/validation.ts / domain/units.ts / domain/trends.ts / domain/lookup.ts
+    domain/auth-validation.ts     ← pure: login/signup rules + (Phase 8m) validateForgotPasswordInput / validateNewPasswordInput
+    domain/safe-redirect.ts       ← pure: safeRedirectPath — the `?next=` open-redirect guard the auth callback (and 8m's reset link) relies on
     lookup/openfoodfacts.ts / lookup/usda.ts   ← server-only provider adapters
     actions/food.ts               ← 'use server': add/update/delete + copyFoodEntries (shared copy primitive)
-    actions/meals.ts              ← 'use server': meal/item CRUD; logMealForDay (meal → entries); createMealFromEntries (entries → meal)
+    actions/meals.ts              ← 'use server': meal/item CRUD; logMealForDay (meal → entries); createMealFromEntries (entries → meal); setMealPinned; duplicateMeal (meal → meal)
     actions/metrics.ts / actions/goals.ts
+    actions/auth.ts               ← 'use server': signIn / signUp / signOut + (Phase 8m) requestPasswordReset / updatePassword
     types.ts
 ```
 
@@ -258,6 +275,41 @@ index (a sort over tens of rows is free — Postgres would very likely ignore it
 index for `ILIKE '%…%'` search (needs a new extension and a real migration to accelerate a query the app does
 not make). Both become worth revisiting **only if** server-side search or pagination is ever adopted — see the
 tripwire in §5.
+
+**Pinned saved meals — the one schema change in this batch (2026-08-05, Phase 8f).** Everything else designed
+since Phase 7 has been "no migration"; this genuinely needs one, because "which meals are my shortlist" is user
+state with nowhere to live. **One column, one migration:**
+
+```sql
+alter table public.meals
+  add column is_pinned boolean not null default false;
+```
+
+- **Boolean, not `pinned_at timestamptz`.** A timestamp would additionally record *when* — but the design below
+  orders the pinned block **alphabetically**, exactly like the unpinned block, so nothing would ever read that
+  value. Storing a column nothing reads is precisely what §3.2 already rejected for save-as-meal provenance;
+  the same reasoning applies to itself here. If recency-of-pin ordering is ever wanted, it is a one-line
+  migration *then*, made for a reason, rather than speculative state carried from now until then.
+- **No new RLS policy is required, and this is a claim to check rather than assume.** AGENTS.md's Absolute Rule
+  is that *every new table* ships with RLS in the same migration; this is an **ALTER on an existing table** whose
+  RLS is already enabled with all four `user_id = (select auth.uid())` policies, and whose `authenticated` grant
+  is table-level (`grant select, insert, update, delete on public.meals`), so the new column is covered by both
+  the moment it exists. Concretely: `meals_update_own` already constrains an `is_pinned` update to rows the
+  caller owns on both `using` and `with check`, so a user can pin only their own meals, and the column is
+  invisible to anyone else's `select`. **qa-reviewer should verify this by querying the policies after the
+  migration, not by reading this paragraph.**
+- **No backfill, no index.** `not null default false` fills existing rows in the same statement. A partial index
+  (`where is_pinned`) is deliberately **not** added, for the same reason 7c declined its two candidate indexes:
+  the query is a full RLS-scoped read of tens of rows that Postgres will scan regardless, and the pinned/unpinned
+  split happens client-side in `sortMealsByName`, not in SQL.
+- **`Meal` gains `is_pinned: boolean`** in `lib/types.ts`. Both existing `meals` queries are `select("*")`, so
+  neither changes.
+
+**Duplicating a saved meal adds no schema (2026-08-05, Phase 8f)** — it writes one `meals` row and N `meal_items`
+rows using columns Phase 7 already created, copy-by-value, with **no provenance column in either direction**
+(no `meals.duplicated_from_id`). Identical reasoning to save-as-meal above, and the same falls-out invariant:
+`meal_items.calories`/`protein_g` are STORED generated columns, so copying only the per-unit inputs makes the
+duplicate's totals equal the source's **by construction**.
 
 **Derived, non-stored (this round):** per-entry protein % and the exact-timestamp meal grouping are computed
 in `lib/domain/*` at read/render time — deliberately not persisted. Grouping keys off the already-indexed
@@ -318,6 +370,45 @@ true`; server client bound to Next cookies; `middleware.ts` refreshes/rotates th
 navigation. No custom expiry on top of Supabase's long-lived rotating refresh tokens; only `signOut()`
 (a "Log out" nav control) ends a session.
 
+**Password reset — two new Server Actions, no new Route Handler (2026-08-11 addition, Phase 8m).** Both live in
+the existing `lib/actions/auth.ts` beside `signIn`/`signUp`/`signOut`, are `'use server'`, and never touch the
+service-role client or any application table — this is pure Supabase Auth, so RLS and `user_id` are not
+involved at all (the only Absolute Rules in play are "server-side only" and "no user data to third parties").
+
+```ts
+// lib/actions/auth.ts — both reuse the existing AuthActionState shape ({ error, fieldErrors?, info? }),
+// so both forms are ordinary useActionState clients exactly like LoginForm/SignupForm.
+
+// Sends Supabase's built-in recovery email. The link lands on the EXISTING /auth/callback with a
+// ?code=, which exchanges it for a session and forwards to ?next=/reset-password.
+// ALWAYS returns the same neutral `info` on success — never "no account with that email".
+export async function requestPasswordReset(prev: AuthActionState, formData: FormData): Promise<AuthActionState>;
+//   supabase.auth.resetPasswordForEmail(email, { redirectTo: `${origin}/auth/callback?next=/reset-password` })
+
+// Sets the new password for whoever the CURRENT session is. The recovery session was minted by the
+// callback's code exchange, so there is nothing extra to verify here beyond "is there a session".
+// On success: signOut() then redirect("/login?reset=success").
+export async function updatePassword(prev: AuthActionState, formData: FormData): Promise<AuthActionState>;
+//   supabase.auth.getUser() → no user ⇒ { error: 'reset_session_missing' }; else updateUser({ password })
+```
+
+```ts
+// lib/domain/auth-validation.ts — two pure validators, reusing the existing isValidEmail /
+// isValidPassword / MIN_PASSWORD_LENGTH rules rather than restating them. The FieldError union
+// ("email" | "password" | "confirmPassword") is UNCHANGED — both new forms reuse those field names.
+export function validateForgotPasswordInput(input: { email: string }): ValidationResult;
+export function validateNewPasswordInput(input: { password: string; confirmPassword: string }): ValidationResult;
+```
+
+**`auth/callback/route.ts` needs no code change, and that was confirmed by reading it rather than assumed.** It
+already accepts `?next=`, already validates it through `safeRedirectPath` (so `?next=//evil.com` cannot send the
+browser off-origin), and already exchanges `?code=` server-side where cookies *can* be written. A recovery link
+is the same PKCE code-exchange the signup-confirmation link already performs successfully today. **One string
+does change**: the `?error=auth_callback_failed` notice on `/login` currently reads *"That confirmation link is
+invalid or expired. Try logging in, or sign up again."*, which is signup-specific and now also fires for an
+expired reset link. It is generalised — and **must keep the substring "invalid or expired"**, because
+`e2e/phase1-acceptance.spec.ts` asserts `getByText(/invalid or expired/i)` and that assertion is still correct.
+
 Types: `FoodEntry`/`MealItem` carry `quantity`, `unit: string | null`, `calories_per_unit`,
 `protein_g_per_unit`, read-only generated `calories`/`protein_g` (as before). **Protein % is not added to the
 row types** — it is derived by `nutrition.proteinCaloriePct` in the UI. Other types unchanged.
@@ -352,6 +443,29 @@ export function localInputToUtcInTz(dateStr: string, timeStr: string, tz: string
 // future-day cap, consumed_local_date/metric_date, ?range=) is untouched — see §3.4.
 export function formatDateLabel(isoDate: string): string;
 
+// 2026-08-05 addition (Phase 8d) — the whole of the Previous/Next-day buttons' logic.
+// "2026-07-29" +1 → "2026-07-30"; crosses month, year and leap-day boundaries correctly.
+// MUST use Date.UTC on the split parts (the same technique lib/domain/trends.ts already uses for
+// its range windows) and MUST NOT go via `new Date(iso)`, which parses as UTC midnight and then
+// reports LOCAL calendar fields — the identical off-by-one trap formatDateLabel and
+// chartTheme.parseCalendarDate already exist to avoid. Pure calendar arithmetic: no tz argument is
+// needed or wanted, because the caller already holds an ISO local date and wants the adjacent one.
+// Anything not matching YYYY-MM-DD is returned unchanged (never throws, never yields "NaN-NaN-NaN").
+export function shiftIsoDate(isoDate: string, deltaDays: number): string;
+
+// 2026-08-05 addition (Phase 8e) — the same 96 options, partitioned for scanning. PRESENTATION
+// ONLY: every option keeps its 24-hour `HH:MM` value and its zero-padded 12-hour label, all 96 stay
+// present, selectable and in order, and concatenating the groups' options must equal
+// quarterHourOptions() exactly (asserted in §6 — that identity is what proves nothing was lost).
+// `deEmphasized` is a hint the caller may render as dimmer option text where the platform honours
+// <option> CSS; it carries no behaviour (§3.4/§4).
+export type QuarterHourGroup = { label: string; deEmphasized: boolean; options: { value: string; label: string }[] };
+export function quarterHourOptionGroups(): QuarterHourGroup[]; // 3 groups: 24 / 56 / 16 options
+// Which group an arbitrary (possibly off-grid, legacy) time belongs to — needed so FoodEntryForm's
+// edit invariant can inject an off-grid option into the RIGHT group instead of dropping it.
+export function quarterHourGroupIndexFor(value: string): number;
+// (existing, unchanged and still exported) quarterHourOptions — the flat list.
+
 // lib/domain/meal-items.ts — 2026-07-30 addition: the by-value entry→meal-item copy, as pure logic.
 // Keeps `createMealFromEntries` a thin I/O shell (project convention: business logic lives in lib/domain).
 export type MealItemDraft = {
@@ -374,11 +488,24 @@ export function mealItemsFromEntries(entries: FoodEntry[]): MealItemDraft[];
 // the same place in both. Case-insensitive by name; ties broken by created_at then id, because
 // duplicate meal names are explicitly legitimate (§5) and an unstable sort would make rows jump
 // between renders.
+// AMENDED 2026-08-05 (Phase 8f): now partitions PINNED meals ahead of unpinned ones, then applies
+// the identical existing comparator WITHIN each partition. Pinning changes which block a meal is
+// in and nothing else — the pinned block is alphabetical too, so pinning meal B never moves meal A.
+// The name is deliberately NOT changed to sortMealsForLibrary: renaming ripples through two call
+// sites and two test files for cosmetic gain (the same call made for CopyGroupDialog in 8b); the
+// doc comment carries the meaning instead.
 export function sortMealsByName(meals: Meal[]): Meal[];               // returns a new array; does not mutate
 // Case-insensitive AND-of-whitespace-separated-tokens substring match on `meal.name` only.
 // Empty/whitespace-only query → returns the input order unchanged (identity, not "no results").
 // Substring, not prefix, so "rice" finds "Chicken and rice"; no fuzzy/trigram matching (§4).
 export function filterMealsByName(meals: Meal[], query: string): Meal[];
+
+// 2026-08-05 addition (Phase 8f) — the duplicate's prefilled name. `"Weekday breakfast"` →
+// `"Weekday breakfast (copy)"`. Deliberately does NOT try to produce a unique name: meals.name has
+// no uniqueness constraint and duplicate names are explicitly legitimate (§5), so hunting for
+// "(copy 2)" would be inventing a rule the data model doesn't have. Duplicating a duplicate simply
+// yields "... (copy) (copy)" — visibly silly, which is the correct nudge to rename it.
+export function duplicateMealName(name: string): string;
 ```
 
 **Shared copy primitive** (unchanged shape; requirement (c) now supplies an exact-timestamp group's ids):
@@ -450,6 +577,52 @@ createMealFromEntries(prevState: MealActionState, formData: FormData): Promise<M
   the doubly-unlucky case where the compensating delete *also* fails, the worst residual state is a **named,
   empty, visible, user-deletable meal** — which `logMealForDay` already refuses to log (`empty_meal`), so it
   cannot corrupt anything downstream. The Postgres-RPC alternative was considered and **rejected** — see §4.
+
+**`setMealPinned` and `duplicateMeal` — the two new actions (2026-08-05 addition, Phase 8f).** Both live in
+`lib/actions/meals.ts` beside their siblings and both follow that file's established shape rather than inventing
+one.
+
+```ts
+// A toggle, not a form — so a plain-argument action like deleteMeal/reorderMealItems, NOT
+// useActionState/FormData. Ownership: `.eq('id', mealId).eq('user_id', user.id)` on top of RLS,
+// the belt-and-suspenders posture every mutation in this file already uses.
+setMealPinned(mealId: string, isPinned: boolean): Promise<MealsActionResult>   // { ok, error }
+
+// A form (it prompts for a name) — so useActionState-shaped like createMealFromEntries, and
+// deliberately its structural twin so the two copy directions stay reviewable against each other.
+// formData carries: mealId + name. Reuses MealActionState → { ok, error, fieldErrors?, meal? }.
+duplicateMeal(prevState: MealActionState, formData: FormData): Promise<MealActionState>
+```
+
+- **`duplicateMeal` takes an id and re-reads, never values.** Source meal and its items are resolved through
+  the **RLS-scoped server client** (`meals` by `.eq('id', mealId).eq('user_id', user.id)`, then `meal_items` by
+  `.eq('meal_id', mealId).eq('user_id', user.id)` ordered by `sort_order`) — never service-role, never a
+  client-supplied item list. A foreign or nonexistent `mealId` resolves to zero rows → **reuse the existing
+  `meal_not_found` code** (`logMealForDay`'s), rather than minting a new one for the same condition.
+- **Blank name → the existing `validateMealInput` field error**, checked before any write. No new validator.
+- **Copy-by-value, and `sort_order` is *preserved*, not renumbered.** The five value columns
+  (`name`/`quantity`/`unit`/`calories_per_unit`/`protein_g_per_unit`) plus the source item's own `sort_order`.
+  **This is the one place a developer is likely to mechanically reach for the wrong helper:**
+  `mealItemsFromEntries` *assigns* `0..N-1` because food entries have no order of their own — a saved meal
+  already carries a user-curated one, and reproducing it is the entire point of a duplicate. The generated
+  `calories`/`protein_g` are never copied (they can't be), so the duplicate's totals equal the source's by
+  construction (§3.2). `id`, `user_id`, `meal_id` and the timestamps are all fresh.
+- **`is_pinned` is NOT copied — the duplicate always starts unpinned.** Stated explicitly because it is the
+  first thing a reader will wonder. Pinning is a statement about *your current shortlist*, not a property of the
+  meal's content; a duplicate exists to be edited into something else, and silently arriving pre-pinned would
+  push a half-finished meal to the top of the library. One click restores it if wanted.
+- **An empty source meal (zero items) duplicates successfully**, producing an empty meal. Deliberately *not*
+  rejected the way `createMealFromEntries` rejects `no_entries`: an empty meal is a legitimate stored state that
+  `createMeal` itself produces (create a meal, add items later), so refusing to duplicate one would be an
+  arbitrary asymmetry. Nothing downstream is at risk — `logMealForDay` still refuses to log it (`empty_meal`).
+- **Atomicity: the same compensating delete, reusing the settled decision rather than re-litigating it.** Two
+  statements again (`INSERT INTO meals … RETURNING`, then one multi-row `INSERT INTO meal_items`); on
+  item-insert failure the action deletes the just-created meal and returns the error. Same contract, same
+  knowingly-accepted residual empty-meal state in the doubly-unlucky case (§5), same reason for no RPC (§4).
+  Skipped only when the source had zero items, where there is no second statement to fail.
+- **Strictly read-only on the source.** No UPDATE, no DELETE, no relink against the source `meals` row or its
+  `meal_items` — the same code-review checkpoint as `createMealFromEntries`, since no schema constraint can
+  express it, and the same §6 evidentiary bar (source rows byte-identical, `updated_at` included).
 
 Other actions unchanged: `addFoodEntry`/`updateFoodEntry`/`deleteFoodEntry` (inputs take quantity/unit/
 per-unit; future-day guarded); meal CRUD + **`logMealForDay`** (already stamps one shared `consumed_at`/tz
@@ -1007,9 +1180,478 @@ over the rows already in memory, not pagination.
   label. That items query is the heavier of the two and is the first thing to trim if load time ever becomes
   perceptible — noted, not pre-emptively done.
 
+**Previous / Next day navigation on `/food` and `/metrics` (2026-08-05 addition, Phase 8d).** Jeff's first
+manual-testing finding of this round: changing the viewed day means opening a native date picker every time,
+when the overwhelmingly common move is ±1 day. Both screens hold the selected day as plain client state
+(`FoodDayView.selectedDate` via `handleDayChange`, `MetricForm.selectedDate`), so this is a control plus one
+pure helper — no action, no query, no schema.
+
+- **One shared `components/ui/DayNavigator.tsx`, two call sites** — not two hand-rolled rows. The future-day
+  cap, the disabled rules and the wording must be identical on both screens, and this codebase has repeatedly
+  chosen one implementation with a mode over a second hand-copied copy (`LogMealDialog`'s fixed-meal mode,
+  `StatusMessage`, `CopyGroupDialog` serving two callers). It lives in `ui/` rather than `food/` precisely
+  because it is now shared by two features. Props: `value`, `today`, `onChange(date)` — it owns no state.
+- **Layout: exactly two buttons — `‹ Previous day` | the existing `<input type="date" max={today}>` |
+  `Next day ›`.** The date input is **kept, not replaced** — it is still the right tool for "jump to three weeks
+  ago", and removing it would trade one friction for a worse one. **A "Today" button was designed and then
+  dropped (Jeff's call, 2026-08-05):** it is a third control on a row that reads better as two, the date picker
+  already reaches today in one interaction, and "Previous" is the overwhelmingly common direction of travel.
+- **"Next day" is `disabled` when the viewed day is `today`.**
+  Disabled, not hidden: the same call `EntrySelectionBar` makes for its N = 0 bulk buttons ("the affordance stays
+  discoverable and its own enablement explains the precondition") and the same one `MealList`'s item ↑/↓ arrows
+  already make at the ends of a list. **This is the one way the new control could create a state the rest of the
+  app forbids**, so it must compare against the *same* `today` value the input's own `max` uses — never a
+  separately-derived one — so the two can never disagree about where the cap is.
+- **"Previous" has no lower bound**, deliberately. There is no "earliest entry" concept anywhere in the app, and
+  establishing one would need an extra query per screen to answer a question nobody asked; viewing an empty past
+  day is already a well-defined, harmless state with its own empty-state copy.
+- **`shiftIsoDate` (§3.3) does the arithmetic, and must not use `new Date(iso)`** — that parses as UTC midnight
+  and then reports *local* calendar fields, so "previous day" from `2026-03-01` in a negative-offset zone would
+  land two days back. This is the third time this exact trap has come up in this doc (`formatDateLabel`,
+  `chartTheme.parseCalendarDate`), which is why the helper is pure and unit-tested rather than three inline
+  `setDate(-1)` calls.
+- **Accessibility: real visible text, so no `aria-label` is needed or wanted.** The visible labels are
+  **"Previous day"** and **"Next day"** in full (the `‹`/`›` glyphs are decoration, `aria-hidden`). Spelling the
+  labels out means the accessible name *is* the visible text, which sidesteps WCAG 2.5.3 (Label in Name)
+  entirely rather than merely satisfying it — an `aria-label` that differs from visible text is a common way to
+  break voice control, and there is no reason to introduce one here. On `/food` the day change already resets
+  `lastConsumedAt`, `editingEntry`, `savedMessage` and the
+  selection through the single `handleDayChange` choke point, and these buttons **must call that same handler**
+  rather than `setSelectedDate` directly — bypassing it would resurrect exactly the stale-selection hazard §3.4
+  centralised that choke point to prevent.
+- **This is NOT a fix for the open `Day`-input race, and must not be recorded as one.** The documented flake
+  (`ai-context/PROGRESS.md`, ten reproducing e2e cases) is a `.fill()` on the controlled `<input type="date">`
+  not taking effect against a long-hot dev server. These buttons change the day through a plain React `onClick`
+  with no native-input round-trip, so tests driven through them are very unlikely to hit it — a genuine
+  convenience for qa-reviewer, and the reason §6 prefers them for *new* rows. But the input remains, users still
+  use it, and the bug stays open. **The one real benefit worth recording: it becomes a diagnostic lever** — if
+  button-driven day changes are reliable while `.fill()`-driven ones are not, that localises the fault to the
+  controlled-input value path, which is precisely the standing hypothesis (§5).
+
+**An active group suppresses its rows' actions and is visually marked (2026-08-05 addition, Phase 8d).** Jeff's
+third finding: with "Copy this group" open, every entry inside that group still shows "Log again"/"Edit"/"Delete",
+so it is unclear what the open panel applies to. This is not a new rule — it is **the rule Phase 8b already
+wrote down, applied one level up**: *when a row is in a special state, its ordinary actions are suppressed
+because another surface owns them* (the editing row; select mode). A group with an open expander is in exactly
+that state, and its rows are inside the thing being acted on.
+
+- **While a group's expander is open: that group's rows hide their own "Log again"/"Edit"/"Delete"**, and the
+  group's *other* header action is hidden too (an open copy panel hides "Save as meal" on that header, and vice
+  versa). `FoodEntryList` already tracks `groupAction: { key, kind } | null`, so this is a derived
+  `isGroupActive` threaded into the existing `!selectMode && !isEditingRow` condition — no new state.
+- **Other groups are untouched and stay fully live.** Opening group B's expander already closes group A's
+  (`groupAction` is a single slot), so there is never more than one active group; copying group B while
+  A's panel was open is a legitimate, unchanged flow.
+- **Extend it to "Save as meal" too, not just copy.** Jeff mentioned only copy, but the two are the same
+  interaction on the same header driven by the same state, and treating them differently would make the rule
+  unstatable and the behaviour arbitrary. Both, or the rule isn't a rule.
+- **Mark the active group with the level-1 emphasis treatment: a `border-l-4 border-l-sage-deep` bar on the
+  group's `<section>`**, surface unchanged — the same vocabulary and the same "no fill" reasoning as the editing
+  row (a `bg-sage-pale` group would swallow the `bg-sage-pale` "From a saved meal" badges inside it, which is
+  the identical collision 8b avoided at row level).
+- **Non-colour perception, and why no extra text label is needed here.** The editing row required a visible
+  "Editing" label because *nothing else on screen said so*. Here the state is already carried by real content:
+  an expander is open directly under that header, `ActionPanel` (below) gives it a visible heading naming the
+  action, and the header's own toggle has changed. The accent bar is **reinforcement, not the sole carrier** —
+  which is the same test §3.4 used to decide against a live region for the editing highlight (is the state
+  otherwise perceivable?). Stated explicitly so a reviewer can check the reasoning rather than the colour.
+- **Fold in the long-deferred duplicate-"Cancel" note while this header is open anyway (Phase 7b N-3, recurring
+  as Phase 8 N-5).** With an expander open, the header toggle reads "Cancel" *and* the panel has its own
+  "Cancel" — two identically-named buttons in one group, raised twice as non-blocking and never fixed. **The
+  header toggle becomes "Close"** (qa-reviewer's own suggestion), leaving exactly one "Cancel" per open panel.
+  `MealList`'s per-card toggles have the identical shape (`isLogging ? "Cancel" : "Log this meal"`) and get the
+  same treatment in Phase 8f, so the app ends up with one rule rather than one fixed instance.
+
+**Inline actions awaiting completion get real emphasis — `components/ui/ActionPanel.tsx` (2026-08-05 addition,
+Phase 8d).** Jeff's fourth finding: after clicking "Copy selected", the panel that opens "blends into the rest of
+the day's log — the user doesn't know where to look to finish the action." Confirmed by reading the components:
+neither `CopyGroupDialog` nor `SaveGroupAsMealDialog` renders any heading at all; each opens straight into a
+grey preview block and some fields, on the same white surface as everything around it.
+
+**The emphasis ladder — three levels, no new tokens.** This is the reusable rule, stated once here so the next
+addition doesn't invent a fourth treatment:
+
+| Level | Treatment | Means | Used by |
+|---|---|---|---|
+| 1 | left accent bar only, surface unchanged | "this row/section is in a notable state" | active group (above) |
+| 1+ | left bar + **inset `sage-deep` ring** + a filled `sage-deep`/`paper` pill, surface still unchanged | "this row is the one you are acting on right now" | editing row (8b, strengthened in 8g) |
+| 2 | left accent bar + `sage-pale` fill + icon | "a transient message" | `StatusMessage` (8b) |
+| 3 | **full `sage-deep` ring + `sage-pale` fill + a visible heading** | **"an action is waiting for you to finish it"** | `ActionPanel` (8d) |
+
+**Level 1+ was added (2026-08-07, Phase 8g) rather than renumbering the ladder**, so every existing "level 1/2/3"
+reference in this doc and in component doc comments stays correct. It is deliberately *enclosure without fill* —
+the editing row cannot take a `sage-pale` surface (it would swallow the `bg-sage-pale` "From a saved meal" badge
+inside it), so the one axis left to escalate on is enclosure, which is the same answer the "why a full ring
+rather than a louder colour" note below gives for level 3.
+
+- **Why a full ring rather than a louder colour.** The honest answer to "make it stronger" inside this project's
+  recorded palette is to *enclose* the panel, not to escalate hue. `--clay` was the obvious candidate and is
+  **rejected on the record**: the token table restricts it to "positive emphasis only (streaks, milestones)",
+  it is the weakest-contrast token (3.2:1, large/fill only), and using it for a pending action would make clay
+  mean two unrelated things. `--sage` is decorative-fill-only and cannot carry a border's meaning. So:
+  `border border-sage-deep` (4.9:1 on white — non-text, clears the 3:1 bar with margin) around a `bg-sage-pale`
+  surface with **`text-ink`** content (~13:1). Same guardrail `StatusMessage` threads: `sage-deep` never becomes
+  small text on `sage-pale`.
+- **Colour is the least important part of the fix.** "The user doesn't know where to look" is most reliably
+  answered by *putting the panel where they are looking*: on open, `ActionPanel` **scrolls itself into view**
+  (`block: "nearest"`) and **focus moves to its first control**. This is not the rejected second-`scrollIntoView`
+  from 8b (that was two competing scroll targets for one action); it is one scroll for one action, and moving
+  focus into a newly-revealed disclosure is the conventional behaviour that also serves keyboard and
+  screen-reader users, who get no benefit at all from a ring.
+- **Semantics:** `role="region"` with `aria-labelledby` pointing at its heading. **Not** a live region — the
+  user opened it themselves, which is the same test applied to the editing highlight.
+- **Applied to exactly these six inline expanders** (listing them is the point — the last two phases both
+  produced a blocking finding for edits reaching files the phase never declared): the two **bulk** panels from
+  `FoodDayView`, the two **group** panels from `FoodEntryList`, **`CopyDayDialog`**'s open body, and (Phase 8f)
+  **`DuplicateMealDialog`**. `LogMealDialog`'s two call sites (`/food` and `MealList`) are the same shape and
+  **also** get it, in Phase 8f, so `/meals` isn't left with a visibly different idiom.
+- **Deliberately NOT applied to** `FoodEntryForm` (the page's primary, always-present form — wrapping it would
+  emphasise everything and therefore nothing), the **"Add detail"** expander, or **`FoodLookupPanel`**: those are
+  progressive disclosure of *optional detail*, not a discrete action awaiting completion. The distinction is the
+  same one that decided which pills became banners: a treatment that applies everywhere carries no information.
+- **The N-3 unmount rule still governs.** `ActionPanel` is a presentational wrapper; the in-flight state stays in
+  the subtree the open flag conditionally renders, and that flag is still driven **only** by the user's own
+  open/close toggle — never by `loading`, a fetch nonce, `entries.length` or the selection (§3.4, 8b).
+
+**Per-row action density on `/food` — icons with tooltips, reconciled for touch (2026-08-05, Phase 8d).** Jeff's
+sixth finding: the per-entry "Log again"/"Edit"/"Delete" text buttons are too many, and he wants icons **with
+tooltips** — explicitly including "Log again", and explicitly including tooltips after the first design round
+recommended against them. He tests primarily on a phone, so the reconciliation has to be real rather than a
+desktop-only tooltip with a shrug attached.
+
+**The platform fact that decides the design, stated first because everything else follows from it.** On touch
+there is **no pre-activation hover state**. Tapping a button focuses *and* activates it in the same gesture, so a
+focus-triggered tooltip appears at the exact instant the action fires — it can never inform the decision it
+exists to inform. The only pre-activation reveal touch offers is **long-press**, which has no web API, collides
+with the platform's own text-selection and context menus, and is invisible to anyone who doesn't already know a
+tooltip is there. **So on a phone, an icon-only button cannot tell you what it does before you press it. That is
+not a preference; it is the platform.**
+
+**The reconciliation: icon + a short always-visible label, plus a real tooltip that adds *more* on pointer
+devices.** This gives Jeff every part of what he asked for and gives touch users something that actually works:
+
+- **Both actions are iconified, including "Log again"** (his explicit ask): a **repeat/rotate-left arrow** for
+  "Log again" and a **pencil** for "Edit". The **label stays visible next to the icon at every breakpoint** —
+  it is never hidden behind a media query, because hiding it on small screens would put icon-only buttons on
+  exactly the devices where a tooltip cannot fire. The visible label **is** the touch tooltip mechanism (one of
+  the three the coordinator named), and it is the only one of the three that costs nothing and fails never.
+- **`components/ui/Tooltip.tsx` carries the *fuller* explanation on pointer devices** — not a repeat of the
+  label. `Log again` → *"Log this entry again at the current time."*; `Edit` → *"Edit this entry's name,
+  amount or time."* **Rule, worth stating once: a tooltip must never be the only place a control's purpose is
+  stated.** If it repeats the visible label it is noise; if it is the sole source it is inaccessible. Here it is
+  strictly supplementary, which is the only role a tooltip can honestly hold in an app with a touch-first user.
+- **Honest accounting of what the icons buy, so this isn't oversold: scannability, not width.** An icon+label
+  button is marginally *wider* than a text-only one. **The width win comes from the removed button, not the
+  icons** — "Delete" moves off the row and into the edit form (below). Row goes 3 → 2. The icons make those two
+  distinguishable at a glance, which is the real everyday benefit on a list of ten entries.
+
+**`Tooltip` — the concrete spec** (this is a new shared primitive, so it is specified rather than left to the
+implementation):
+
+- **Wraps a single interactive child.** Renders a `<span class="relative inline-flex">` around it plus an
+  absolutely-positioned `<div role="tooltip" id={generatedId}>` above the trigger. **No portal and no
+  positioning library** (`floating-ui` et al. are declined on the standing no-new-dependency bias); accepted
+  consequence, stated: near a viewport edge it may clip — on desktop only, on a supplementary affordance.
+- **Trigger events: `mouseenter`/`mouseleave` and `focus`/`blur`, plus `Escape` to dismiss** while focused
+  (WCAG 1.4.13 Content on Hover or Focus: dismissible, hoverable, persistent). No delay on focus; a short
+  (~300 ms) delay on hover so it doesn't flicker while the pointer crosses the row.
+- **It deliberately does not render on touch at all**, gated by the CSS media query
+  **`@media (hover: hover) and (pointer: fine)`** — a capability query, **not** user-agent sniffing, and not a
+  JS `ontouchstart` test (both misclassify hybrid laptops). On a touch device the visible label is already
+  carrying the meaning, so a tooltip that flashed on tap would be pure noise arriving too late to help.
+- **Accessibility wiring: `aria-describedby`, never `aria-label`, on these buttons.** The button's accessible
+  *name* comes from its visible text ("Log again"), and the tooltip is a *description* — so the trigger carries
+  `aria-describedby={tooltipId}` and the tooltip carries `role="tooltip"`. Putting an `aria-label` on a control
+  that already has visible text is how WCAG 2.5.3 (Label in Name) gets broken and voice control stops working;
+  it is used **only** where a control has no visible text at all (the meal-card pin toggle, and `MealList`'s
+  existing ↑/↓ arrows). **Amended 2026-08-07 (Phase 8g):** the `FoodEntryList` row buttons now have **no** visible
+  text either (icon-only, per the 2026-08-07 decision), so they carry `aria-label` **and** `aria-describedby`
+  together — the label supplies the name that used to be visible text, the tooltip still only describes. Nothing
+  about WCAG 2.5.3 is reopened: with no visible text left there is nothing for the accessible name to diverge
+  from, provided the label keeps the same verb ("Delete …", not "Remove …").
+- **The tooltip is announced but not duplicated:** because the icon is `aria-hidden`, a screen reader reads
+  "Log again, button" and then the description — never "repeat icon Log again Log again".
+- **No animation**, so there is nothing for `prefers-reduced-motion` to handle.
+
+**`components/ui/icons.tsx` — the glyph source, and no dependency.** Four inline SVGs: **repeat** (`rotate-ccw`),
+**pencil** (`pencil`), **trash** (`trash-2`) and **pin** (`pin`), with geometry taken from **Lucide**, whose ISC
+licence permits copying the path data with attribution in the file header. Each is `aria-hidden="true"`
+`focusable="false"`, `h-4 w-4`, `stroke="currentColor"` `strokeWidth={2}` — so the glyph inherits the `Button`
+variant's own colour (including the `danger` red and every disabled state) rather than hardcoding hex, the same
+`currentColor` technique the charts and the sage-arc motif already use. **A library is still declined**: four
+glyphs do not justify a dependency, and `StatusMessage`'s check icon already established inline SVG here. The
+recorded threshold for revisiting Lucide-as-a-dependency is roughly **8–10 distinct glyphs**.
+
+**Delete still moves off the entry row and into the edit form**, unchanged from the first round and independent
+of the icon question: it is the only irreversible action in an app with no undo anywhere, and it should not sit
+one mis-tap from "Edit" on a phone. Direct in-repo precedent — `MetricForm` already puts "Delete this day's
+entry" **inside** the form — and the direct rule precedent that 8b established, that the edit form "already owns
+that entry's actions". It is rendered there as **trash icon + "Delete entry"** with a `danger` variant, so the
+icon vocabulary is consistent wherever the action appears. Accepted cost: deleting becomes Edit → Delete.
+**REVERSED 2026-08-07 by Phase 8g** (Jeff's findings 5 + 7): Delete goes back onto the entry row as an icon-only
+`danger` button and leaves the edit form entirely. The safety concern above is not dropped — it is re-answered
+with a `window.confirm()`, mirroring `MealList.handleDeleteMeal`. Kept in place rather than deleted so the
+original reasoning stays readable; see the "Delete returns to the entry row" block later in §3.4 for the
+replacement design.
+
+**`/meals` gets the same vocabulary, in Phase 8f, not here.** `MealList`'s per-item rows have the identical
+Edit/Delete question and take the identical treatment (icon + visible label + supplementary `Tooltip`); its
+existing ↑/↓ reorder arrows are the one place icon-only already ships, and they keep their `aria-label` and gain
+a `Tooltip`. The card-level **pin toggle** is the one deliberate icon-only control in the app — it has no room
+for a label and its state is already carried in text by the "Pinned" pill — so it keeps `aria-label` +
+`aria-pressed` + a `Tooltip`. Kept in 8f rather than 8d purely so the `/meals` files are opened by one phase.
+
+**Shading early and late hours in the time `<select>` (2026-08-05 addition, Phase 8e).** Jeff's fifth finding:
+the 96-option picker would be faster to scan if hours before 6 AM and after 8 PM were visually shaded — and he
+was explicit that this is presentation only, with **every option remaining present and selectable**.
+
+**The binding constraint is already on the record, and it decides the design.** The 2026-07-26 entry established
+that `<option>` CSS is not portable: macOS Safari/Chrome largely ignore it, and every mobile browser renders the
+list as a native platform picker that ignores author CSS entirely. A CSS-only "shading" would therefore work on
+Windows/Linux Chrome, Edge and Firefox — where Jeff would see it work — and **silently do nothing on his
+phone**. The same entry's conclusion is the one to reuse: **content is portable, CSS is a bonus.**
+
+- **The load-bearing mechanism is three `<optgroup>`s**, because a group label is *content*:
+  **"Early (12 AM – 6 AM)"** (24 options), **"Daytime (6 AM – 8 PM)"** (56), **"Late (8 PM – 12 AM)"** (16).
+  24 + 56 + 16 = 96, boundaries exactly at `06:00` and `20:00`, matching Jeff's stated cut points.
+- **`<optgroup>` was rejected on 2026-07-26 — for a different problem, and that rejection does not carry.** It
+  was rejected as an answer to *"a lot of choices"*, on the grounds that it "adds 24 non-selectable rows and does
+  nothing about alignment, which is the stated problem." Both objections are specific to that proposal and to
+  that complaint: this is **3** added rows, not 24, and the complaint it answers is *scanning*, which is exactly
+  what grouping addresses. The alignment fix (zero-padded labels) is untouched and still does its job — option
+  indentation under a group is uniform, so the column still lines up. Recording this as a reconsideration with a
+  reason, rather than a silent reversal, is the point.
+- **Everything below the label is unchanged, by construction:** all 96 `value`s stay 24-hour `HH:MM`, all 96 stay
+  present, selectable and in chronological order, nothing is disabled, and `quarterHourOptions()` remains
+  exported unchanged. §6 asserts the concatenation identity (`groups.flatMap(g => g.options)` deep-equals
+  `quarterHourOptions()`), which is what mechanically proves no option was lost, duplicated or reordered.
+- **The de-emphasis itself is `text-stone-500` on the Early/Late options** where the platform honours
+  `<option>` CSS — **not** a background fill, which is likelier to fight the platform's own selection highlight.
+  `stone-500` is 4.80:1 on white, i.e. still **AA-compliant text**: de-emphasis must not become
+  "unreadable-by-design", and this repo has already had to fix exactly that (the NB-2 contrast amendment, which
+  chose this same shade as the floor).
+- **Honest platform statement, because the failure is invisible.** Group **labels** are expected to render on
+  Windows/Linux Chrome/Edge/Firefox, macOS Safari/Chrome, and both mobile platforms' native pickers; option
+  **colour** is expected on Windows/Linux only. Both claims are **to be verified by hand on a real phone**, not
+  asserted — this project's standing "confirmed, not assumed" bar. **The safety property that makes this low-risk
+  either way: if a platform ignored `<optgroup>` entirely, the control degrades to exactly what ships today** —
+  96 flat options, nothing lost, nothing broken.
+- **All three call sites get it**: `FoodEntryForm`, `LogMealDialog` (both modes), and `CopyGroupDialog` (whose
+  `value=""` **"Keep original time(s)" sentinel stays outside and above all three groups** — it is not a time).
+- **The off-grid edit invariant must survive, and this is where it would quietly break.** `FoodEntryForm` injects
+  a legacy off-grid time as an extra selected option so an unrelated edit never rewrites it. With groups, that
+  option must be injected **into the correct group** (`quarterHourGroupIndexFor`, §3.3) — an implementation that
+  appends it outside the groups, or drops it, silently reintroduces the exact time-rewriting bug the invariant
+  exists to prevent.
+- **Type-ahead is unaffected** (prefix-matching still spans all options), and Playwright's `selectOption` by
+  value is unaffected. **The one real test hazard, named up front:** any locator using a *direct-child* selector
+  (`select > option`) breaks under `<optgroup>`, since options are no longer direct children. §6 requires that
+  sweep in the same change — this is the fourth consecutive phase where an existing suite pins something a new
+  phase changes, and it produced a blocking finding twice.
+
+**Pinned meals and duplicating a meal (2026-08-05 addition, Phase 8f).** Jeff's seventh and eighth findings.
+Both are `/meals`-only, both land on `MealList`'s card action row, and both are specified together because they
+have to be designed against each other (does a duplicate inherit a pin? where do two new controls go on a row
+that already has four?).
+
+***Pinning***
+
+- **`sortMealsByName` partitions pinned-first, then sorts each partition with the identical existing
+  comparator** (§3.3). Pinning changes *which block* a meal is in and nothing else — the pinned block is
+  alphabetical too, so pinning meal B never moves meal A. Any other rule (pin order, recency) makes the library
+  rearrange in ways the user didn't ask for.
+- **One shared ordering for both surfaces, still.** 7c's rule was that `/meals` and `LogMealDialog`'s picker
+  must agree; pinned-first applies to both, so a pinned meal is at the top of the picker too — which is most of
+  the value on the `/food` side.
+- **In the picker, pinning is expressed with `<optgroup label="Pinned">` / `<optgroup label="All meals">`** —
+  the same portable-content mechanism as Phase 8e, for the same `<option>`-CSS reason, and rendered **only when
+  at least one meal is pinned** (never an empty "Pinned" group). 7c's **name-first label invariant is untouched**:
+  optgroups don't alter option text, so native type-ahead still prefix-matches the meal name.
+- **Filtering beats pinning.** A pinned meal that doesn't match the active filter is **not** shown. Pinning is an
+  ordering preference; a filter is an explicit question, and answering it with a non-match would make the count
+  readout ("Showing 3 of 40") lie. Decided here because it could plausibly go either way and would otherwise be
+  settled by accident.
+- **The card shows a "Pinned" pill, and the toggle is an icon button.** The pill is the *status* half of 8b's
+  recorded pill-vs-banner rule (`MetricForm`'s "Already logged", `FoodEntryList`'s "From a saved meal") applied
+  to a genuinely new status — `bg-sage-pale text-ink`, no new token. It also satisfies WCAG 1.4.1 properly: the
+  pinned state is carried by **text**, not by a filled-vs-outline glyph. The toggle itself is a pin glyph
+  (inline SVG, per the no-library rule above) with **visually-hidden text** (`"Pin <name>"` / `"Unpin <name>"`)
+  and `aria-pressed`, which is the conventional accessible toggle-button pattern.
+- **No section headings and no divider between the two blocks.** A "Pinned" / "All meals" heading pair reads
+  well until the filter empties one of them, at which point it needs its own empty-state rules; the per-card pill
+  carries the same information with none of that. Rejected deliberately, not overlooked.
+- **`setMealPinned` is optimistic-free**: toggle → action → `onChanged()` refetch, the same loop every other
+  `/meals` mutation uses. It must preserve the filter query and card expansion, which `hasLoadedOnce` already
+  guarantees — the state-loss bug class this screen has shipped broken twice.
+
+***Duplicating***
+
+- **A "Duplicate" control on each card opens an inline expander** (`DuplicateMealDialog`, wrapped in
+  `ActionPanel`) containing the prefilled name, a read-only "N items will be copied" line, and Save/Cancel.
+- **The name IS prefilled — `"<name> (copy)"`, autofocused with the text pre-selected so typing replaces it.
+  This does not contradict Phase 7b's blank-name decision; it satisfies its actual reasoning.** That decision
+  rejected a prefill because a *first-item* name is **actively wrong** on a multi-item group ("Eggs" for
+  eggs + toast + coffee), producing a library of confidently mislabelled meals. `"Weekday breakfast (copy)"` can
+  never be wrong in that way — it is provisional and *visibly* provisional, which is the opposite failure mode
+  from a name that looks deliberate. The general rule that falls out, worth keeping: **prefill when the derived
+  value cannot be wrong; leave blank when it can.**
+- **One expander per card, and the ad-hoc mutual-exclusion guards get consolidated.** `MealList` currently
+  tracks `renamingMealId` and `loggingMealId` separately with a hand-written `isLogging && !isRenaming` guard;
+  adding a third would make the collision matrix grow by hand. Replace those two with a single
+  `cardAction: { mealId: string; kind: "log" | "rename" | "duplicate" } | null` — the exact shape
+  `FoodEntryList.groupAction` already uses for the same problem. The item-level `addingItemToMealId` /
+  `editingItemId` are a different axis and stay as they are. **This is a small refactor of an
+  already-approved file and is therefore named explicitly in §8's In-scope list**, not left to be discovered in
+  the diff.
+- **On success the screen DOES refetch** (`onChanged()`), unlike Phase 8c's "Log this meal" — and the contrast is
+  the reason to state it: logging writes `food_entries`, which `/meals` never renders, whereas duplicating writes
+  `meals`, which is exactly what this screen shows. A `StatusMessage` names the new meal. If a filter is active
+  and the new name doesn't match it, the new meal **won't be visible** — consistent with 7c's existing rule for a
+  newly *created* meal, and worth an acceptance row rather than a bug report later.
+- **The card action row now carries six controls** (Log this meal · Pin · Hide items · Rename · Duplicate ·
+  Delete) — the pre-existing four plus the two this phase adds. That is acknowledged as crowded and is
+  **deliberately not solved here** — see §5's open question. Jeff was given the count and its breakdown and
+  chose to proceed as designed.
+- **This phase also adopts Phase 8d's icon vocabulary on `/meals`** (§3.4, "Per-row action density"): `MealList`'s
+  per-**item** rows get icon + visible label + supplementary `Tooltip` for Edit/Delete, its existing ↑/↓ arrows
+  keep their `aria-label` and gain a `Tooltip`, and the new **pin toggle is the app's one deliberate icon-only
+  control** — it has no room for a label, and its state is already carried in text by the "Pinned" pill, so it
+  carries `aria-label` + `aria-pressed` + a `Tooltip`. Doing this here rather than in 8d keeps every `/meals`
+  file opened by a single phase.
+
+**Delete returns to the entry row, and the edit form loses it (2026-08-07 addition, Phase 8g) — an explicit
+reversal of Phase 8d, not a bug report against it.** Jeff's findings 5 and 7 are one request read from two
+directions: put a delete icon on each `FoodEntryList` row, and remove `FoodEntryForm`'s "Delete entry" button.
+Phase 8d moved Delete off the row on purpose — it is the only irreversible action in an app with no undo, and it
+should not sit one mis-tap from "Edit" on a phone. Jeff has now used that arrangement and judged it wrong: his
+read is that "edit an item in order to delete it" is an unintuitive extra step, not a safety feature. That is a
+legitimate call on his own app, and the reversal is recorded as a reversal.
+
+- **What replaces the safety argument, because it should not simply be dropped.** 8d's concern was real; what is
+  rejected is the *mechanism* it chose, not the concern. The mis-tap risk moves to a **`window.confirm()` naming
+  the entry** — `Delete "Eggs"? This can't be undone.` — placed in `FoodDayView`'s delete handler, **not** in
+  `FoodEntryList`. This is not a new pattern: `MealList.handleDeleteMeal` already does exactly this, in exactly
+  this shape, for exactly this class of action (a destructive control living on a list surface), with the confirm
+  sitting beside the handler rather than in the presentational list. Net effect: Delete is one tap to reach
+  (Jeff's ask) and still two deliberate acts to complete (8d's concern), and it stops being the only destructive
+  control in the app with no confirmation at all. **This is the one judgment call in this phase Jeff may want to
+  overrule** — if he wants a bare one-tap delete with no prompt, that is a one-line removal, and the phase should
+  ship without it rather than stall.
+- **The three row actions are icon-only buttons**, per the 2026-08-07 "Icons replace buttons+text entirely"
+  decision: repeat / pencil / **trash (`danger` variant)**, each a real `<button>` with generous tap padding and a
+  hover/focus background, an `aria-label`, and its existing supplementary pointer-only `Tooltip`
+  (`"Delete this entry. This can't be undone."`). **Phase 8g absorbs the `FoodEntryList` half of that already-
+  decided-but-unbuilt icon-only conversion** — "Log again" and "Edit" drop their visible labels in the same
+  change that adds the trash icon, because all three live in one JSX block and splitting them would have two
+  sessions editing the same lines. The `/meals` half stays in Phase 8f, unchanged.
+- **`aria-label` names the entry, and that does not contradict the icon-only decision.** Use
+  ``aria-label={`Delete ${entryLabel}`}`` (likewise `Log again …` / `Edit …`), reusing the exact `entryDisplayLabel`
+  helper the select-mode checkbox already uses for ``aria-label={`Select ${entryLabel}`}`` — in-repo precedent, same
+  file. Ten rows all announcing a bare "Delete, button" is unusable for a screen-reader user tabbing the list. The
+  2026-08-07 rule is that the accessible name must not *paraphrase* the verb (so voice control's "click Delete"
+  still resolves); a disambiguating suffix keeps the verb intact and satisfies both.
+- **Suppression is inherited, not re-derived.** The trash button sits inside the **existing** single
+  `!selectMode && !isEditingRow && !isGroupActive` conditional. No new branch, and therefore no new rule: the row
+  being edited hides **all three** actions including Delete, exactly as 8b specified and for the same reason —
+  deleting the row whose form is open leaves a form that cannot save, the one genuine dead end among the three.
+- **So: what is a mid-edit row's delete affordance? There isn't one, deliberately.** With Delete gone from the
+  form *and* suppressed on the edited row, deleting an entry you are part-way through editing is **Cancel →
+  trash**. That is two clicks, the same count as 8d's Edit → Delete, and it keeps the phase's one consistent rule
+  intact (*a row in a special state suppresses its ordinary actions because another surface owns them*) rather
+  than carving an exception into it. Stated here explicitly because it is the obvious question an implementer
+  will hit and guess at.
+- **`FoodDayView` wiring.** `handleDeleteEditingEntry()` becomes `handleDelete(entry)` again, taking the row's
+  entry. **Keep Phase 8d's qa N-4 fix verbatim**: route a failed delete through the existing `actionError`
+  channel, never echo a raw Postgres string, and do not treat failure as success. Add one thing 8d's version got
+  for free and this one must do on purpose: **if the deleted entry happens to be the one currently being edited,
+  clear `editingEntry` too** — otherwise the form is left editing a row that no longer exists, which is the
+  pre-existing gap §5 already notes, newly reachable in one click. `FoodEntryForm`'s `onDelete` prop, its
+  "Delete entry" button and its `TrashIcon` import are removed; `TrashIcon` itself stays (the row now uses it).
+
+**The editing-row highlight gets louder: enclosure, not fill (2026-08-07 addition, Phase 8g).** Jeff's finding 6.
+The 8b treatment (left accent bar + a small "Editing" caption, no surface fill) shipped and is committed; he has
+seen it on a clean build and finds it too quiet. `ai-context/DECISIONS.md`'s 2026-08-05 entry predicted exactly
+this outcome and pre-labelled it *"a taste call for him, not a defect"* — so this is a strengthening, not a fix.
+
+- **The constraint that ruled out a fill in 8b still holds and is not being relitigated.** A `bg-sage-pale` row
+  would swallow the `bg-sage-pale` "From a saved meal" badge sitting inside it, and would fight the row's
+  `hover:bg-stone-50/70`. Both are still true. So the surface stays unchanged and the escalation goes where the
+  ladder already says it should: **enclosure**.
+- **Treatment: keep the `border-l-4 border-l-sage-deep` bar, add an inset `sage-deep` ring around the whole row,
+  and promote the "Editing" caption to a filled `bg-sage-deep text-paper` pill.** Contrast: sage-deep-on-paper is
+  4.9:1 either way round (the ratio is symmetric), so a `text-paper` pill on `bg-sage-deep` clears AA for normal
+  text; the ring is a non-text border at 4.9:1 against a 3:1 bar. The filled dark pill is also **visually
+  unmistakable next to the pale "From a saved meal" badge** — a dark chip beside a pale chip reads as two
+  different things, which a same-coloured row fill would have destroyed.
+- **Mechanic: `ring-2 ring-inset ring-sage-deep`, not `border`** — and the reason is layout, not vocabulary. These
+  rows live in a `<ul class="divide-y">` inside a `rounded-2xl overflow-hidden` section; a real `border` on one
+  `<li>` shifts every row below it and fights the dividers, while an inset ring paints inside the row's own box
+  with zero reflow. `ActionPanel` uses `border border-sage-deep` because it is a standalone block where neither
+  problem exists. Same visual concept, correct mechanic per context — **not** a second emphasis language.
+- **Ladder placement: "level 1+", added without renumbering.** Level 1 (bar only, surface unchanged) is retained
+  as-is for the **active group**, which is a whole section and needs to stay quiet. The **editing row** is
+  promoted to **level 1+ = bar + inset ring + filled pill, surface still unchanged**. Deliberately not a
+  renumber: existing "level 1/2/3" references in this doc and in component doc comments stay correct.
+- **Select mode still coexists, and the rule it follows is unchanged.** A *checked* row still gets no visual state
+  of its own — the checkbox is the indicator. The editing row's ring is not a tint and does not violate that;
+  a row can legitimately be checked **and** ringed at once, and they read as two different things (a control vs.
+  an enclosure). No interaction with the new trash icon either, since the edited row hides all three actions.
+- **Still no second `scrollIntoView`, and that stays out on purpose.** 8b's rejection (two competing scroll
+  targets for one action) is unaffected by making the marker louder — this fix makes the row easier to *find*
+  when you look at the list, which is what a persistent state marker is for. If a louder marker still doesn't
+  land for Jeff, the remaining question is *where the page scrolls on entering edit mode*, which is a different
+  design question and should be raised as one rather than absorbed here.
+
+**Retiring the dashboard (2026-08-07 addition, Phase 8h).** Jeff's finding 1, and he asked for a recommendation
+rather than a menu: *"I'm questioning if it even needs to exist… it's just an extra click… Ask the architect if
+there's something else we can add to that page that provides value."*
+
+- **Recommendation: retire it.** `(app)/page.tsx` becomes a one-line `redirect("/food")`, and
+  `components/food/TodaySummary.tsx` is deleted with it (nothing else imports it — `/food` has `DailyTotals`).
+  **Keep the `/` route itself** rather than repointing the auth callback, sign-in redirect and the header
+  wordmark: a redirect at `/` means every existing link keeps working and the auth gate is untouched, which makes
+  this a genuinely small, low-risk change instead of a routing refactor.
+- **Why, in one line: everything a dashboard would show either already exists one click away, or belongs on the
+  screen it is about.** Today's totals are `DailyTotals` on `/food` — the current dashboard is a literal duplicate
+  of them, so it costs a click and returns nothing. Weight/body-fat *over time* is `/trends`, which already does
+  7/30/90-day ranges with real gap handling; a second, smaller, less capable chart on a landing page would be a
+  weaker copy of a page that exists, and a second place for the same fact to drift. That leaves nothing for the
+  page to be, and "a landing page that exists to be landed on" is not a reason in an app whose stated first
+  priority is that logging must be fast.
+- **This is consistent with the 2026-07-31 descope, not a re-run of it.** That decision rejected a dashboard
+  *quick-add / copy-previous-day* on write-path grounds (it would duplicate or weaken `FoodEntryForm`; copy-day
+  is already a strict subset of `CopyDayDialog`). Those arguments genuinely do not cover a **read-only summary**,
+  which is a different shape of feature — so the read-only case was evaluated on its own merits above, and lands
+  in the same place for a different reason: not "it would be dangerous", but "it would be redundant".
+- **The one genuinely-new fact Jeff named, and where it actually belongs: "last logged weight and body fat" goes
+  on `/metrics`, not on a dashboard.** It is real information that exists nowhere today — `/metrics` shows the
+  *selected day's* row (usually empty until you weigh in), and `/trends` shows a chart you have to read. A single
+  line above the form — *"Last logged: 182.4 lb · 18.2% body fat on 08/05/2026"* — answers "what was I last?" on
+  the screen a user already opens to ask it, with no new navigation stop. Rendered via `formatWeight`/
+  `weightForDisplay` (canonical kg → the user's unit, no reimplementation) and `formatDateLabel`; **null-safe**,
+  showing nothing at all when the user has never logged a metric.
+- **It reads through `MetricForm`'s existing client fetch, and the server-side alternative is rejected for a
+  concrete reason.** "Most recent row" genuinely does **not** depend on the browser's local "today", so a plain
+  Server Component read in `metrics/page.tsx` would be simpler and would finally have one screen not using the
+  mount-only-Effect tz pattern. It is still rejected: the line would go **stale the moment the user saves** (it
+  would keep naming 08/05 immediately after logging 08/07) until a navigation, which is a visible inconsistency
+  on the very screen that just changed. Adding the query to `MetricForm`'s existing fetch means the existing
+  `refetch()` after save/delete keeps it correct for free. Recorded so a future reader doesn't "simplify" it back
+  into a bug.
+- **Explicitly not built: an "oldest-to-latest" all-time progress chart.** It is the closest literal reading of
+  Jeff's ask, and it is a **`/trends` feature, not a dashboard one** — an `All` option beside 7/30/90. Left out of
+  8h because it is not free: it needs an extra query for the user's earliest logged date, and the dense
+  day-by-day series builders would then produce an unbounded array (two years of logging is ~730 points on one
+  axis). 7/30/90 already covers the useful window for a daily-logging app. Logged as a §5 open question with a
+  recommendation, not smuggled in.
+- **No stored "progress" value, ever** — computed on read from `daily_metrics`, per the standing no-denormalised-
+  computed-columns rule (AGENTS.md). This phase adds no schema, no server action and no `lib/domain/` module.
+
 **`DailyTotals`** shows the day's total calories/protein and the **day-level protein %** using the same
-ratio-of-sums function on the day's summed totals (from `daily_food_totals`). The dashboard shows the same
-for today.
+ratio-of-sums function on the day's summed totals (from `daily_food_totals`). Until Phase 8h it was also
+rendered, via `TodaySummary`, on the dashboard; after 8h `/food` is its only home. **Phase 8j adds goal-relative
+progress** to the calories and protein figures — see the "Daily goal progress" block below; the protein-%
+figure is deliberately left as a plain stat, because there is no protein-% target to be relative to.
 
 Other components unchanged: `CopyDayDialog`, `LogMealDialog` (its date/time picker is likewise a
 `date max=today` + the same 96-value quarter-hour time `<select>`; its *meal* picker gains only the shared
@@ -1020,6 +1662,437 @@ time-of-day is chosen only at log time in `LogMealDialog`, so this control chang
 `MetricForm` (date max=today, no time field, sends `metricTz`), `SettingsForm`, `RangeSelector`,
 `WeightChart`/`IntakeChart`. The `(app)` nav has a **"Log out"** control (the only session terminator).
 Installability via `app/manifest.ts` (+ icons), `display:'standalone'`, **no service worker**.
+
+**Visual identity v2 — cool canvas + blue/orange accents, no serif (2026-08-09 addition, Phase 8i).** Jeff has
+seen a reference app ("Nourish", built by Codex) and prefers its look. His words, verbatim: *"Our app is clean,
+but it's dull and busy. The green buttons and creme background of our app look ugly"* and *"I also like the font
+that the codex app used. I do not like the ornate fonts we used in the summary card at the top of food."* This
+**reverses the palette and typography halves** of the 2026-07-25 "warm-paper + sage/clay" identity. It does not
+reverse that decision's *structure* — tokens in `globals.css`'s `@theme inline`, primitives in `components/ui/`
+as the single source of truth, no raw hex in components — which is what makes this a token swap rather than a
+rewrite, and is recorded here as still-correct rather than silently reused.
+
+**Important caveat on fidelity, stated up front: this is a direction, not a spec match.** The reference was
+described in prose; no screenshot was available to the architect. Every specific value below is the architect's
+choice consistent with that description, not a sampled colour. Where a value is an inference it is marked. If
+Jeff wants a literal match on any particular colour, that is a one-line token edit — the whole point of the
+token structure.
+
+***The token set.*** All ratios below are computed with the standard WCAG relative-luminance formula against
+the surface each token actually renders on — the same rigour the 2026-07-25/26 entries applied, and for the same
+reason: this project has already shipped two colours that had never been checked (the NB-2 amendment) and this
+round found a third (below).
+
+| Token | Value | On `--surface` (white) | On `--canvas` | Role — and the rule that keeps it AA |
+|---|---|---|---|---|
+| `--canvas` | `#F1F5F9` | 1.10:1 vs white | — | Page background (replaces `--paper`). Cool light grey, not cream. Card separation is carried by the white surface **plus** a border/shadow, never by this 1.10:1 step alone. |
+| `--surface` | `#FFFFFF` | — | 1.10:1 | Card / panel / input background. |
+| `--ink` | `#0F172A` | **17.85:1** | **16.28:1** | Body + heading text. **Also a feature surface**: white text on an `--ink` fill is 17.85:1. |
+| `--muted` | `#475569` | **7.58:1** | **6.91:1** | Secondary / caption text ("760 remaining", helper text, timestamps). Chosen over the lighter `#64748B` **because that one is 4.34:1 on `--canvas`** — under AA for text sitting directly on the page, which several strings do. |
+| `--line` | `#CBD5E1` | 1.49:1 | 1.36:1 | **Decorative** borders/dividers only — card edges, list dividers. Deliberately below 3:1; see the SC-scope note below. |
+| `--line-strong` | `#64748B` | **4.76:1** | **4.34:1** | **UI-component** borders — text inputs, selects, secondary-button outlines. Both figures clear the 3:1 SC 1.4.11 bar. |
+| `--accent` | `#1D4ED8` | **6.70:1** | **6.11:1** | The accent that carries meaning: primary-button fill (white label = 6.70:1), link text, focus rings, the **protein** progress bar. |
+| `--accent-soft` | `#DBEAFE` | 1.22:1 | — | Tint: active-nav pill, `ActionPanel` fill, `StatusMessage` surface. `--ink` on it is **14.63:1**; `--accent` on it is **5.49:1**. |
+| `--accent-warm` | `#C2410C` | **5.18:1** | **4.72:1** | The single secondary accent — the **calorie** progress bar, the wordmark mark, sparing positive emphasis. Unlike the `--clay` it replaces (3.2:1, large/fill only), this **is** AA-capable as text; the restriction on it is *frequency*, not *size*. |
+
+- **The old "`--sage-deep` must never be small text on `--sage-pale`" guardrail dissolves, and that is a real
+  improvement worth naming.** That trap (4.2:1) is the reason `StatusMessage` puts `sage-deep` only on its
+  border and icon, `ActionPanel` keeps `text-ink` content, and the active `NavLink` is `ink`-on-`sage-pale`
+  rather than the naive mapping. `--accent` on `--accent-soft` is **5.49:1**, so the trap is gone. **The rule is
+  kept anyway**: text on the soft tint stays `--ink`. Keeping it means the ladder maps mechanically, no
+  component's text colour has to be re-decided, and the margin survives a future tint tweak.
+- **Semantic reds stay, exactly as before** — `Button`'s `danger` variant, `errorTextClass`, the `amber` auth-
+  callback notice. They are status, not brand, and this round does not touch them. **Being over a calorie goal
+  is not an error and must not become red** (see the goal-progress block).
+- **A real, pre-existing SC 1.4.11 defect found while doing this contrast pass, and fixed here:**
+  `components/ui/Button.tsx`'s `secondary` variant is `border-stone-300` (`#D6D3D1`) on a white fill —
+  **1.49:1**, against a 3:1 requirement, and for a white-on-white button that border is the *only* thing
+  identifying the control. The 2026-07-26 NB-2 sweep fixed `styles.ts` and `Card` but **missed `Button`**. It
+  becomes `--line-strong` (4.76:1). Recorded rather than quietly folded in, because it is a defect in
+  already-approved code, not part of the redesign.
+- **A deliberate, reasoned partial reversal of NB-2 — `Card`'s border goes back to a subtle line.** NB-2 moved
+  `Card` from `border-stone-200` (1.26:1) to `border-stone-500` (4.80:1) to clear the 3:1 non-text bar. Under
+  the new direction that border reads as a heavy box, which is most of what makes the current app look "busy".
+  **SC 1.4.11's scope is the reason this is conformant, not an exemption being claimed:** it covers *"visual
+  information required to identify user interface components and states"* and *"parts of graphics required to
+  understand the content"*. A card is a **decorative grouping container** — it is not an interactive component,
+  and nothing inside it becomes harder to read or to understand if its edge is not perceived. So `Card` takes
+  `--line` (1.49:1) plus `shadow-sm` on a white surface against the `--canvas` page. **The half of NB-2 that
+  applies to real components is kept and extended**: `inputClass`, `Button` secondary, and any select/interactive
+  outline use `--line-strong`. The rule, stated once so it stops being re-litigated per component: **UI
+  components → `--line-strong` (≥3:1); decorative containers and dividers → `--line`.** This is the one
+  accessibility call in this round that a reviewer should push back on if they read the SC differently — §5.
+
+***Typography — Fraunces is removed, Geist Sans stands alone.*** Jeff named the serif specifically ("the ornate
+fonts we used in the summary card at the top of food" — that is `DailyTotals`' `font-serif` stat numerals).
+
+- **Fraunces goes entirely**: the `next/font/google` registration in `app/layout.tsx`, the `--font-fraunces`
+  variable, the `--font-serif` entry in `@theme inline`, and every `font-serif` class in `src/`.
+- **No second font family is added, and the reason is that there is nothing left for one to do.** The serif
+  existed to carry a warm/editorial register the new direction explicitly rejects; with it gone the app has zero
+  functional serif-vs-sans distinction. Geist Sans is already registered, already self-hosted at build time (no
+  external request, no CSP/privacy change), and is exactly the modern grotesque the reference is described as
+  using. Adding a face would cost a download, a token and a per-component decision surface for no functional
+  need — the same bar this project applied to icon libraries and combobox primitives.
+- **What replaces the serif's job**: the "this is a heading / this is a big number" signal moves to **weight,
+  size and tracking** — `font-semibold`/`font-bold` + `tracking-tight` — which is precisely the reference's
+  "bold black number" treatment. **This is cheaper than it sounds**: nearly every `font-serif` call site in `src/`
+  already reads `font-serif text-2xl font-semibold tracking-tight text-ink`, so **deleting the one class is the
+  whole edit** at those sites. Verify per site rather than assuming; a bare `font-serif` with no weight beside it
+  needs `font-semibold` added.
+- **RESOLVED (Jeff, 2026-08-09): swap Geist for Inter.** Implement as the one-line swap described above — change
+  the `next/font/google` import and the `--font-sans` variable in `app/layout.tsx`; zero component changes,
+  because everything already inherits `--font-sans`.
+
+***Shape — pills become rounded rectangles for actions; pills survive for status and selection.***
+
+- **`Button`: `rounded-full` → `rounded-lg` (8px)**, matching the reference's rounded-rectangle "+ Add food".
+  `size="icon"` becomes a rounded square (`rounded-lg`) for the same reason.
+- **`Card`/`ActionPanel`: `rounded-2xl` (16px) → `rounded-xl` (12px)** — still soft, less pillowy; the "clinical
+  modern" register rather than the warm one.
+- **Genuinely-pill things stay `rounded-full`**, and this is a rule rather than an exception list: the **active
+  `NavLink`** (the reference itself shows a rounded pill tab), the **"From a saved meal"** badge, the **"Pinned"**
+  badge, and the **"Editing"** pill. This extends a rule this project already recorded — *pills are for statuses,
+  not messages* (Phase 8b) — to **pills are for statuses and selection, actions are rounded rectangles**. Anyone
+  adding a control can now answer "pill or not?" from the rule instead of by eye.
+
+***What the primitives become*** (this is the whole propagation surface — every screen inherits it):
+
+| Primitive | Before | After |
+|---|---|---|
+| `Button` primary | `bg-ink text-paper`, pill | **`bg-accent text-white`**, `rounded-lg` (6.70:1) |
+| `Button` secondary | white / `border-stone-300` (1.49:1 — the defect above) | white / **`border-line-strong`** (4.76:1), `rounded-lg` |
+| `Button` danger | unchanged red | **unchanged red** |
+| `Button` focus ring | `outline-sage-deep` | **`outline-accent`** |
+| `Card` | `rounded-2xl border-stone-500` | **`rounded-xl border-line`** + `shadow-sm` on `--surface` |
+| `NavLink` active | `bg-sage-pale text-ink`, pill | **`bg-accent-soft text-ink`**, pill (kept) |
+| `styles.ts` `inputClass` | `border-stone-500`, `focus:*-sage-deep` | **`border-line-strong`**, `focus:*-accent` |
+| `styles.ts` `labelClass` / placeholder | `text-stone-700` / `stone-500` | **`text-ink`** / **`text-muted`** |
+| `StatusMessage` | `border-l-sage-deep bg-sage-pale text-ink` | **`border-l-accent bg-accent-soft text-ink`** (level 2) |
+| `ActionPanel` | `border-sage-deep bg-sage-pale`, `rounded-2xl` | **`border-accent bg-accent-soft`**, `rounded-xl` (level 3) |
+| Editing row (8g) | bar + `ring-sage-deep` + `bg-sage-deep/text-paper` pill | **bar + `ring-accent` + `bg-accent`/`text-white` pill** (level 1+) |
+
+**The emphasis ladder is unchanged in structure — only its two colours move.** `sage-deep` → `--accent`,
+`sage-pale` → `--accent-soft`, everywhere, in all four levels. No level is added, removed or renumbered, and the
+"why a full ring rather than a louder colour" reasoning survives verbatim with `--accent-warm` now standing where
+`--clay` stood in it (still rejected for pending-action emphasis, still for one meaning only).
+
+***What is NOT a token swap — the hand-edit list.*** The 2026-07-25 "tokens are one source of truth" claim still
+holds and is the reason this is tractable, but it was never *complete*, and pretending otherwise is how a
+redesign ships half-done:
+
+1. **`font-serif`** — every occurrence in `src/` (`(app)/layout.tsx` wordmark, all five page `<h1>`s,
+   `DailyTotals`, `TodaySummary` if 8h hasn't landed). Grep, don't work from this list.
+2. **The warm-neutral family** — ~100 `stone-*` occurrences across ~31 files. Text and border occurrences move to
+   the new `--muted`/`--line`/`--line-strong` **tokens**, not to raw `slate-*`; incidental fills/hovers
+   (`hover:bg-stone-50`, `divide-stone-100`) may use raw `slate-*`. **New standing rule: no raw colour-scale
+   utility for text or borders in a component** — that per-component guessing is what produced all three contrast
+   defects this project has had.
+3. **The sage arc** — `(auth)/layout.tsx`'s decorative `<svg>` is **deleted**. The reference has no decorative
+   motif, and the arc is the last consumer of `--sage`, a token this round does not replace. **The 2026-07-25
+   "signature motif" decision is reversed, not narrowed** (it was already narrowed once, in 2026-07-26, to
+   auth-only). The auth card keeps its own presence through the card + wordmark.
+4. **`components/trends/chartTheme.ts`** — two **hardcoded hexes** (`#e7e5e4`, `#78716c`), an already-documented
+   exception because Recharts' `CartesianGrid`/`XAxis`/`YAxis` accept no `className`. They move to the cool
+   equivalents; the documented reason for the exception stands.
+5. **`WeightChart` / `IntakeChart`** — 20 combined `text-sage-deep`/`text-clay` classNames on `Line`/
+   `ReferenceLine` (the `currentColor` technique). → `text-accent` / `text-accent-warm`. **Check the pairings by
+   eye afterwards**: weight vs body-fat, and calories vs protein, must still be distinguishable, and calories
+   should take `--accent-warm` so the chart agrees with the goal card's bar colour.
+6. **`components/food/FoodEntryList.test.tsx`** — **8 assertions on literal class names**
+   (`border-l-sage-deep`, `ring-sage-deep`, `bg-sage-deep`, `text-paper`). These **fail** on the swap. Update in
+   the same change.
+7. **`e2e/visual-identity-acceptance.spec.ts`** — the entire file pins the *old* identity as computed values:
+   the six hexes, "Fraunces for headings", "pill-shaped primary button", "the sage arc appears exactly once on
+   each auth screen", and an old-palette-scan whose forbidden list is now the wrong list. It must be **rewritten
+   in the same change** to pin the new identity — including a scan whose forbidden list becomes the *sage/clay/
+   paper* values, so the old palette cannot creep back. **This is the fifth consecutive phase in which an
+   existing suite pins something a new phase reverses; it produced a blocking finding twice.** The 2026-07-25
+   rollout's own note that *"no automated test asserts on Tailwind class-names or colors"* was true when written
+   and is now false — items 6 and 7 exist precisely because that rollout's qa added them.
+
+**Daily goal progress on `/food` (2026-08-09 addition, Phase 8j).** Jeff wants to see the day's calories and
+protein **against his targets**, in the reference's treatment: a bold number, a thin coloured bar, and an
+"X remaining" caption. `user_goals.daily_calorie_target` / `daily_protein_target_g` already exist, are already
+editable at `/settings`, and are already used as chart reference lines (Phase 5) — this surfaces them on the
+screen where the question is actually asked.
+
+- **It surfaces in `DailyTotals` on `/food`. The dashboard is not revived, and that was checked rather than
+  assumed.** Phase 8h's recorded reasoning for retiring `/` is that *"today's totals are `DailyTotals` on
+  `/food` — the current dashboard is a literal duplicate"*. A goal-progress dashboard would re-create exactly
+  that duplication (a second place rendering today's totals, now with a second copy of the progress rule to
+  drift), and would mean un-deleting a route in the same breath as deleting it. `/food` is also simply the right
+  screen: "how much room do I have left?" is asked **while logging**, and answering it in the component the user
+  is already looking at costs zero navigation — the app's stated first priority.
+- **The pure module: `lib/domain/goal-progress.ts`, one function.**
+  ```ts
+  export type GoalProgress = {
+    consumed: number; target: number;
+    remaining: number;  // target - consumed; NEGATIVE when over
+    pct: number;        // consumed/target*100, whole number, UNCLAMPED
+    barPct: number;     // pct clamped to 0..100 — bar WIDTH only
+    isOver: boolean;
+  };
+  export function goalProgress(consumed: number, target: number | null): GoalProgress | null;
+  ```
+  - **`pct` and `barPct` are two fields on purpose, and this is the load-bearing detail.** A bar cannot render
+    past 100%, but the *text* must tell the truth. Collapsing them into one clamped number is the obvious
+    simplification and it silently makes the app claim you are exactly on target when you are 40% over. This is
+    the same stance already recorded for `proteinCaloriePct` (>100% is returned as-is, never clamped).
+  - Returns **`null`** when `target` is `null` **or ≤ 0** — so a nonsensical stored target degrades to the plain
+    no-goal treatment instead of dividing by zero or drawing an infinite bar.
+  - `pct` is rounded to a **whole number**, deliberately unlike `proteinCaloriePct`'s 1 decimal: that figure is a
+    ratio people compare across meals, this one is a rough "how far along am I".
+- **No new summation logic anywhere** (the explicit ask). `consumed` is `daily_food_totals.total_calories` /
+  `total_protein_g` — already summed **on read by the DB view**, already the exact values `DailyTotals` renders
+  today. `proteinCaloriePct` keeps the third stat. `totals.ts`'s `sumEntries` is untouched. **Nothing is
+  stored**: no percentage, no remaining, no "progress" column — per AGENTS.md's standing rule. Phase 8j adds
+  **no schema and no server action.**
+- **Where the goals come from: a Server Component read in `food/page.tsx`, passed down as a prop** (
+  `page.tsx` → `FoodDayView` → `FoodDayViewContent` → `DailyTotals`). **This deliberately breaks the pattern the
+  rest of that screen uses, and the reason is specific**: every other `/food` read is client-side because it
+  depends on the browser's local "today", which the server cannot know. A user's goals do not depend on today at
+  all, change only from `/settings`, and cannot be changed from `/food` — so there is nothing on this screen for
+  them to go stale against, and fetching them once server-side avoids a third round-trip on **every day change**.
+  Note the contrast with 8h's last-logged-weight line, which is a *client* read for the opposite reason (it can
+  be changed on the very screen that displays it).
+  - **Known, accepted, not new**: `getGoals()` performs an ensure-row upsert, so a read-only page triggers a
+    write. §5 already records this for `/trends`; `/food` becomes the third caller. It is an existing pattern
+    being reused, not a new wart, and the fix if it ever matters is a read-only `getGoalsIfExists` — deferred,
+    not smuggled in here.
+- **The rendered treatment.** `DailyTotals` becomes **three cards in a responsive grid** (`grid-cols-1
+  sm:grid-cols-3`) rather than one card with divided columns:
+  - **Calories** — label, bold `--ink` number, thin bar filled `--accent-warm`, caption
+    `1,240 of 2,000 · 760 remaining` in `--muted`.
+  - **Protein** — identical, bar filled `--accent`.
+  - **% from protein** — label + bold number, **no bar and no caption**, because there is no protein-% target.
+    Stated explicitly so nobody "completes the set" by inventing one.
+  - **Over target**: the caption reads **"320 over"**, not "-320 remaining". The bar sits at 100%.
+- **Graceful fallback, which is the behaviour most likely to be got wrong.** A card whose target is `null`
+  renders **exactly what it renders today** — label + bold number, no bar, no caption. A user who set only a
+  calorie target gets a calorie bar and an unchanged protein card; the two are independent. When **both** are
+  unset (the first-run case) a single subtle *"Set daily targets"* link to `/settings` appears **once**, below
+  the grid — not per card, and never when the user has deliberately set one and left the other blank.
+- **Accessibility, and why the bar is not a `role="progressbar"`.** The bar is `aria-hidden="true"` decoration;
+  the caption beside it is real text carrying the same numbers, so a screen reader gets the information once
+  rather than twice, in prose rather than as a bare percentage. This also settles two WCAG questions by
+  construction: **1.4.1 (colour alone)** — the numbers are text and each card is labelled, so orange-vs-blue is
+  never the only signal, and the over-target state is carried by the word *"over"*; and **1.4.11** — the bar's
+  track/fill contrast is not load-bearing because nothing depends on perceiving it. **The over-target bar must
+  not turn red**: red is semantic-error in this palette, being over a calorie goal is not an error, and it would
+  be a colour-only duplicate of text that already says it.
+
+**The `/food` day-action surface: one toolbar, one panel outlet (2026-08-11 addition, Phase 8k).** Jeff's second
+finding, and it is a structural defect rather than a styling one. `FoodDayView` renders its three day-level
+triggers in a single `flex flex-wrap` row — but **two of the three components render their own trigger *and*
+their own open panel from the same position in that row** (`LogMealDialog` picker mode and `CopyDayDialog` both
+early-return a `<Button>` when closed and a full panel when open). So opening one turns that flex item into a
+full-width block, and every sibling trigger *after* it wraps to a line **below the open panel**: click "Copy this
+day" and "Select entries" ends up stranded underneath the copy form. The `w-full` wrappers added to both
+components on 2026-08-10 are the visible scar tissue of this — they force the panel onto its own line, which is
+the best a component can do from inside a row it should never have been laying out.
+
+- **The fix is to separate the two concerns that are currently fused: a *trigger row* that contains no panels,
+  and a *panel outlet* directly beneath it that contains no triggers.** `components/food/DayActionBar.tsx`
+  renders exactly the three buttons, always, in one row; `FoodDayView` renders whichever panel is open in a
+  sibling block below. A trigger then cannot be displaced by a panel, because they are no longer siblings — the
+  bug is fixed by construction rather than by a layout hint that has to keep being right.
+- **`CopyDayDialog` and `LogMealDialog` become panel-only components in every mode**, losing their internal
+  `open` state and their collapsed-button branch. This is not a new pattern: it is the shape
+  `CopyGroupDialog`/`SaveGroupAsMealDialog` have had since Phase 7b/8 (the caller renders the trigger and
+  conditionally renders the panel), and the shape `LogMealDialog` **already** uses in its Phase 8c fixed-meal
+  mode, where `MealList` owns visibility. Two odd components are being brought onto the majority pattern, not a
+  third pattern invented. **Both `w-full` wrappers are deleted** — if either survives the diff, the panels are
+  still being rendered from inside the row.
+- **`/meals` is unaffected, and this is the thing most likely to be broken by accident.** `MealList` already
+  passes `meal` + `onCancel` and owns visibility, so it needs **no change**; the only edit there would be if a
+  developer "helpfully" unifies the two modes further. §6 carries a regression row for it.
+- **Open state moves to a single slot on `FoodDayView`: `dayAction: "logMeal" | "copyDay" | null`** — the exact
+  shape `FoodEntryList.groupAction` and `MealList.cardAction` already use, so opening one closes the other for
+  free. Select mode stays its own `selectMode` boolean: it is a **mode** that changes the list below, not a
+  panel, and conflating the two would make "can I still be in select mode while a copy panel is open?" a
+  question rather than a fact. (It cannot: entering select mode closes any open day panel, and opening a day
+  panel is only possible when not in select mode, because "Select entries" and the other two triggers are
+  mutually exclusive states of the same bar — see the next bullet.)
+- **`dayAction` is set only by the user's own clicks — never by `loading`, a fetch nonce, `entries.length` or
+  the selection.** This is the standing N-3/Phase 8b unmount rule, and it is what keeps `ActionPanel`'s
+  mount-only scroll+focus firing exactly once per open and keeps a background `refresh()` from wiping an
+  in-flight copy date. It is restated here because moving the state to a new owner is exactly the moment it gets
+  re-derived incorrectly.
+
+**The day-action row becomes a visually grouped toolbar, and select mode gets real emphasis (2026-08-11
+addition, Phase 8k).** Jeff's third and fourth findings, which are one design question: what is this row, and
+what does it act on.
+
+- **The three triggers sit in a quiet container** — `rounded-xl border border-line bg-white shadow-sm` with
+  `p-2`, i.e. `Card`-like chrome using the **decorative-container** neutral (`--line`) per Phase 8i's standing
+  rule. **Deliberately not the accent vocabulary.** The emphasis ladder's levels all mean *something is
+  happening or waiting for you*; a permanently-accented toolbar would be on screen every second of every visit
+  and would therefore say nothing, which is the same "a treatment applied everywhere carries no information"
+  test that kept `ActionPanel` off `FoodEntryForm`.
+- **No `role="toolbar"`, and no `aria-label` on the group.** `role="toolbar"` carries a keyboard contract
+  (roving tabindex, arrow-key traversal) that this codebase has no pattern for; declaring the role without
+  implementing it announces a widget whose expected keys do not work, which is worse than no role. And a group
+  label would add another accessible-name string to a page with a **four-instance documented history** of
+  `getByLabel` collisions (see `ai-context/DECISIONS.md`'s "Copy to time…" entry and its three addenda) for no
+  benefit — three buttons with clear visible labels need no group name. It is a **visual** grouping; the ARIA
+  tree is unchanged.
+- **Each trigger gets a supplementary `Tooltip`**, obeying the recorded rule that a tooltip explains rather than
+  repeats and is never the only place a control's purpose is stated: "Log a saved meal" → *"Add a saved meal's
+  items to this day, at a time you pick."*; "Copy this day" → *"Copy every entry on this day to another
+  date."*; **"Select entries" → *"Tick individual entries in the day's log below, then copy them or save them
+  as a meal."*** That third string is the actual answer to Jeff's complaint that the button is disconnected from
+  what it acts on — it names the target ("the day's log below") in words, on the control itself.
+- **Select mode's whole surface becomes one level-3 `ActionPanel`, not two stacked ones.** `EntrySelectionBar`
+  today is `rounded-xl border-line bg-white` — indistinguishable from a `Card`, which is Jeff's third finding.
+  It is wrapped in `ActionPanel`, and **the bulk form renders inside that same panel** rather than as a second
+  accent-ringed box beneath it. Two nested rings for one action would dilute level 3 exactly as a permanently
+  accented toolbar would.
+  - **The heading is the step you are on**: `"Select entries"` → `"Copy selected"` → `"Save selected as a
+    meal"`. The panel is **keyed on `bulkAction`** so choosing a bulk action remounts it, which is what makes
+    `ActionPanel`'s scroll-into-view and focus-first-control fire for the *form* — the behaviour §6 already
+    asserts for all five existing panels. `bulkAction` changes only from a user click, so this does not violate
+    the unmount rule above.
+  - **While a bulk form is open, the bar collapses to just its "N selected" count and hides its four buttons.**
+    This is not a new rule either: it is *when a surface is in a special state, its ordinary actions are
+    suppressed because another surface owns them* — the same rule the editing row, select mode itself, and the
+    active group all already follow. It also makes the focus ordering correct **by construction** (the form's
+    own first field becomes the panel's first focusable control), and it removes one more instance of the
+    duplicate-dismissal ambiguity this project has now fixed twice: with the bar's "Done" hidden, the open form's
+    "Cancel" is the only dismissal on screen.
+  - **Ticking and unticking entries stays live while a bulk form is open** — the checkboxes are in the list, not
+    in the bar, and the count in the collapsed bar updates as the selection changes. Worth stating because the
+    suppression rule above could easily be over-applied to the checkboxes.
+  - **Known, accepted imperfection**: on *entering* select mode with nothing yet selected, `ActionPanel` focuses
+    the bar's first enabled button, which is "Clear" (both bulk buttons are `disabled` at N=0). Harmless — it
+    clears an empty selection — but arbitrary. The alternative is an opt-out prop on `ActionPanel` to disable its
+    own principal behaviour, which is a worse trade for a shared primitive. Recorded in §5 rather than solved.
+  - **The scroll-into-view is a feature here, not a side effect**: the bar sits above the list and below the
+    form, so clicking "Select entries" in the toolbar now scrolls the user *to the thing the mode acts on* —
+    which is the other half of Jeff's fourth finding, answered by behaviour rather than by copy.
+
+**Optional-detail expanders look like buttons, not links — `components/ui/DisclosureButton.tsx` (2026-08-11
+addition, Phase 8k).** Jeff's first finding: `FoodEntryForm`'s *"Look up a food (barcode or search)"* control
+does not read as clickable, and he asked whether it should be a button or a tab. Confirmed in source: it is
+already a real `<button>`, but styled as bare accent text with no chrome, no icon and no `aria-expanded` — so
+neither a sighted user nor a screen-reader user is told it expands anything.
+
+- **A disclosure button, not a tab, and the deciding argument is concrete rather than taxonomic.** Tabs switch
+  between *alternative views of one region*; this reveals *optional extra tooling on the same form*, which is
+  disclosure. More decisively: `FoodLookupPanel` **already contains a real `role="tablist"`** (Search / Barcode).
+  Making its own trigger a tab would nest a tab inside a tab strip — two tab layers, one of which switches the
+  other on — which is genuinely confusing rather than merely unconventional.
+- **`DisclosureButton` is a small shared primitive** wrapping `Button variant="secondary" size="sm"`: label +
+  `ChevronDownIcon` (the glyph `MealList` already uses for this exact job, added 2026-08-10), rotated 180° when
+  open, with `aria-expanded` and `aria-controls` pointing at the panel's id. **No new glyph and no icon
+  library** — the 8–10-glyph threshold for revisiting Lucide-as-a-dependency is unchanged (this adds zero).
+- **Applied to both of `FoodEntryForm`'s expanders, not just the one Jeff named** — the lookup trigger and the
+  *"+ Add detail (quantity, unit)"* / *"Hide detail"* pair. They are the same control doing the same job three
+  inches apart; fixing one would leave the form with two idioms for one concept, which is the same "both, or the
+  rule isn't a rule" reasoning that extended the active-group treatment to "Save as meal".
+- **The trigger stays rendered while the panel is open, and `FoodLookupPanel`'s own separate "Close" link is
+  removed.** One control with `aria-expanded` toggling is the conventional disclosure pattern, and it retires
+  another duplicate-dismissal control of exactly the kind already fixed on the group headers ("Cancel" →
+  "Close"). Picking a candidate still closes the panel, unchanged.
+- **These panels stay OUT of `ActionPanel`, deliberately** — §3.4's existing rule names `FoodEntryForm`, "Add
+  detail" and `FoodLookupPanel` explicitly as progressive disclosure of optional detail rather than actions
+  awaiting completion. This phase changes their *trigger's* affordance, not their emphasis level.
+- **Nothing about the lookup or quantity behaviour changes**: the hidden `quantity`/`unit` inputs that keep a
+  collapsed detail section from discarding a picked quantity (the Phase 6 B-1 fix) are untouched, as is the
+  auto-expand-on-pick behaviour.
+
+**The auth screens get the app's name back, and a deliberate identity (2026-08-11 addition, Phase 8l).** Jeff's
+fifth finding, and the diagnosis is precise: Phase 8i **deleted** the sage-arc motif from `(auth)/layout.tsx`
+(correctly — the new register is undecorated) and replaced it with nothing, while the auth pages have never had
+a wordmark. The result is that the app's **first** screen is the only one that never says what the app is: a
+bare card with an `<h1>Log in</h1>`, two fields and a link. Every authenticated screen has "Health Tracker" in
+its header; `/login` and `/signup` have it nowhere on the page.
+
+- **`components/ui/Wordmark.tsx` — one wordmark, two consumers.** The auth layout renders it **above** the card
+  (it names the app, not the form); `(app)/layout.tsx`'s header link renders the same component instead of its
+  current bare string. One source of truth, the same instinct that produced `StatusMessage`, `DayNavigator` and
+  `LogMealDialog`'s shared modes — and the reason the two never drift is that there is only one of them.
+  **Implementation invariant**: it renders plain text spans and **no `aria-label`**, so the header link's
+  accessible name stays exactly `"Health Tracker"` and no existing locator moves.
+- **The treatment uses type and one token, not a graphic: "Health" in `--ink`, "Tracker" in `--accent`.** This
+  is the recorded-but-never-used role in Phase 8i's own token table (`--accent-warm`/`--accent` as "the wordmark
+  mark"), so it is identity *inside* the new palette rather than a new idea. Both halves are AA on white
+  (17.85:1 and 6.70:1) and colour carries no information, so WCAG 1.4.1 is not engaged. **This is the one taste
+  call in the phase**; if Jeff dislikes two-tone, the fallback is all-`--ink` text and it is a one-line change
+  in one file — which is the entire argument for extracting the component.
+- **No decorative graphic, and this is a hard constraint rather than a preference.**
+  `e2e/visual-identity-acceptance.spec.ts` asserts **zero app-owned `<svg>` on `/login` and `/signup`** — the
+  guard Phase 8i added specifically so the deleted arc cannot creep back. Adding any decorative SVG would mean
+  editing that guard in the same breath as it was written, which is how a deliberate decision gets quietly
+  reversed. Presence comes from the wordmark, the tagline and the card instead — and this phase therefore needs
+  **no change to that suite at all**, which is a real benefit worth naming after five consecutive phases that
+  each did.
+- **A one-line tagline under the wordmark**: *"Log food, weight and body fat in seconds."* — the app's own
+  stated first priority, in the app's own plain register (no marketing voice, per the 2026-07-25 rejection of
+  Noom's literal treatment). `text-sm text-muted` (7.58:1 on `--canvas`). **Copy is Jeff's call**; deleting the
+  line is one line and changes nothing structural.
+- **Card presence: `shadow-lg` on the auth card only**, passed via `className` — **not** a change to `Card`'s
+  own definition. Phase 8i deliberately made cards quiet, which is right on a page full of them and reads as
+  bare on a page that *is* one. A per-instance shadow is the smallest possible way to say "this one is the
+  subject of the page" without touching a primitive every screen inherits.
+- **Explicitly unchanged**: each page's `<h1>` ("Log in" / "Create your account") — a page heading should
+  describe the page, not the app, and both are also the accessible name several suites already key off; the
+  amber `auth_callback_failed` notice (semantic, out of scope since 8i); `LoginForm`/`SignupForm`'s fields,
+  labels, `autoComplete` values and button text (every one of them is a locator in the e2e suite); and the
+  `Card`/`Button`/`styles.ts` primitives.
+
+**Password reset — a real flow, and the one edge case that decides its shape (2026-08-11 addition, Phase 8m).**
+Jeff's sixth finding. **Confirmed by reading the source, not assumed: nothing exists today** — `lib/actions/
+auth.ts` has only `signIn`/`signUp`/`signOut`, `(auth)/` has only `login/` and `signup/`, and there is no
+`resetPasswordForEmail` or `updateUser` call anywhere in `src/`. A user who forgets their password currently has
+no route back into their own data at all.
+
+- **The flow, in four steps, three of which already exist.** (1) `/login` gains a *"Forgot password?"* link. (2)
+  `/forgot-password` takes an email and calls `requestPasswordReset`, which asks Supabase to send its **built-in
+  recovery email** — reusing the recorded 2026-07-19 "built-in email confirmation for v1, no custom SMTP"
+  decision rather than introducing a mail provider. (3) The emailed link lands on the **existing**
+  `/auth/callback?code=…&next=/reset-password`, which already exchanges the code for a session server-side and
+  already validates `next` against open-redirect. (4) `/reset-password` renders a two-field form that calls
+  `updatePassword`. **The only genuinely new surface is two pages, two Server Actions and two pure validators.**
+- **The edge case that shapes the design: "am I in a valid reset session?"** `/reset-password` lives in
+  `(auth)/`, which has **no auth gate** — so it is reachable with no session at all (a bookmarked URL, an
+  expired link, a link opened in a different browser than the one that requested it). It therefore performs its
+  own server-side `getUser()` check **before rendering a form**, and with no session renders an explanatory
+  state — *"That reset link is invalid or has expired."* plus a link back to `/forgot-password` — rather than a
+  password form whose submit can only ever fail. `updatePassword` re-checks server-side regardless
+  (`reset_session_missing`), because a page-level check is a UX affordance and never an authorisation control.
+- **The neutral confirmation is a security decision, not copy.** `requestPasswordReset` returns the **same**
+  message whether or not an account exists: *"If an account exists for that address, we've sent a link to reset
+  your password."* A "no account with that email" message would turn the form into an account-existence oracle
+  for any address someone cares to try. This also happens to be the *honest* message, because Supabase's own
+  `resetPasswordForEmail` deliberately does not distinguish the two cases — so a per-case message could not be
+  implemented faithfully even if it were wanted. **An actual error (transport failure, Supabase's own email
+  rate limit) is surfaced as a distinct, generic failure** — *"Couldn't send a reset email right now. Please try
+  again in a few minutes."* — because swallowing it into the neutral message would tell the user their email is
+  on its way when it is not. **To verify rather than assume**: that unknown-email really is a non-error on this
+  Supabase version; if it turns out to error, the action must map that specific case to the neutral message.
+- **After a successful reset: `signOut()`, then `redirect("/login?reset=success")`.** The login page renders a
+  confirmation notice from that flag, reusing the query-flag notice mechanism `?error=auth_callback_failed`
+  already established there (no new pattern, and this app has no cross-navigation flash mechanism). Signing out
+  is deliberate on two counts: the session in hand was minted by an emailed link rather than by the new
+  password, and logging in once immediately proves the new password actually works — worth two seconds on an
+  action performed approximately never. **Rejected**: dropping the user straight into `/food`; see §4.
+- **Two fields, "New password" and "Confirm new password"**, matching signup's own confirm-field convention and
+  reusing `isValidPassword`/`MIN_PASSWORD_LENGTH` (6, matching `supabase/config.toml`'s
+  `minimum_password_length`) rather than restating a rule in a second place. Both carry
+  `autoComplete="new-password"` per the app-wide hygiene convention (identity fields get real values; everything
+  else gets `off`).
+- **A locator hazard that must be handled in the same change, because this project has now hit it four times.**
+  `/reset-password` renders two controls whose accessible names both contain **"password"**, and `/login` and
+  `/signup` already do the same. Playwright's `getByLabel` is a **case-insensitive substring** match, so any new
+  test using `getByLabel("Password")` on these pages will strict-mode-collide. Every new assertion must use
+  `{ exact: true }` or a scoped locator. Existing suites are unaffected (they only visit `/login` and
+  `/signup`), but the *new* tests are exactly the ones at risk — see `ai-context/DECISIONS.md`'s "Copy to time…"
+  entry and its three addenda.
+- **Out of scope, deliberately**: changing a password while logged in (a `/settings` feature Jeff did not ask
+  for — §5); magic-link/passwordless login; custom SMTP or a branded email template; any change to
+  `middleware.ts`, the `(app)/` auth gate, RLS, or any application table. **This phase writes no rows in any
+  table in this database** — it is Supabase Auth only.
 
 **State:** server state is Supabase; client state is in-flight form values (incl. expander state,
 `lastConsumedAt` for the smart default, quantity/unit, picked candidate, the open save-as-meal expander + its
@@ -1424,6 +2497,282 @@ display-unit prop. No global store.
   conventional and correct day/meal figure. Same function serves entry, group, and day.
 - **Protein % stored vs. derived (chosen: derived).** It's a pure function of existing `calories`/`protein_g`;
   storing it would add a redundant column that could drift. Computed in `nutrition.ts` at render time.
+- **Day navigation: Previous/Next/Today buttons *alongside* the date input (chosen) vs. replacing it (rejected)
+  vs. swipe gestures (rejected) vs. a day carousel/strip (rejected).** Keeping the input costs one row of layout
+  and preserves the only good answer to "jump to three weeks ago"; removing it would trade a common friction for
+  a rarer but much worse one. Swipe was rejected on two independent grounds: this codebase has **no touch-gesture
+  pattern anywhere**, and a gesture has zero discoverability and no keyboard equivalent, so it would need visible
+  buttons anyway. A horizontally-scrolling day strip is a third navigation model for one screen. **"Next" is
+  disabled rather than hidden** on today, following `EntrySelectionBar`'s N = 0 precedent — a control that
+  vanishes teaches nothing, whereas a disabled one shows the boundary exists. **A "Today" button was designed and
+  then dropped — Jeff's call, 2026-08-05.** The argument for it was that returning to today is the most common
+  destination after browsing and every calendar UI ships one; the argument against, which won, is that it is a
+  third control on a row that reads better as two, and the date picker already reaches today in one interaction.
+  Two buttons ship.
+- **Suppressing in-group row actions while a group expander is open (chosen) vs. disabling them (rejected) vs.
+  dimming the other groups (rejected).** Disabling leaves three greyed buttons per row adding visual noise while
+  communicating nothing the hidden version doesn't — and 8b already chose *hidden* for the identical situation
+  (select mode, the edited row), so disabling here would make the app's own rule inconsistent for no gain.
+  **Dimming the non-active groups** ("focus mode") was the most tempting alternative and is rejected on a
+  concrete, checkable ground rather than taste: reducing opacity over already-AA-borderline warm greys
+  (`stone-500` text sits at 4.80:1, barely clear of 4.5) pushes real content **below AA**, and the app would be
+  deliberately shipping unreadable text as an emphasis technique. It is also modal-overlay behaviour by another
+  name, on a codebase that has declined modals three times.
+- **Emphasising an action panel with a full `sage-deep` ring on `sage-pale` (chosen) vs. `--clay` (rejected) vs.
+  a modal (rejected) vs. a sticky/floating bar (rejected) vs. animation (rejected).** `--clay` is the obvious
+  "make it louder" reach and is rejected on the record: the token table restricts it to *positive emphasis only*
+  (streaks, milestones), it is the weakest-contrast token in the palette (3.2:1 — large/fill only), and
+  overloading it to also mean "unfinished action" would leave the app with one colour carrying two unrelated
+  meanings, which is how a palette stops communicating. A **modal** would genuinely solve "where do I look" —
+  and is still rejected for the same reason as three times before (no modal precedent; focus-trap and dismiss
+  semantics are a real primitive, not a style). A **sticky panel** was rejected in 8b and nothing has changed. A
+  **pulse/flash** was rejected for the editing row in favour of a calm treatment, and would additionally need
+  `prefers-reduced-motion` handling. **The chosen answer escalates *enclosure and position*, not hue** — a ring,
+  a heading, a scroll-into-view and a focus move — which is also the only part of the fix that helps
+  screen-reader and keyboard users at all, since none of them can see a ring.
+- **Icons + tooltips for per-row actions: icon + always-visible label + a pointer-only supplementary tooltip
+  (chosen) vs. icon-only with a hover tooltip (rejected) vs. icon-only with a long-press tooltip (rejected) vs.
+  labels hidden at small breakpoints (rejected) vs. text-only buttons (superseded).** The first design round
+  recommended against tooltips; **Jeff overruled it and also asked for "Log again" to be iconified**, so this is
+  a reconciliation, not a re-argument. What survives from the first round is the **fact** that decided it: on
+  touch there is no pre-activation hover, because a tap focuses and activates in one gesture — so a
+  focus-triggered tooltip fires simultaneously with the action it was supposed to explain. **Long-press** is the
+  only pre-activation reveal touch offers, and it is rejected concretely: no web API, collides with the
+  platform's own text-selection and context menus, and is invisible to anyone who doesn't already know a tooltip
+  exists. **Hiding the label at small breakpoints** is the trap version of "responsive": it puts icon-only
+  buttons on precisely the devices where no tooltip can fire. So the label stays visible **at every breakpoint**
+  and *is* the touch mechanism, while a real `Tooltip` component adds a fuller sentence on pointer devices, gated
+  on `@media (hover: hover) and (pointer: fine)` — a capability query, deliberately not user-agent sniffing and
+  not a JS `ontouchstart` test, both of which misclassify hybrid laptops. **The rule that generalises: a tooltip
+  may never be the only place a control's purpose is stated** — repeating the label makes it noise, being the
+  sole source makes it inaccessible; supplementary is the only honest role. Wiring is `aria-describedby` +
+  `role="tooltip"`, **never `aria-label`** on a control that already has visible text (that is how WCAG 2.5.3
+  Label in Name gets broken and voice control stops working); `aria-label` is reserved for the two genuinely
+  label-less controls (the pin toggle, the existing ↑/↓ arrows). **Honest accounting, so the change isn't
+  oversold: the icons buy scannability, not width** — an icon+label button is marginally wider than text alone,
+  and the actual density win is the *removed* button ("Delete" into the edit form, 3 → 2). **Still no icon
+  library**: four inline SVGs in `ui/icons.tsx` with Lucide geometry (ISC, attribution in the file header),
+  `currentColor` so they inherit each `Button` variant including `danger` — matching `StatusMessage`'s existing
+  inline check icon. Lucide-as-a-dependency remains the right call only past ~8–10 glyphs, a threshold recorded
+  so the next person has a criterion rather than a preference. Also rejected: an overflow "⋯" menu (a new popover
+  primitive for two actions), and a positioning library for the tooltip (accepted consequence: it may clip near a
+  viewport edge, on desktop only, on a supplementary affordance).
+- **Shading the time picker: three `<optgroup>`s as the mechanism + `<option>` colour as a bonus (chosen) vs.
+  `<option>` CSS alone (rejected) vs. a marker character in the label (rejected) vs. a custom listbox
+  (rejected).** **CSS alone fails the platform test and fails it silently** — it works on Windows/Linux
+  Chrome/Edge/Firefox, which is exactly where Jeff would confirm it working, and does nothing on macOS or on
+  either mobile platform's native picker. That is the same trap the 2026-07-26 label decision already walked
+  through: *content is portable, CSS is a bonus*, and getting the order wrong leaves mobile — a primary surface
+  for a "log it fast" app — unfixed while looking fixed. **`<optgroup>` was previously rejected (2026-07-26) and
+  that rejection genuinely does not carry**: it was aimed at a different complaint ("too many choices"), and both
+  of its stated objections were specific to that proposal — "adds 24 non-selectable rows" (this adds **3**) and
+  "does nothing about alignment" (alignment is not what this is for, and the zero-padded labels still handle it).
+  Reconsidering it here is a reasoned reversal on a different question, not a forgotten decision. **Encoding the
+  shading into the label text** (e.g. a leading `·`) is portable but would break the fixed 8-character label
+  shape that decision established eight days earlier — regressing a recent fix to deliver a lesser one.
+  **A custom listbox** would give full styling control and is rejected for the fourth time on the same grounds
+  (this project chose a native `<select>` over a combobox for a strictly harder version of this problem).
+  **The property that makes the chosen answer safe: it degrades to today's exact behaviour** — 96 flat options,
+  nothing lost — on any platform that ignores `<optgroup>`.
+- **Pinning: `is_pinned boolean` (chosen) vs. `pinned_at timestamptz` (rejected) vs. a `sort_order` on `meals`
+  (rejected) vs. favourites-as-tags (rejected).** A timestamp costs the same and records more — but nothing
+  reads it, because the pinned block is ordered **alphabetically** (so pinning one meal never moves another),
+  and this doc has already rejected storing a column nothing reads once, for save-as-meal provenance. If
+  recency-of-pin ordering is ever wanted it is a one-line migration made for a reason. **Full manual ordering**
+  (a `sort_order` on `meals`, drag-to-reorder) is a much bigger interaction — drag-and-drop is a primitive this
+  codebase doesn't have — to answer a request that was specifically "keep these at the top". **Tags/categories/
+  folders** remain out of scope project-wide, and 7c explicitly warned that phase must not be the door they come
+  in through; a single boolean is deliberately the smallest thing that satisfies the ask without opening that
+  door. **Pinning does not override the filter** — an explicit search that silently returns a non-match would
+  make the "Showing N of M" readout untrue.
+- **Duplicating a meal: prefill `"<name> (copy)"` (chosen) vs. a blank name (rejected here, though it is the
+  recorded choice for save-as-meal).** These two look like the same question and are not, which is why the
+  divergence is recorded rather than assumed. Phase 7b's blank-name decision was reasoned specifically: a
+  first-item prefill is **actively wrong** on a multi-item group ("Eggs" for eggs + toast + coffee), so the
+  failure mode is a library of confidently *mis*labelled meals — worse than no name, because it looks
+  deliberate. `"Weekday breakfast (copy)"` cannot be wrong in that way: it is provisional and *visibly*
+  provisional. **The rule that generalises: prefill when the derived value cannot be wrong; leave blank when it
+  can.** Also rejected: auto-naming with no prompt at all (a library slowly filling with "(copy)" entries nobody
+  named), and hunting for a unique `"(copy 2)"` (meal names have no uniqueness constraint and duplicates are
+  explicitly legitimate — inventing uniqueness in the UI would imply a rule the data model doesn't have).
+  **A duplicate never inherits `is_pinned`** — pinning describes your current shortlist, not the meal's content,
+  and a half-edited copy silently arriving at the top of the library is the opposite of what pinning is for.
+- **Three lettered phases (8d/8e/8f) rather than one "Phase 8d" (chosen).** Applying the scoping rule this doc
+  already wrote down (reach outside the phase's own file set; fix vs. new capability): a single phase would carry
+  a **migration**, a **new server action**, **two new shared `ui/` primitives**, a change to the app's
+  most-used control on three call sites, and interaction changes on three screens — the unreviewable-checkpoint
+  failure mode that rule exists to prevent, and one that has already produced a blocking finding twice when a
+  diff grew past what a reviewer could attribute. The split is by *reviewable concern*, not by size: **8d** is
+  `/food` + `/metrics` UI with one pure helper; **8e** is one control, three call sites, a cross-platform manual
+  check and an amended prior decision; **8f** is `/meals` plus the batch's only schema change — and Phase 2's own
+  precedent is that the highest-risk DB work is isolated deliberately. Bundling 7 and 8 *together* inside 8f is
+  the deliberate exception, on 8b's own reasoning for bundling its two bulk actions: they share files, share the
+  card action row, and have to be designed against each other (does a duplicate inherit a pin?), so splitting
+  them would mean two phases reopening the same file to re-derive the same invariants.
+- **Retiring the dashboard (chosen, Phase 8h)** vs. keeping it minimal, vs. building a real read-only dashboard
+  (last-logged weight/body fat, an oldest-to-latest progress chart). Jeff asked for a recommendation, not a menu.
+  **Keeping it minimal** is what was rejected first: the page is a literal duplicate of `/food`'s `DailyTotals`
+  behind an extra click, so it costs a navigation stop and returns nothing new — indefensible in an app whose
+  first-stated priority is fast logging. **Building a real dashboard** was evaluated on its own merits rather than
+  waved off with the 2026-07-31 quick-add descope (which was a *write-path* argument and genuinely does not
+  transfer to a read-only summary), and rejected because every candidate is already answered better elsewhere: a
+  progress chart would be a smaller, weaker copy of `/trends`, which already does 7/30/90 with real gap handling,
+  and would become a second place for the same fact to drift. The one genuinely-new fact Jeff named —
+  **last-logged weight/body fat** — is real and exists nowhere today, so it is built, but on **`/metrics`**, the
+  screen a user already opens to ask that question, instead of justifying a whole route. Net: one fewer screen,
+  one more piece of information, no duplicated rendering of anything. Also rejected: repointing the wordmark and
+  the auth redirects at `/food` (a routing refactor to avoid a one-line `redirect()`), and a Server Component
+  read for the last-logged line (correct in principle — "most recent row" needs no browser tz — but it would go
+  stale the instant the user saves, on the very screen that just changed).
+- **Delete on the entry row + `window.confirm` (chosen, Phase 8g)** vs. Phase 8d's edit-form placement, vs. a row
+  delete with no prompt, vs. a custom confirmation modal, vs. undo. Jeff reversed 8d after using it; the reversal
+  keeps 8d's *concern* and swaps its *mechanism*. `window.confirm` wins on direct in-repo precedent
+  (`MealList.handleDeleteMeal` does exactly this for exactly this class of action) and because this codebase has
+  declined a modal primitive four times. **No prompt at all** is the variant most likely to be preferred and is
+  called out as a one-line removal if Jeff wants it. **Undo** is the genuinely better answer and is deferred as a
+  real feature, not smuggled in as a safeguard (§5).
+- **Editing-row highlight: escalate enclosure, not fill (chosen, Phase 8g)** vs. a `sage-pale` row fill, a clay
+  tint, or a shadow. The fill is ruled out by the same constraint as in 8b (it would swallow the `sage-pale`
+  "From a saved meal" badge and fight the row hover); clay is restricted by the token table to positive emphasis
+  and is the weakest-contrast token; a shadow would invent a fourth vocabulary. An inset ring plus a filled
+  dark pill is the same escalation logic the ladder already applies at level 3, and a dark chip beside a pale
+  chip stays legibly distinct. `ring-*` rather than `border-*` purely because the row sits in a `divide-y` list
+  where a real border reflows every row below it.
+- **Visual identity v2: swap the token *values*, keep the token *structure* (chosen, Phase 8i)** vs. a
+  per-screen restyle, vs. a component-library adoption, vs. leaving the palette and only removing the serif.
+  **Leaving the palette** was rejected by the brief itself — Jeff named the green buttons and the cream
+  background, not only the serif. **A per-screen restyle** is what the 2026-07-25 rollout was designed to make
+  unnecessary, and it worked: the primitives plus `@theme inline` mean one file of token values plus eight
+  primitives carry most of the change, which is why this is tractable at all. **Adopting a component library**
+  (shadcn/ui, Radix, MUI) would match the "modern SaaS" register fastest, and is rejected on this project's own
+  standing bias: it replaces eight small, fully-understood, already-reviewed primitives with a dependency and a
+  second styling system, for a look already reachable by editing nine hex values. The chosen path is also the
+  only one that is **fully reversible** — every decision here is a token value, and reverting is one file.
+- **Tokenising the neutrals (`--muted` / `--line` / `--line-strong`) rather than using raw `slate-*` (chosen)**
+  vs. the current approach of tokenising only brand colours and picking neutrals per component from Tailwind's
+  built-in scale. The current approach is why this project has shipped **three** measured contrast defects
+  (`placeholder:text-stone-400`, `inputClass`'s `border-zinc-300`, `Card`'s `border-stone-200` — and now a fourth
+  found in this round, `Button` secondary's `border-stone-300`), every one of them a per-component neutral picked
+  by eye and never checked. Three named neutral roles with their ratios recorded turns "which grey?" into a
+  lookup, and makes the rule greppable: **no raw colour-scale utility for text or borders in a component**.
+  Accepted cost: three more tokens than the previous set, and one more concept for a reader to learn.
+- **`--line` (1.49:1) for card borders, reversing half of the NB-2 amendment (chosen)** vs. keeping every border
+  at ≥3:1. This is the round's one genuinely arguable accessibility call, so it is argued rather than asserted:
+  SC 1.4.11 covers *UI components* and *graphics required to understand content*, and a card is neither — it is a
+  decorative grouping whose contents lose no legibility if its edge is not perceived. Keeping 4.80:1 borders on
+  every card is a large part of what currently reads as "busy". The half of NB-2 that *does* apply — inputs,
+  selects, and the secondary button — is kept **and extended to `Button`, which NB-2 missed**. Flagged in §5 as
+  the item to challenge if a reviewer reads the SC more strictly; the fix if they do is one token value.
+- **Dropping Fraunces without adding a replacement face (chosen)** vs. adding Inter (or another sans) as a
+  second family, vs. keeping a serif for headings only. Keeping a serif is what Jeff rejected by name. A second
+  family is rejected because **with the serif gone there is no functional distinction left for one to draw** —
+  Geist Sans already covers body, UI, data and headings, is already self-hosted, and the heading signal moves to
+  weight/size/tracking, which is exactly the reference's own treatment. Same bar this project applied to Lucide
+  and to combobox primitives: a dependency needs a job. **Offered rather than decided**: if Jeff wants the
+  reference's specific face, swapping Geist for Inter is one import and one CSS variable, with zero component
+  changes — §5.
+- **Deleting the sage arc rather than restyling it (chosen)** vs. a blue arc on the auth screens. The motif was
+  chosen in 2026-07-25 as the *one* deliberate visual risk in an otherwise-quiet identity, was already narrowed
+  once (2026-07-26, off the dashboard) for reading as arbitrary, and the reference direction is explicitly
+  undecorated. Recolouring it would carry forward a flourish that the new register has no use for, and would
+  keep alive `--sage`, a token nothing else consumes. Reversed cleanly instead of kept on life support.
+- **Goal progress in `DailyTotals` on `/food` (chosen, Phase 8j)** vs. reviving the dashboard for it, vs. a new
+  `/goals` screen, vs. `/trends`. **The dashboard** was checked against 8h's actual recorded reasoning rather
+  than assumed dead: 8h retires `/` *because it duplicates `DailyTotals`* — putting goal progress there would
+  re-create that duplication with a second copy of the progress rule to drift, and would mean un-deleting a route
+  in the same breath as deleting it. **A new screen** adds a navigation stop for three numbers. **`/trends`**
+  already draws the same targets as chart reference lines, which is the *retrospective* view; this is the
+  *in-the-moment* one, and it belongs where the logging happens. The deciding argument is the app's own first
+  priority: "how much room do I have left?" is asked **while adding food**, so it is answered in the component
+  already on screen at that moment, at zero navigation cost.
+- **Separate `pct` (unclamped) and `barPct` (clamped) on `GoalProgress` (chosen)** vs. one clamped percentage.
+  One clamped number is the obvious simplification and it makes the app assert you are exactly on target when you
+  are 40% over — the same failure mode this project already rejected for `proteinCaloriePct`, which returns >100%
+  as-is because the value signals a real fact. The bar is a *rendering* constraint, not a *data* one, so the
+  clamp lives in the field that feeds the width and nowhere else.
+- **A server-side goals read on `/food`, against that screen's own client-read convention (chosen, Phase 8j)**
+  vs. adding a third query to `FoodDayView`'s client `Promise.all`. `/food` reads client-side because its data
+  depends on the browser's local "today"; goals do not, cannot be changed from this screen, and would otherwise
+  be refetched on **every day change** for a value that changes monthly. Note the deliberate asymmetry with
+  Phase 8h's last-logged-weight line, which is a *client* read for the mirror-image reason — it *can* be changed
+  on the screen that shows it, so a server read would go stale after a save. Both are recorded so neither gets
+  "simplified" into the other's bug. Accepted, already-known cost: `getGoals()`'s ensure-row upsert gains a third
+  read-only caller (§5).
+- **The goal bar is decorative (`aria-hidden`) with the numbers as text (chosen)** vs. `role="progressbar"` with
+  `aria-valuenow`. The caption already states consumed, target and remaining in prose; a progressbar role would
+  make a screen reader announce the same fact twice, the second time as a bare percentage with less meaning. It
+  also disposes of the 1.4.11 question by construction — nothing depends on perceiving the bar. **Rejected
+  outright: turning the bar red when over target** — red is semantic-error in this palette, exceeding a calorie
+  goal is not an error, and it would be a colour-only restatement of a word already on screen.
+- **Trigger row and panel outlet as separate containers (chosen, Phase 8k)** vs. keeping each dialog
+  self-contained and making the layout hint smarter (a wider `w-full`, an `order-*` utility, a CSS grid with a
+  named panel area). The self-contained shape is what produced the bug: a component that renders both its
+  trigger and its panel is **laying out its siblings from the inside**, and every fix from that position is a
+  hint that has to keep being correct as buttons are added or reordered. The 2026-08-10 `w-full` patches are the
+  evidence — they were right, they shipped, and the row still splits. Separating the two containers makes
+  "triggers stay together" a structural property with nothing left to get wrong, and it moves two odd components
+  onto the panel-only shape `CopyGroupDialog`/`SaveGroupAsMealDialog` and `LogMealDialog`'s own fixed-meal mode
+  already use. Accepted cost: `FoodDayView` grows one more piece of state (`dayAction`), and two components lose
+  the convenience of being droppable anywhere.
+- **One `ActionPanel` for the whole of select mode, with a step-dependent heading (chosen, Phase 8k)** vs.
+  wrapping `EntrySelectionBar` in its own `ActionPanel` and leaving the bulk panels as a second one beneath it,
+  vs. giving the bar level-3 *colours* without `ActionPanel`'s behaviour, vs. a fourth ladder rung. **Two stacked
+  accent boxes** is the obvious literal reading of Jeff's request and is rejected because level 3 means "an
+  action is waiting for you to finish it" — rendering it twice, nested, for one action is exactly the dilution
+  that keeps `ActionPanel` off `FoodEntryForm`. **Borrowing the colours without the component** would duplicate
+  the treatment in a second place and invite the two to drift, which is what the ladder exists to prevent. **A
+  new rung** is unjustified: nothing here means something the ladder cannot already say. The chosen design also
+  falls out of a rule this project already has — suppressing the bar's buttons while a bulk form is open is the
+  same "a surface in a special state yields its ordinary actions" rule as the editing row and the active group,
+  and it fixes the focus order by construction rather than by a special case.
+- **A visually grouped but *unaccented* toolbar (chosen, Phase 8k)** vs. accenting it, vs. leaving it ungrouped,
+  vs. `role="toolbar"`. Jeff asked whether the row should be "highlighted like a toolbar", and the answer splits:
+  **grouping** conveys *scope* ("these act on the log below") and is worth having; **accent** conveys *urgency*
+  and would be on screen permanently, saying nothing. `role="toolbar"` is rejected on a concrete contract
+  problem, not on taste — it promises roving-tabindex arrow-key navigation this codebase has no pattern for, and
+  an unimplemented promise is worse for a screen-reader user than no role at all. A group `aria-label` is
+  rejected too: it adds a new accessible-name string to the page with this project's worst locator-collision
+  history, for no benefit over three clearly-labelled buttons.
+- **A disclosure button with a rotating chevron for the lookup expander (chosen, Phase 8k)** vs. a tab, vs.
+  leaving it a bare accent link, vs. an always-open lookup panel. **A tab** is rejected on a concrete structural
+  ground rather than a definitional one: `FoodLookupPanel` already contains a `role="tablist"` (Search/Barcode),
+  so a tab trigger would nest tabs inside tabs. **Always-open** is rejected by the recorded progressive-disclosure
+  decision — the fast manual path must not have to look at the lookup panel at all. **The bare link** is the
+  status quo Jeff is reporting as broken, and its real defect is not visual: with no `aria-expanded` it does not
+  announce as a disclosure to a screen reader either, so this fixes two problems with one control. Extending it
+  to the neighbouring "Add detail" expander is deliberate: one form with two idioms for one concept is worse than
+  either idiom.
+- **Wordmark + tagline + a stronger card for the auth screens (chosen, Phase 8l)** vs. adding a decorative
+  element in the new palette, vs. a logo mark, vs. only adding the app name. **Any decorative SVG** is rejected
+  by a hard constraint that already exists in the repo: `e2e/visual-identity-acceptance.spec.ts` asserts zero
+  app-owned `<svg>` on both auth screens, a guard Phase 8i added days ago precisely so the deleted arc could not
+  return — reversing it in the next phase would make that decision meaningless. **A logo mark** was explicitly on
+  8i's own "do not build" list and nothing in Jeff's finding requires one; a **typographic** wordmark gives the
+  page identity with no asset, no new token and no test to rewrite. **Only the name, no tagline** is a legitimate
+  smaller version and is offered as such — the tagline is one deletable line, and the phase's real requirement
+  (the page says what the app is) is satisfied either way. Extracting `ui/Wordmark.tsx` rather than hardcoding
+  the string twice is the same one-implementation reasoning as `StatusMessage`/`DayNavigator`.
+- **Reusing `/auth/callback` for the reset link (chosen, Phase 8m)** vs. a dedicated
+  `/auth/reset-callback` Route Handler, vs. pointing the email straight at `/reset-password`. **Straight at the
+  page** cannot work and the reason is worth recording so nobody tries it: `/reset-password` is a Server
+  Component, and Next.js forbids writing cookies during a Server Component render — so the code exchange would
+  succeed and the session would be silently dropped. **A second callback route** would duplicate the code
+  exchange, the `safeRedirectPath` guard and the failure redirect for no behavioural difference; the existing
+  route already accepts and validates `?next=`, which is the whole feature. The only cost of reuse is one
+  signup-specific error string, which is generalised (keeping the substring an existing test asserts).
+- **Neutral "if an account exists…" confirmation (chosen, Phase 8m)** vs. telling the user when no account
+  matches. The friendly version turns an unauthenticated form into an account-existence oracle for any address
+  someone chooses to type. It is also not faithfully implementable: Supabase's `resetPasswordForEmail`
+  deliberately does not distinguish the two cases, so a per-case message would be inventing a distinction the API
+  refuses to make. A genuine send failure is still surfaced separately, because swallowing it would tell the user
+  an email is coming when none is.
+- **Sign out and return to `/login?reset=success` after a reset (chosen, Phase 8m)** vs. dropping the user
+  straight into `/food` on the recovery session. Going straight in is one fewer step and is the more common
+  product choice, so it is rejected on reasons rather than reflex: the session in hand was granted by possession
+  of an emailed link rather than by knowledge of the new password, and a single login immediately proves the new
+  password works — on an action a user performs approximately never, that is a good trade. It also reuses the
+  `?flag=` notice mechanism `/login` already has, instead of inventing a cross-navigation flash message this app
+  has never needed.
 - Prior settled calls carried forward: shared `copyFoodEntries` primitive over three actions; copy preserves
   source times by default and drops `logged_from_meal_id`; progressive disclosure on `FoodEntryForm`,
   always-visible on `MealItemForm`; candidate pick auto-expands; persistent login via Supabase long-lived
@@ -1553,6 +2902,176 @@ display-unit prop. No global store.
   well-meaning "link the entries to the new meal"). It is an app-layer invariant held by code review and by
   the acceptance test that asserts the source rows are byte-identical before and after — same enforcement
   posture, and same reasoning, as `logged_from_meal_id`'s write invariant in §3.2.
+- **The editing-row highlight already exists and is committed; "I see no highlight" is most likely a stale-build
+  symptom (2026-08-05). No design work is scheduled, and none should be added.** It arrived as one of Jeff's
+  manual-testing findings this round, but it **shipped in Phase 8b**: `FoodDayView` passes `editingEntryId`, and
+  `FoodEntryList` renders `border-l-4 border-l-sage-deep` plus a visible "Editing" label on the matching row and
+  hides that row's three actions. Confirmed present **in committed source**, not merely in an uncommitted working
+  tree. Jeff reports seeing no highlight at all. **The leading explanation is environmental, and this repo has a
+  long documented history of exactly this symptom**: a stale `next dev` process and/or a stale `.next` cache
+  presenting old output while the source is correct — see `ai-context/PROGRESS.md`'s repeated entries (the
+  2026-07-25 stale-server finding, the `NEXT_PUBLIC_*` cache note, and the 2026-08-02 case where deleting
+  `.next` under a running server made 52 of 54 passing tests look like a severe regression). **First step is a
+  clean restart — kill the dev server, `rm -rf .next`, hard-refresh — then click "Edit" on an entry.** Only if
+  the highlight is still absent after that is there anything real here, and it would then be a **developer
+  bug-fix task against shipped behaviour, not a design gap** — the design is already written (§3.4) and does not
+  need revisiting. A distant second possibility, recorded only so it isn't rediscovered: 8b deliberately chose
+  the calmest level-1 treatment and the existing `scrollIntoView` targets the **form**, so the highlighted row is
+  often below the fold at the moment "Edit" is clicked. If a clean build shows the highlight and Jeff still finds
+  it too quiet, *that* is a taste call for him — not a defect, and not a licence to rebuild the feature.
+- **`FoodDayView`'s `today` is resolved once at mount, and the day navigator inherits that.** `today` comes from
+  a `useMemo` over the mount-time tz, so a session left open across local midnight has a stale "today" — the
+  `<input max>` is already stale in exactly the same way. The navigator's "Next"/"Today" disabling **must key off
+  that same value** so the two never disagree; the staleness itself is **pre-existing and out of scope**, and the
+  server-side future-day cap is the real backstop regardless (a stale client can at worst be *refused*, never
+  allowed through). Recorded so nobody "fixes" it in one place and creates a UI that disagrees with itself.
+- **The day-navigation buttons do not fix the open `Day`-input race, and the tempting conclusion is the wrong
+  one.** New acceptance rows driven through the buttons will very likely be stable where `.fill()`-driven ones
+  flake — because they bypass the controlled native input entirely, not because anything was repaired. The bug
+  (ten documented reproducing cases) stays open and users still reach the input. **The genuinely useful outcome
+  is diagnostic:** a reliable button path beside an unreliable `.fill()` path localises the fault to the
+  controlled-value round-trip, which is the standing hypothesis. If anyone later reports the race as "fixed by
+  8d", that is a misreading to correct.
+- **`<optgroup>` support is asserted from documentation, not from this machine, and the risk is that it fails
+  invisibly.** Group labels are expected everywhere including both mobile native pickers; option colour is
+  expected on Windows/Linux only. Neither claim is verifiable in CI (Playwright cannot inspect a platform's
+  native picker chrome), so §6 splits the mechanical assertions (three groups exist, 96 options still present and
+  selectable, values unchanged) from the **manual cross-platform check**, which is Jeff's or the developer's by
+  hand. **The mitigating property is that the failure is benign**: a platform ignoring `<optgroup>` renders
+  today's exact control. A reviewer should not report "I couldn't see the groups on my phone" as a defect
+  without also checking whether that platform renders *any* optgroup.
+- **De-emphasis must not become illegibility.** The Early/Late option colour is `stone-500` (4.80:1 on white)
+  specifically because this repo has already shipped, and had to fix, greys below AA (the NB-2 amendment). If a
+  future tweak makes the shaded hours "more obviously shaded" by going lighter, it will re-break a fixed
+  accessibility defect on the app's most-used control. The floor is 4.5:1, and the shade is already at it.
+- **`/meals`' card action row is now crowded, and this is deliberately left unsolved (Jeff's call, 2026-08-05:
+  proceed as designed).** After 8f each card carries **Log this meal · Pin · Hide items · Rename · Duplicate ·
+  Delete** — the four that already ship plus the two 8f adds. Jeff was given that breakdown and chose to
+  proceed. That is the same
+  density complaint Jeff raised about `/food` rows, on a different surface, and it is not being solved in passing
+  because the plausible answers differ in kind: (1) an overflow "⋯" menu — the best UX answer and a **new
+  popover primitive** this codebase has never had, so it needs its own round; (2) move **Delete** into the rename
+  form, mirroring exactly what 8d does for `/food` rows and `MetricForm` already does — cheap, consistent, and
+  probably the right first step; (3) iconify the maintenance actions. **Recommendation: take (2) if the row feels
+  bad in use, and do not take (1) without an architect round.** Logged rather than done, so it is a decision
+  rather than an oversight.
+- **Pinning has no cap, and does not need one — but the failure mode is worth naming.** Nothing stops a user
+  pinning all 40 meals, at which point pinning conveys nothing and the library looks unchanged. That is
+  self-correcting, self-inflicted and instantly reversible, so a limit would be solving a non-problem with a
+  magic number (the same reasoning 7c used against a `.limit()`). If a cap is ever wanted it belongs with the
+  section-heading design that was also declined here.
+- **Two "copy a meal by value" paths now exist and must not drift.** `createMealFromEntries` (entries → meal) and
+  `duplicateMeal` (meal → meal) share the copy-by-value semantics, the compensating delete, the
+  totals-equal-by-construction invariant and the read-only-on-source property — but they differ in one place that
+  matters: `sort_order` is **assigned** in the first and **preserved** in the second. A future refactor that
+  "unifies" them by routing both through one helper will silently pick one of those behaviours for both.
+  Recorded as a tripwire, with the difference stated in §3.3 at the point of temptation.
+- **OPEN QUESTION (2026-08-07, recommendation recorded, Jeff's call): an all-time "oldest to latest" range on
+  `/trends`.** Jeff's finding-1 wording included *"weight & body fat progress from oldest to latest logged
+  values"*. Phase 8h retires the dashboard rather than building a second chart there, which leaves this ask
+  homeless — its real home is an **`All`** option beside 7/30/90 on `/trends`. **Recommendation: not now.** It is
+  not free: it needs an extra query for the user's earliest logged date before the window can even be computed,
+  and the dense day-by-day series builders would then produce an unbounded array (two years of daily logging is
+  ~730 points on one axis, with the `isReal`-dot convention drawn over all of them). 90 days already covers the
+  useful window for a tool logged daily. Raised here so the ask isn't silently lost with the dashboard.
+- **The `window.confirm` on row delete is a safeguard, not an undo (2026-08-07, Phase 8g).** Reversing 8d's
+  placement puts the app's only irreversible action back one tap away on a list. The confirm makes it two
+  deliberate acts, which is the same protection 8d bought with the edit-form detour, at a lower interaction cost —
+  but it is still a prompt people learn to dismiss reflexively, and **this app has no undo anywhere**. Accepted
+  knowingly. The honest escalation, if a real accidental deletion ever happens, is an undo affordance (a
+  `StatusMessage` with an "Undo" that re-inserts), which is a real feature with its own action-contract design —
+  explicitly out of 8g, and the thing to build rather than making the confirm scarier.
+- **RESOLVED (Jeff, 2026-08-09): the body/UI typeface is Inter, not Geist Sans.** Phase 8i's implementation
+  should swap Geist for Inter as the sole face — **one import and one CSS variable in `app/layout.tsx`, zero
+  component changes**, since everything already resolves through `--font-sans`.
+- **RESOLVED (Jeff, 2026-08-09): the palette values are accepted as the starting point, not held for
+  re-measurement first.** The reference was described in prose only, and every hex in §3.4's token table is the
+  architect's choice consistent with that description ("light gray page, white cards, bold blue button,
+  orange/blue progress bars, dark navy card"), chosen for the contrast ratios recorded beside it. Jeff confirmed
+  implementation should proceed with these values as-is; if any specific colour is wrong to his eye once it's
+  actually on screen, the
+  fix is a token value in `globals.css` — but **any substitution must be re-measured**, because several of these
+  values were chosen *specifically* to clear a bar the obvious lighter choice missed (`--muted` is `#475569` and
+  not `#64748B` precisely because the latter is 4.34:1 on `--canvas`).
+- **`Card`'s border drops below 3:1, and this is the item to challenge if you disagree with the SC reading.**
+  Phase 8i reverses half of the 2026-07-26 NB-2 amendment on the grounds that WCAG SC 1.4.11 covers *UI
+  components* and *graphics required to understand content*, and a card container is neither. The other half —
+  inputs, selects, the secondary button — is kept and **extended to `Button`, where NB-2 missed a 1.49:1 border
+  on a genuine UI component**. A reviewer who reads 1.4.11 as covering container edges should say so at the
+  checkpoint; the remedy is one token value (`--line` → `--line-strong` for `Card` only), not a redesign. The
+  standing rule this leaves behind — **UI components `--line-strong`, decorative containers `--line`** — is the
+  part that must survive either way, since per-component grey-picking is what produced all four defects.
+- **Phase 8i and Phase 8h touch overlapping files, and the order matters (though neither is a hard dependency).**
+  8h deletes `components/food/TodaySummary.tsx` and replaces `(app)/page.tsx`'s body with a `redirect`. Both
+  files carry `font-serif` and brand-token classes 8i would otherwise restyle. **Recommendation: land 8h first**
+  — it shrinks 8i's surface by two files and, more importantly, 8i's rewritten
+  `e2e/visual-identity-acceptance.spec.ts` currently asserts against `/` and must be written against whichever
+  state `/` is actually in. Running 8i first is harmless (two files get restyled and then deleted); running them
+  concurrently is not, because both edit that same spec file.
+- **The old identity's acceptance suite pins values Phase 8i reverses — the fifth consecutive instance of this
+  pattern, which has produced a blocking finding twice.** `e2e/visual-identity-acceptance.spec.ts` (every
+  assertion) and `src/components/food/FoodEntryList.test.tsx` (8 class-name assertions) both fail by design on
+  the token swap. Both must be **updated in the same change**, not left red and not silently deleted. Named here,
+  in §3.4 and in §8 because the last four phases each needed it named and two of them still shipped without it.
+- **Nothing enforces the "no raw colour-scale utility for text or borders" rule.** It is a convention, checkable
+  only by grep or by eye, exactly like the `autocomplete` convention. The natural escalation is the same one
+  recorded there — **a lint rule, if the convention is ever violated twice**, not now. Recorded so the next
+  contrast defect is treated as a signal about the mechanism rather than a one-off.
+- **`getGoals()`'s ensure-row upsert now has three read-only callers** (`/settings`, `/trends`, and — Phase 8j —
+  `/food`). A page that only displays goals still performs a write on a first-ever visit. Harmless and idempotent,
+  already recorded for `/trends`, and now slightly more visible because `/food` is the app's most-loaded screen.
+  The fix if it ever matters is a read-only `getGoalsIfExists` that returns `null` rather than creating the
+  default row — deliberately deferred rather than bundled into a presentation-and-progress phase.
+- **A goal target can be edited retroactively, and past days will re-render against the new one.** This is not
+  new — it is the accepted consequence of the 2026-07-19 "single current goal, not goal history" decision, which
+  already applies to the chart reference lines. Phase 8j makes it *more visible*, because `/food` can be browsed
+  to any past day and will show that day's totals against **today's** target. Restated here rather than
+  rediscovered as a bug; a goal history remains explicitly out of scope.
+- **Entering select mode focuses "Clear" when nothing is selected (Phase 8k) — known, accepted, not solved.**
+  `ActionPanel` focuses its first *enabled* control on mount; with N=0 both bulk buttons are `disabled`, so focus
+  lands on "Clear", which is harmless (it clears an empty selection) but arbitrary. The alternatives are worse
+  than the wart: an opt-out prop on `ActionPanel` disabling its own principal behaviour for one caller, or
+  reordering the bar so a dismissal ("Done") is focused first. Recorded so a reviewer sees a decision rather than
+  an oversight; if it ever grates, the honest fix is making the bar's first element a focusable summary, which is
+  its own small design question.
+- **Phase 8k moves open-state ownership, which is exactly when the N-3 unmount rule gets re-derived wrong.**
+  `dayAction` and the select-mode `ActionPanel`'s `key` must be driven **only** by user clicks — never by
+  `loading`, a fetch nonce, `entries.length` or the selection. A wrongly-keyed implementation would pass the new
+  layout tests and silently reintroduce the state-wiping bug this codebase has now shipped **three** times
+  (`MealsView` in 7, `FoodEntryList` in 7b, guarded structurally in 8b). §6 requires the survives-a-background-
+  refresh assertion to be re-run against the *new* structure, not assumed to carry over.
+- **Phase 8k is the first phase in six that carries no required rewrite of an existing acceptance file — verify
+  that, don't trust it.** The behaviours it changes (which container a panel renders in, a bar's chrome, a
+  trigger's icon) are mostly invisible to the existing suites, and the specific patterns checked while designing
+  it (`phase8b`'s `selectionBar()` helper, its `{ name: "Copy selected", exact: true }).last()` submit lookups,
+  `phase8d`'s "focus lands inside" rows) all appear to survive. But "appear to survive" is exactly the claim that
+  produced a blocking finding twice, and the suppression of the bar's buttons while a bulk form is open is the
+  most likely place it is wrong. Run the full suite before believing this bullet.
+- **`/reset-password` is reachable with no session, and the page-level check is UX, not authorisation.** The
+  `(auth)/` group has no auth gate by design (login and signup must be reachable logged-out), so the reset page
+  performs its own `getUser()` check purely so a stale link renders an explanation instead of a dead form.
+  `updatePassword` re-checks server-side and is the actual control. A reviewer should test the action directly
+  with no session, not only through the page.
+- **The recovery email's redirect URL must be on Supabase's allow-list, and this project has already lost a
+  session to exactly that.** `resetPasswordForEmail`'s `redirectTo` is
+  `${NEXT_PUBLIC_SITE_URL}/auth/callback?next=/reset-password` — a same-origin URL **with a query string**, which
+  signup's plain `/auth/callback` does not exercise. `supabase/config.toml` currently has
+  `site_url = "http://localhost:3000"` and `additional_redirect_urls = ["https://localhost:3000"]`. **If the
+  reset email lands anywhere other than the callback, the allow-list is the first suspect**, and the remedy is
+  adding a same-origin wildcard entry to `additional_redirect_urls` (a `supabase/` edit the developer owns, plus
+  the equivalent entry in the hosted project's dashboard when one exists). Recorded because the 2026-07-25
+  `127.0.0.1`-vs-`localhost` bug had this exact shape and cost real time.
+- **Supabase's built-in email sender is the whole delivery mechanism for password reset, and its rate limits
+  apply.** `supabase/config.toml` sets `[auth.rate_limit] email_sent = 2` per hour locally, and the hosted
+  built-in sender has its own low limits — so a user who requests several resets in a row, or a developer testing
+  the flow repeatedly, will hit a send failure rather than a bug. This is the accepted consequence of the
+  2026-07-19 "built-in confirmation email for v1, no custom SMTP" decision, now with a second consumer; the
+  documented pre-scale follow-up (a real SMTP provider configured in the Supabase dashboard) is unchanged and is
+  still config, not code.
+- **OPEN, not designed: changing your password while logged in.** Phase 8m covers *forgot*, which is what Jeff
+  asked for. There is still no way for a signed-in user to change a password they remember — a `/settings`
+  feature needing a current-password re-auth decision of its own. Named so it is a deliberate gap rather than an
+  assumed one.
 - **Copying a large day / persistent login on shared devices / online-only / rounding of quantity × per-unit
   / free-text unit non-normalization / third-party lookup availability + data quality / lookup-query privacy
   (settled acceptable) / trust-the-browser clock+tz for the future-day cap / camera-barcode UX / cost /
@@ -1565,6 +3084,15 @@ display-unit prop. No global store.
 - `nutrition.ts`: `proteinCaloriePct(50, 800) = 25`; ratio-of-sums example (entries 30g/200kcal +
   10g/300kcal → `(40×4)/500×100 = 32`, which differs from averaging the two per-entry %s — assert the
   ratio-of-sums value); returns `null` when `calories = 0`; rounding to the chosen display precision.
+- `goal-progress.ts` (Phase 8j): `goalProgress(1240, 2000)` → `remaining 760`, `pct 62`, `barPct 62`,
+  `isOver false`. **The row that must not be got wrong** — *over target keeps `pct` truthful while clamping only
+  the bar*: `goalProgress(2800, 2000)` → `remaining -800`, **`pct 140`**, **`barPct 100`**, `isOver true`; assert
+  both fields separately, since a single clamped number passes any test that only checks the bar. Exactly on
+  target (`goalProgress(2000, 2000)`) → `remaining 0`, `pct 100`, `isOver **false**` (equal is not over). Zero
+  consumed → `pct 0`, `barPct 0`, full `remaining`. **Returns `null`** for a `null` target, a `0` target and a
+  negative target (three separate cases — the last two are the divide-by-zero / infinite-bar guards, and a naive
+  `if (!target) return null` accidentally passes the `0` case while still breaking on `-1`). `pct` rounds to a
+  whole number. Pure and side-effect free: no Supabase/React import, no clock read.
 - `entry-grouping.ts`: `groupByConsumedAt` puts entries with the identical `consumed_at` in one group and
   distinct instants in separate groups; the "every 30 minutes for 3 hours" case → each distinct instant is
   its own group (no arbitrary chunking); identical-instant entries group regardless of insertion order;
@@ -1591,6 +3119,35 @@ display-unit prop. No global store.
   multi-token queries are **AND**-ed (`"chick rice"` matches `"Chicken and rice"`, `"chick beef"` does not);
   surrounding/repeated whitespace is tolerated; no match → empty array; item names are **not** searched (assert
   explicitly, so the deferred behaviour in §4 can't be added by accident).
+- `datetime.ts` (Phase 8d/8e additions): `shiftIsoDate` moves one day forward/back across a **month** end
+  (`"2026-01-31"` +1 → `"2026-02-01"`), a **year** end (`"2026-12-31"` +1 → `"2027-01-01"`), and a **leap day**
+  (`"2028-02-28"` +1 → `"2028-02-29"`); `shiftIsoDate(d, -1)` then `+1` round-trips to `d`; `deltaDays: 0` is
+  identity; malformed input is returned unchanged. **The row that catches the real bug:** the same input yields
+  the same output with the runner's `TZ` set to a **negative-offset** zone (`America/Chicago`) — this is what a
+  `new Date(iso)`-based implementation gets wrong, and it is the third time this trap appears in this suite.
+  `quarterHourOptionGroups`: exactly **3** groups of **24 / 56 / 16**; boundaries land exactly at `06:00` and
+  `20:00` (assert `05:45` is Early and `06:00` is Daytime; `19:45` is Daytime and `20:00` is Late);
+  `deEmphasized` is true for the first and last group only; **the identity row — concatenating the groups'
+  options deep-equals `quarterHourOptions()`** (same values, same labels, same order), which is what mechanically
+  proves no option was lost, duplicated or reordered by the grouping. `quarterHourGroupIndexFor` places an
+  **off-grid** legacy time (`"09:07"`) in the correct group, and places both `00:00` and `23:45` correctly.
+- `meals.ts` (Phase 8f additions): `sortMealsByName` puts **every** pinned meal ahead of **every** unpinned one
+  regardless of name (a pinned `"Zebra"` precedes an unpinned `"Apple"`), sorts alphabetically **within** each
+  block, and still breaks ties on `created_at` then `id` inside a block; pinning one meal does **not** reorder
+  the others (assert the unpinned block's order is byte-identical before and after); all-pinned and none-pinned
+  both degrade to the existing plain alphabetical order; still returns a new array and does not mutate.
+  `duplicateMealName`: `"Weekday breakfast"` → `"Weekday breakfast (copy)"`; applying it twice yields
+  `"... (copy) (copy)"` (asserted deliberately — it is the accepted behaviour, not an oversight); whitespace is
+  preserved rather than trimmed away silently.
+- `auth-validation.ts` (Phase 8m additions): `validateForgotPasswordInput` rejects an empty and a
+  whitespace-only email and a malformed one, accepts a valid one, and reports on the **`email`** field (the
+  existing `FieldError` union is unchanged — assert the field name, since a new literal would be a type break
+  the forms silently mis-render). `validateNewPasswordInput` rejects a password shorter than
+  `MIN_PASSWORD_LENGTH`, rejects a mismatched confirmation on the **`confirmPassword`** field, accepts a valid
+  matching pair, and — the row worth having — **reports both errors at once** when the password is too short
+  *and* the confirmation differs, so the form can't show one problem, get it fixed, and then reveal another.
+  Both must reuse `isValidEmail`/`isValidPassword` rather than restating the rules (checkable by review: a
+  second regex or a second literal `6` in this file is the defect).
 - `quantity.ts` / `totals.ts` / `units.ts` / `lookup.ts` / `validation.ts` / `trends.ts`: as previously
   specified (validation still rejects empty `entryIds` / future `toDate` for `copyFoodEntries`;
   `validateMealInput` is reused unchanged for the save-as-meal name — no new validator).
@@ -1856,6 +3413,333 @@ display-unit prop. No global store.
     test failure that produced a blocking B-1 in both Phase 7b and Phase 7c. The sibling test **"no copy/quick-add
     control was added to the dashboard" stays and stays passing** — under the §4 descope it is now an intentional
     guard on a decision, not a marker for something unbuilt.
+- **Day navigation (2026-08-05 addition, Phase 8d):**
+  - *It moves the day, on both screens:* on `/food` and on `/metrics`, "Previous" shows the previous calendar
+    day's data and "Next" returns; assert against **seeded data for each day**, not just the input's value, so a
+    control that changes the label without refetching would fail.
+  - *The cap holds (the row to hammer):* on today **"Next day" is disabled**; on a past day it is enabled. Then
+    the adversarial half — **re-enable it in the DOM and click it on today** — and assert no future day is ever
+    loaded or logged to. The client control is convenience; the cap is the invariant.
+  - *There are exactly two navigation buttons:* "Previous day" and "Next day", and **no "Today" control**
+    (dropped by decision — §3.4/§4; assert its absence so it can't reappear undocumented).
+  - *Month/year/leap boundaries work end-to-end*, not just in the unit test: navigate across the 1st of a month
+    and assert the correct day's entries render.
+  - *It goes through the same choke point:* on `/food`, select entries and start an edit, then press "Previous" —
+    assert select mode is off, nothing is ticked and the edit is cleared, exactly as changing the date input
+    does. A navigator wired to `setSelectedDate` instead of `handleDayChange` passes every other row and fails
+    this one.
+  - *Both screens agree:* the same control renders on `/metrics`, with the same disabled rules — the point of it
+    being shared.
+  - *Prefer these buttons over `.fill()` in new rows* — see §5; they are not a fix for the documented `Day`-input
+    race, so **do not** re-point existing flaking specs at them and report the flake as resolved.
+- **Active-group suppression and action-panel emphasis (2026-08-05 addition, Phase 8d):**
+  - *An open group expander hides that group's row actions:* open "Copy this group" and assert **no** entry
+    inside that group shows "Log again"/"Edit"/"Delete", while a **different** group's rows still show all three
+    and still work. Repeat for "Save as meal" — both actions, or the rule isn't implemented.
+  - *The active group is marked, and only it:* exactly one `<section>` carries the accent treatment while an
+    expander is open, and none does when all are closed.
+  - *The header's sibling action is hidden too* (an open copy panel leaves no "Save as meal" on that header).
+  - *One "Cancel" per open panel (closes Phase 7b N-3 / Phase 8 N-5):* with a group expander open, assert there
+    is exactly **one** control named "Cancel" within that group — the header toggle now reads **"Close"**. This
+    is asserted because the ambiguity was reported twice and never fixed; a strict-mode locator collision is the
+    failure it caused.
+  - *The panel is emphasised, announced and reachable:* each of the six listed expanders renders with
+    `role="region"` and an `aria-labelledby` heading naming the action; assert on **computed** styles for the
+    ring/fill (a source class proves nothing if Tailwind never emitted it — the visual-identity suite's
+    established approach), and that focus lands inside the panel on open.
+  - *The excluded surfaces stay excluded (assert, don't assume):* `FoodEntryForm`, the "Add detail" expander and
+    `FoodLookupPanel` are **not** wrapped. A blanket application would pass every row above and defeat the point.
+  - *Refresh survival is unchanged:* with a group expander open and a target date picked, force a background
+    refresh (add an unrelated entry) — the panel stays open with its state intact, **and** the N-3 close/reopen
+    rows still pass. Assert both together, for the reason 8b gives.
+- **Icon buttons and tooltips (2026-08-05 addition, Phase 8d — Jeff's explicit ask, so the touch half is the
+  part that matters):**
+  - *The label is never hidden (the row to hammer — this is the whole reconciliation):* at a **phone-sized
+    viewport**, "Log again" and "Edit" still render their **visible text** beside the icon. An implementation
+    that hides the label below a breakpoint passes every other row here and produces exactly the icon-only-on-
+    touch state the design exists to prevent. Assert the visible text, not the icon.
+  - *The row is two actions, not three:* the entry row shows "Log again" and "Edit" only; **"Delete" is not on
+    the row** and **is** present inside the edit form (trash icon + "Delete entry", `danger` variant), and
+    deleting from there still removes the entry.
+  - *Icons are decorative, names come from text:* each glyph is `aria-hidden="true"`, and each button's
+    accessible name is its visible label — assert a screen reader would get `"Log again"`, not
+    `"repeat icon Log again Log again"` and not a differing `aria-label` (WCAG 2.5.3 Label in Name).
+  - *The tooltip is supplementary and correctly wired:* on a pointer device, hovering shows a `role="tooltip"`
+    element whose text **differs from the label** (it explains, it does not repeat), the trigger carries
+    `aria-describedby` pointing at it, `Escape` dismisses it while focused, and keyboard `focus` shows it.
+  - *The tooltip is not the only source of meaning (assert by removal):* with tooltips suppressed entirely, every
+    action on the row is still identifiable from visible text alone.
+  - *No tooltip fires on touch, and nothing depends on one:* in a touch-emulating context the tooltip does not
+    render, and both actions remain fully usable and labelled. **Do not assert the media query itself** — assert
+    the observable consequence.
+  - *`aria-label` is used only where there is no visible text:* the meal-card pin toggle and `MealList`'s ↑/↓
+    arrows. Assert no icon+label button carries one.
+- **Time-picker grouping (2026-08-05 addition, Phase 8e):**
+  - *Nothing was lost (the row to hammer):* the time `<select>` still exposes **exactly 96** options via
+    `getByRole("option")` (excluding `CopyGroupDialog`'s sentinel), in the same order, with the same `HH:MM`
+    values and the same zero-padded labels, and **none is disabled**. Jeff's constraint was explicit; this is the
+    row that enforces it.
+  - *Three groups, at the right boundaries:* group labels are present and `05:45`/`06:00` and `19:45`/`20:00`
+    fall on the expected sides.
+  - *All three call sites:* `FoodEntryForm`, `LogMealDialog` (**both** picker and fixed-meal modes) and
+    `CopyGroupDialog`. In the last, the `value=""` "Keep original time(s)" sentinel sits **outside** every group
+    and is still the default.
+  - *Selecting still works everywhere:* `selectOption` by value in each call site produces the same stored
+    `consumed_at` as before — grouping is presentation only.
+  - *The off-grid edit invariant survives (the likeliest silent defect):* seed an entry with an off-grid
+    `consumed_at` (e.g. `09:07`), open it for edit, and assert the injected option is present, **selected**, and
+    **inside the Daytime group** — then save an unrelated field and assert the stored time is unchanged.
+  - *Required in-the-same-change sweep:* any existing locator using a **direct-child** selector (`select >
+    option`) breaks under `<optgroup>` and must be updated in this change. This is the fourth consecutive phase
+    where an existing suite pins something a new phase changes; it produced a blocking finding twice.
+  - *Manual, not automatable:* the group labels and the `stone-500` de-emphasis must be eyeballed on **desktop
+    and a real phone**, and the result recorded — including "colour not honoured here", which is expected, not a
+    defect (§5).
+- **Pinned meals and duplicating a meal (2026-08-05 addition, Phase 8f):**
+  - *Migration and RLS (verify by query, not by reading the SQL):* after the migration, `meals` has
+    `is_pinned boolean not null default false`, pre-existing rows are all `false`, RLS is still enabled, and the
+    four policies are unchanged. Then the real test: **user B cannot pin user A's meal** — call `setMealPinned`
+    with a foreign `mealId` and assert, via a service-role read, that A's row is untouched.
+  - *Pinned-first on both surfaces:* pin a meal whose name sorts last; assert it renders first on `/meals`
+    **and** appears first in `LogMealDialog`'s picker — 7c's "one shared ordering" must still hold.
+  - *Pinning one meal doesn't reshuffle the rest:* capture the rendered order, pin one, and assert every other
+    card's relative order is unchanged.
+  - *The picker's optgroups appear only when something is pinned*, and option labels **still start with the meal
+    name** (7c's type-ahead invariant).
+  - *Filtering beats pinning:* with a pinned meal that does **not** match the active filter, it is not rendered,
+    and "Showing N of M" agrees with the visible card count.
+  - *The pinned state is not colour-only:* a pinned card shows a visible **"Pinned"** text pill; the toggle
+    exposes an accessible name and `aria-pressed`, and unpinning reverses both.
+  - *Duplicating is a faithful, independent copy:* duplicate a 3-item meal — the new meal has exactly 3 items
+    matching `name`/`quantity`/`unit`/per-unit, **`sort_order` preserved from the source** (not renumbered — feed
+    a source whose `sort_order`s are non-contiguous, e.g. 0/2/5, so a renumbering implementation fails), and the
+    duplicate's summed totals equal the source's exactly.
+  - *The source is byte-identical afterwards* — re-read the source `meals` row and its `meal_items` and assert
+    full-row equality **including `updated_at`** (proves no UPDATE fired). Same evidentiary bar as Phase 7b.
+  - *Independence in both directions:* editing or deleting the duplicate leaves the source untouched, and
+    vice versa.
+  - *The duplicate is NOT pinned* even when the source is (assert explicitly — it is the question a reader will
+    ask, and the answer is a decision).
+  - *The name is prefilled and overridable:* the field opens containing `"<source name> (copy)"`; submitting it
+    unchanged succeeds, and typing a different name uses that instead. Blank/whitespace-only → field error, zero
+    rows written.
+  - *Ownership and atomicity:* another user's `mealId` → `meal_not_found` with **zero** rows written for either
+    user (service-role read across both). Compensating delete: on a forced `meal_items` insert failure no orphan
+    `meals` row survives — fault injection if practical, otherwise verified by review and **said so explicitly**,
+    the same standing rule as `createMealFromEntries`.
+  - *An empty source meal duplicates successfully* into an empty meal (deliberately not rejected — §3.3), and
+    that meal is still refused by `logMealForDay` (`empty_meal`).
+  - *Success refetches, but disturbs nothing:* with a filter active and a card expanded, duplicate a meal —
+    the new meal appears **if it matches the filter** (and does not if it doesn't, consistent with 7c's rule for a
+    newly created meal), the filter is still applied, and the expanded card is still expanded. This screen has
+    shipped state-loss bugs twice.
+  - *One expander per card:* opening Duplicate closes an open "Log this meal" or Rename on the same card, and
+    only one card's expander is open across the list.
+- **Row delete, icon-only actions, and the stronger editing highlight (2026-08-07 addition, Phase 8g):**
+  - *Delete is back on the row, and gone from the form (the pair to hammer — this is the reversal):* an entry row
+    exposes a control named **"Delete …"**, and `FoodEntryForm` in edit mode exposes **none**. Assert **both
+    halves** — an implementation that adds the row icon and forgets to remove the form button passes a
+    one-sided test and ships two delete paths.
+  - *It actually deletes, with the confirm accepted:* accept the `window.confirm` (Playwright
+    `page.on("dialog")`) and assert the row is gone **and the DB row is gone** (service-role read), and the day's
+    totals decrement.
+  - *Dismissing the confirm deletes nothing (the safety row):* dismiss the dialog and assert the entry is still
+    rendered **and still in the DB**. If Jeff drops the confirm, this row and the one above are the two to
+    retire — nothing else in the block depends on it.
+  - *The row is three icon-only buttons:* "Log again", "Edit", "Delete" each render **no visible text**, each is a
+    real `<button>` with an `aria-label` that **starts with the same verb** and names the entry, and each still
+    carries a supplementary `aria-describedby` tooltip on pointer devices. This **replaces** Phase 8d's
+    "the label is never hidden" row, which becomes false by design — **update it in the same change**, do not
+    leave it failing or delete it silently. (Fourth consecutive phase where an existing suite pins something a
+    new phase reverses; it produced a blocking finding twice.)
+  - *Suppression is unchanged and now covers three actions:* on the edited row, in select mode, and inside an
+    active group, **all three** actions are absent — assert Delete specifically, since it is the newcomer.
+  - *A mid-edit row has no delete path, by design:* with an entry open for edit, assert there is no delete control
+    on that row **and** none in the form; cancel the edit and assert the row's delete returns.
+  - *Deleting the entry currently being edited closes the form:* start editing entry A, cancel, delete A from its
+    row — then (the real case) start editing A, cancel, and separately assert that if `editingEntry` is somehow
+    the deleted row the form does not remain open against a missing entry.
+  - *A failed delete surfaces an error and changes nothing* (Phase 8d qa N-4 must not regress): force a failure
+    and assert a friendly message appears, no raw Postgres text is shown, and the entry survives.
+  - *The editing highlight is louder, and does not collide:* the edited row carries **both** the accent bar and a
+    computed inset `sage-deep` ring plus a filled "Editing" pill (assert on **computed** styles, per the
+    visual-identity suite's approach), the row's own background is **unchanged** (no `sage-pale` fill), and a
+    "From a saved meal" badge in that same row is still visible and still distinguishable.
+  - *Select mode and editing still coexist:* a row can be checked **and** highlighted at once; a merely-checked
+    row still has no visual state of its own beyond the checkbox.
+- **Retiring the dashboard (2026-08-07 addition, Phase 8h):**
+  - *`/` lands on the food log:* after login, and on a direct visit to `/`, the user ends up on `/food` with the
+    day's log rendered — assert the final URL and real content, not just a 200.
+  - *The header wordmark still works* (it links to `/`, which now redirects) — this is the link most likely to be
+    broken by a careless route deletion.
+  - *Nothing dashboard-shaped remains:* no "Today so far" summary and no "Welcome back" line anywhere in the app.
+  - *Required in-the-same-change sweep:* `e2e/auth.spec.ts`, `e2e/phase1-acceptance.spec.ts`,
+    `e2e/fetch-error-handling.spec.ts` and `e2e/phase8-acceptance.spec.ts` all assert on the dashboard or on
+    `TodaySummary` today (including 8b's *"no copy/quick-add control was added to the dashboard"* guard, which
+    becomes vacuous when the page is gone). Every one must be updated or retired **in this change**. The
+    `fetch-error-handling` dashboard row should move to another surface rather than being dropped — that suite's
+    point is that every client read has an error+Retry path, and `/food`, `/metrics` and `/trends` still do.
+  - *Last-logged weight on `/metrics`:* with metrics seeded on two past days, `/metrics` shows the **most recent**
+    one, in the user's chosen unit (assert after a kg→lb toggle, so a hardcoded unit fails), with a human-readable
+    date. With **no** metrics ever logged, the line is absent entirely — not "Last logged: —".
+  - *It does not go stale after a save (the reason it is a client read):* log a weight for today and assert the
+    line updates to today **without a page reload**.
+- **Visual identity v2 (2026-08-09 addition, Phase 8i):** this is a **rewrite of
+  `e2e/visual-identity-acceptance.spec.ts` in place**, not a new file beside it — that suite currently pins the
+  *old* identity and every one of its assertions is now false by design. Keep its method, which was right:
+  assert on **computed** styles in a real browser, never on source class names, because a class in the source
+  proves nothing if the utility was never generated.
+  - *The tokens actually compute* — `document.body`'s background is `--canvas`; a `Card`'s is `--surface`; body
+    text is `--ink`. A token defined in `:root` but never wired into `@theme inline` produces a class that does
+    nothing and a page that silently falls back — the exact failure this style of assertion exists to catch.
+  - *No serif anywhere, on any screen* (the row Jeff would check first): every `<h1>`, the wordmark, and
+    `DailyTotals`' stat numerals resolve to a font-family containing **"geist"** and **not** "fraunces" — and
+    `document.fonts` / the loaded stylesheets contain no Fraunces face at all, so the font is genuinely
+    un-registered rather than merely unused.
+  - *Shape rules, both halves*: the primary `Button`'s computed `border-radius` is **~8px, not ≥500px** (a
+    surviving pill fails), while the **active `NavLink` is still ≥500px** — assert both, because a blind
+    find-replace of `rounded-full` would take the nav pill with it.
+  - *The `Button` secondary border defect is fixed*: its computed border colour is `--line-strong`, i.e. ≥3:1
+    against its own white fill. Compute the ratio in the test rather than string-matching the hex, so the
+    assertion states the requirement rather than the current answer.
+  - *Contrast spot-checks on the combos that have historically failed here* — active `NavLink` (`--ink` on
+    `--accent-soft`), links/focus rings (`--accent` on `--canvas` and on `--surface`), caption text (`--muted`
+    on both surfaces), and `StatusMessage`/`ActionPanel` text. Each asserted as a **computed ratio ≥ its
+    threshold**, not as an expected colour string.
+  - *The sage arc is gone from every screen* — replaces the old *"appears exactly once on each auth screen"*
+    row, which becomes false by design. Assert **zero** app-owned decorative `<svg>`s on `/login` and `/signup`
+    (reusing the existing helper that excludes Next's dev-overlay indicator).
+  - *No stray old-palette colour anywhere* — the old scan's forbidden list is now the **wrong** list. It becomes
+    the sage/clay/paper values (`#FBF8F1`, `#5C7444`, `#E3EAD6`, `#A9BE8C`, `#C97452`, `#23211C`) plus the warm
+    `stone-*` shades this round replaces, scanned across every screen. This is what stops the old palette
+    creeping back one component at a time.
+  - *Required in-the-same-change sweep, called out because this is the fifth consecutive phase to need it:*
+    `src/components/food/FoodEntryList.test.tsx` asserts on literal `border-l-sage-deep` / `ring-sage-deep` /
+    `bg-sage-deep` / `text-paper` class names (8 assertions). Update them to the new tokens — **do not** loosen
+    them into "some class is present", which would retire real coverage of the Phase 8g editing highlight.
+  - *The suite must otherwise stay green, unchanged.* This is presentation-only work: a failure anywhere in the
+    unit or e2e suites that is **not** one of the two files named above means logic was touched, which this
+    phase must not do.
+- **Daily goal progress (2026-08-09 addition, Phase 8j):**
+  - **The two rows to hammer.** *(1) The no-goal fallback is byte-for-byte today's behaviour*: with
+    `user_goals` targets `null`, `/food` shows the calorie and protein numbers with **no bar and no caption** —
+    assert the absence, not just the presence of the number, since an implementation that renders a 0%-width bar
+    or a "0 of 0" caption passes a presence-only check and looks broken to a user who never set a goal.
+    *(2) Over target tells the truth*: seed a day exceeding the calorie target and assert the caption says
+    **"over"** with the correct magnitude, while the bar's computed width is **exactly 100%** — the one pairing a
+    single clamped percentage would silently break.
+  - *Partial goals are independent*: with a calorie target set and protein `null`, the calorie card has a bar and
+    caption and the protein card has neither. Ships broken if the component gates both cards on one flag.
+  - *The numbers are right and come from the view*: with seeded entries, the caption's consumed figure equals
+    `daily_food_totals.total_calories` for that day (service-role read), and `remaining` equals
+    `target − consumed`. Adding an entry updates all of it **without a reload**, through the existing refresh.
+  - *Goals survive a day change*: browse to a previous day and confirm the bars/captions still render against the
+    same targets (they are not refetched per day — the server-read choice) and reflect **that day's** totals.
+  - *Nothing is stored*: after viewing `/food` with goals set, no new column, row or value appears anywhere —
+    `user_goals` is unchanged (its `updated_at` in particular), and the only write a first-ever visit may perform
+    is `getGoals()`'s existing ensure-row upsert.
+  - *Cross-user isolation through the new read path*: user B's `/food` never shows user A's targets — the goals
+    read is a new consumer of `user_goals` on a new screen, so it gets its own assertion rather than inheriting
+    `/settings`' .
+  - *The protein-% card gains nothing*: it still renders a plain number with no bar — a guard against
+    "completing the set" with an invented target.
+  - *Accessibility*: the bar is `aria-hidden` and exposes no `progressbar` role or `aria-valuenow`; the caption
+    is real text; the over-target state is conveyed by the **word** "over", not by colour alone; and the bar is
+    **not red** when over.
+  - *The "Set daily targets" link appears only when BOTH targets are unset*, links to `/settings`, and is absent
+    the moment either one is set.
+- **The `/food` day-action surface (2026-08-11 addition, Phase 8k):**
+  - **The row to hammer — *the trigger row never splits, whichever panel is open*.** For **each** of the three
+    triggers in turn: open it, then assert **all three** trigger buttons are still rendered, still inside the
+    same container element, and — the assertion that actually catches the bug — that every trigger's bounding box
+    sits **above** the open panel's bounding box (compare `boundingBox().y`). A test that only asserts the
+    buttons are *visible* passes today, with the bug present, because they are visible; they are just in the
+    wrong place.
+  - *Only one day panel at a time*: with "Copy this day" open, clicking "Log a saved meal" closes the copy panel
+    and opens the meal one (assert the copy form's fields are **gone**, not merely hidden behind it).
+  - *Select mode and the day panels are mutually exclusive*: entering select mode closes any open day panel, and
+    while in select mode the three triggers behave per the design (assert whichever rule ships — this row exists
+    so the behaviour is pinned rather than incidental).
+  - *`/meals` is unregressed (the most likely accidental breakage)*: `LogMealDialog`'s fixed-meal mode on a
+    `MealList` card still opens, logs, and closes from the card's own control, and `/meals` still shows exactly
+    one card expander at a time. Re-run the whole Phase 8c suite, not one row.
+  - *Refresh survival, re-asserted against the NEW structure*: with a day panel open and a target date typed,
+    trigger a real background refresh (add an unrelated entry from another tab/via the admin client, then let the
+    view refetch) and assert the panel is still open with the typed value intact. This has shipped broken three
+    times; the state just changed owners, so the old passing test proves nothing about the new structure.
+  - *Select mode gets one accent region, not two*: in select mode assert exactly **one** `role="region"` inside
+    the day-log area; after clicking "Copy selected" still exactly **one**, and its accessible name is now
+    **"Copy selected"**. Assert on **computed** border/background (accent ring + accent-soft fill), per the
+    visual-identity suite's method.
+  - *Opening a bulk form suppresses the bar's buttons but not the checkboxes*: with the copy form open, "Copy
+    selected"/"Save selected as a meal"/"Clear"/"Done" are **absent** from the bar, the "N selected" count is
+    still shown, and ticking another row in the list still increments it. Cancel restores all four buttons.
+  - *Focus lands in the form, not the bar*: after clicking "Copy selected", `document.activeElement` is a control
+    **inside** the copy form. This is the property the panel's `key` exists for, and it fails silently if the
+    remount is omitted.
+  - *The three triggers carry supplementary tooltips*: each has an `aria-describedby` resolving to a
+    `role="tooltip"` element whose text is **not** identical to the button's own label (the recorded "explains,
+    never repeats" rule), and "Select entries"' description names the day's log below.
+  - *The toolbar adds no ARIA surface*: the container exposes **no** `role="toolbar"` and no accessible name — a
+    guard against a later "improvement" that promises keyboard semantics nothing implements.
+  - **Disclosure buttons:** the lookup trigger and the "Add detail" trigger are real buttons with
+    `aria-expanded="false"` collapsed and `"true"` expanded, and `aria-controls` resolves to the revealed
+    element's id. **The trigger stays present while open** and toggling it twice returns to the collapsed state
+    (a regression here would be the old "trigger disappears, separate Close appears" shape). `FoodLookupPanel`
+    exposes exactly **one** dismissal control, not two.
+  - *Lookup behaviour is unchanged*: a picked candidate still prefills and auto-expands the detail section, and
+    the collapsed-detail hidden-input behaviour (Phase 6 B-1) still submits the picked quantity — re-run the
+    Phase 6 rows rather than trusting that a trigger restyle could not reach them.
+- **Auth-screen identity (2026-08-11 addition, Phase 8l):**
+  - **The row Jeff would check first — *the app names itself*:** `/login` and `/signup` each render the text
+    "Health Tracker" somewhere on the page. Assert on rendered text, not on a component name.
+  - *One wordmark, two places*: the authenticated header's wordmark link still has the accessible name
+    **exactly** `"Health Tracker"` (`getByRole("link", { name: "Health Tracker", exact: true })`) — the
+    invariant that keeps a two-tone/`<span>`-split implementation from changing the link's name or breaking
+    existing navigation.
+  - *No decoration crept back*: **zero** app-owned `<svg>` on `/login` and `/signup` — this is the existing
+    Phase 8i assertion, and this phase's requirement is that it **still passes unchanged**. If this phase's diff
+    edits that assertion, the phase went out of scope.
+  - *Nothing that other suites key off moved*: each page's `<h1>` is still "Log in" / "Create your account", the
+    submit buttons are still named "Log in" / "Sign up", and the Email/Password fields still resolve by their
+    existing labels. Re-run `e2e/auth.spec.ts` and `e2e/phase1-acceptance.spec.ts` in full.
+  - *The identity is on-palette*: the wordmark's computed colours are `--ink` and/or `--accent` (never a
+    sage/clay/paper value), and the page background is still `--canvas` — folded in so the old palette cannot
+    return through the one screen the visual-identity suite covers most lightly.
+- **Password reset (2026-08-11 addition, Phase 8m):**
+  - **The row to hammer — *the whole flow works end to end against the real local stack*:** create a confirmed
+    test user, request a reset from `/forgot-password`, fetch the email from the local mail catcher (Mailpit, as
+    the Phase 4 signup-confirmation verification already does), follow its link, land on `/reset-password`, set a
+    new password, and then **prove both halves**: logging in with the **new** password succeeds, and logging in
+    with the **old** one fails. Asserting only the success half would pass against an action that silently did
+    nothing.
+  - **The second row to hammer — *no account-existence oracle*:** submitting an email that has **no** account
+    returns the **identical** rendered confirmation as one that does (compare the two rendered strings), and the
+    page never says "no account"/"not found"/"unknown". This is the phase's one security property.
+  - *A reset link is single-use / expiry-shaped*: after completing a reset, revisiting the same emailed link
+    lands on `/login?error=auth_callback_failed` with the "invalid or expired" notice (assert the existing
+    `/invalid or expired/i` text still matches — the generalised copy must keep that substring).
+  - *`/reset-password` with no session explains itself*: visiting it directly, logged out, renders the
+    "invalid or has expired" state **and no password form at all** (assert the absence of the inputs — a form
+    that renders and then fails on submit is the failure mode this page exists to avoid), plus a link back to
+    `/forgot-password`.
+  - *The action re-checks, independently of the page*: call `updatePassword` with no session and assert it
+    returns an error and changes nothing — the page-level check is UX, not authorisation.
+  - *Validation is server-side, not just an `<input minLength>`*: a too-short password and a mismatched
+    confirmation are both rejected with field-level messages after a real submit, and the password is unchanged
+    (prove by logging in with the old one afterwards).
+  - *Success leaves the user signed out and told so*: after a successful reset the browser is on
+    `/login?reset=success`, the confirmation notice is visible, and there is **no** active session (the
+    authenticated header's "Log out" control is absent).
+  - *`?next=` cannot be turned into an open redirect through this flow*: hitting
+    `/auth/callback?code=…&next=//evil.com` still redirects same-origin (the existing `safeRedirectPath` guard —
+    re-asserted here because this phase is the first to make `?next=` a routinely-used parameter rather than a
+    dormant one).
+  - *The login page offers the way in*: `/login` has a "Forgot password?" link to `/forgot-password`, and that
+    page is reachable logged-out with no redirect loop.
+  - **Locator note for whoever writes these:** `/reset-password` has two controls whose accessible names both
+    contain "password". Every `getByLabel` here needs `{ exact: true }` or a scoped locator — the fifth instance
+    of the collision class recorded in `ai-context/DECISIONS.md`'s "Copy to time…" entry and its addenda.
 - Carried forward unchanged: copy-day + future-cap-on-copy (no rows on a future target) + "Log again" +
   copy ownership/atomicity; minimal-form submit → valid unitless entry; candidate-prefilled submit; quantity
   edit recalculates totals; saved-meals CRUD + logging; no-future-day (add/edit/meal); RLS isolation across
@@ -2339,6 +4223,547 @@ no-future-day cap, and already re-reads the meal through the RLS-scoped client t
   neither is disturbed; log one to a **past** date and time and confirm it lands there and appears on `/food`
   for that day as a single group; and confirm the expander renders no `<form>` inside another `<form>`.
 
+### Phase 8d — Day navigation, and emphasis/action hygiene on the day's log (2026-08-05 addition)
+
+**Why its own phase, and why here.** Four of Jeff's eight manual-testing findings from this round
+(Previous/Next day; suppressing row actions under an open group expander; making the bulk/group action area
+actually draw the eye; per-row button density) are **all the same screen, all UI-only, and all interlocking** —
+the group-suppression rule and the row-density change edit the same conditional in `FoodEntryList`, and the
+emphasis primitive is what the group and bulk panels both consume. Splitting them would mean several phases
+reopening `FoodEntryList`/`FoodDayView` to re-derive one interaction rule, which is the outcome §4's scoping rule
+exists to avoid — the same reasoning 8b used to bundle its two bulk actions. **Numbered 8d rather than
+renumbering 9** so every existing "Phase 9" reference in this doc, `ai-context/*` and the test suite stays
+correct: the convention 7b, 7c, 8b and 8c established.
+
+**Dependencies: Phase 8b (hard), and nothing else.** It extends select mode's own suppression rule, edits the
+files 8b last touched, and its `ActionPanel` wraps the bulk expanders 8b introduced. It has no relationship to
+Phase 9 in either direction, so 8d→9 is ordering only. **Phase 8f depends on 8d** for `ActionPanel` (the same
+soft-but-real shape as 8c depending on 8b's `StatusMessage`), so run 8d first.
+
+**Adds no server-action code, no schema, and exactly one pure helper** (`shiftIsoDate`). If anything else appears
+in `lib/actions/*` or `supabase/migrations/`, that is a deviation worth questioning, not a bonus.
+
+- **In:**
+  - **`components/ui/DayNavigator.tsx`** (new) — **exactly two buttons**, `‹ Previous day` and `Next day ›`,
+    around the existing date input, with "Next day" **disabled on today**, full visible text labels (so no
+    `aria-label` is needed — WCAG 2.5.3), and `shiftIsoDate` doing the arithmetic. **No "Today" button** (Jeff's
+    call, 2026-08-05 — §3.4/§4). Wired into `FoodDayView` **through the existing `handleDayChange` choke point**
+    (not `setSelectedDate`) and into `MetricForm` — **the `/metrics` call site as its own commit**, since it
+    reaches one file of an already-approved phase (§4's scoping rule).
+  - **`shiftIsoDate` in `lib/domain/datetime.ts`**, unit-tested, using `Date.UTC` on the split parts — **never**
+    `new Date(iso)` (§3.3/§3.4: the off-by-one this doc has now had to defend against three times).
+  - **Active-group suppression in `FoodEntryList`** — a derived `isGroupActive` (from the existing `groupAction`
+    state, no new state) hides that group's per-row "Log again"/"Edit"/"Delete" **and** the header's sibling
+    action, for **both** "Copy this group" and "Save as meal"; the active `<section>` gets the level-1
+    `border-l-4 border-l-sage-deep` accent, **no surface fill**.
+  - **The group-header toggle's active label changes from "Cancel" to "Close"**, closing the twice-raised
+    duplicate-"Cancel" note (Phase 7b N-3 / Phase 8 N-5) in the file it lives in.
+  - **`components/ui/ActionPanel.tsx`** (new) — level 3 of the emphasis ladder (§3.4): `sage-deep` ring +
+    `sage-pale` fill + a visible heading, `role="region"` + `aria-labelledby`, scroll-into-view and focus-in on
+    open. Applied to **exactly six** expanders, named in §3.4; explicitly **not** to `FoodEntryForm`, "Add
+    detail" or `FoodLookupPanel`.
+  - **Per-row actions: "Delete" moves off the entry row into the edit form** (`FoodEntryForm` in edit mode,
+    rendered as trash icon + "Delete entry", `danger`), and the two remaining row actions become
+    **icon + always-visible label**: repeat glyph + "Log again", pencil + "Edit" (§3.4). **The label is not
+    hidden at any breakpoint** — that is the load-bearing part, not the icons.
+  - **`components/ui/icons.tsx`** (new) — four inline SVGs (repeat, pencil, trash, pin) with Lucide geometry and
+    an ISC attribution header, `aria-hidden`, `currentColor`. **No icon-library dependency.**
+  - **`components/ui/Tooltip.tsx`** (new) — hover (~300 ms delay) + focus (no delay) + `Escape` to dismiss,
+    `role="tooltip"` + `aria-describedby`, **no portal and no positioning library**, and **rendered only under
+    `@media (hover: hover) and (pointer: fine)`** so it never appears on touch. Its text must **explain, not
+    repeat** the label.
+- **Out — say no to all of these explicitly:** **icon-only buttons on the entry row**, and **hiding the label at
+  small breakpoints** — both put an unexplained icon on the one device class where no tooltip can fire (§3.4/§4);
+  **long-press tooltips**; a native `title` as the tooltip mechanism; `aria-label` on any control that has
+  visible text; an icon-library dependency; a tooltip positioning library; an overflow "⋯" menu; any change to
+  `/meals` (**including its icon adoption, which is deliberately Phase 8f's** so that screen's files are opened
+  by one phase); any change to a server action, `lib/domain/*` beyond `shiftIsoDate`, or the schema; swipe
+  gestures, a day carousel, a "Today" button, or removing the date picker; dimming inactive groups; a modal or a
+  sticky bar; **any attempt to fix the documented `Day`-input race** (out of scope, different investigation —
+  §5); and the editing-row highlight, which **already shipped in Phase 8b and is committed** (§5 — do not
+  rebuild it; if it appears missing, that is a stale-build check first and a developer bug-fix second, never a
+  redesign).
+- **§6 scope for qa-reviewer:** unit — **`shiftIsoDate` only** (including the negative-offset-timezone row).
+  Acceptance — the *"Day navigation"*, *"Active-group suppression and action-panel emphasis"* and *"Icon buttons
+  and tooltips"* blocks in
+  §6, with **four rows to hammer**: **(0) at a phone-sized viewport the icon buttons still render their visible
+  text labels** — the reconciliation that makes iconifying safe on touch at all, and precisely the thing an
+  implementation is most likely to "optimise" away with a breakpoint; **(1) "Next day" cannot produce a future
+  day even with the DOM re-enabled**
+  (the client control is convenience; the cap is the invariant); **(2) the navigator goes through
+  `handleDayChange`** — a version wired straight to `setSelectedDate` passes every other row and silently
+  resurrects stale-selection state; and **(3) the N-3 close/reopen rule and refresh-survival still hold together**
+  for the newly-wrapped panels, asserted in one test, since a wrongly-keyed unmount passes one and fails the
+  other. Carried-forward Phase 8/8b rows must keep passing unchanged — especially every copy-group, save-as-meal
+  and multi-select row, since this phase edits the conditionals those flow through.
+- **Manual-browser check (do not skip):** drive `/food` on a **phone-sized viewport** — the density and
+  "where do I look" complaints are both phone-first, so a desktop-only pass cannot confirm either. Open a group
+  expander and confirm the rows inside it quiet down while another group stays live; **confirm on a real phone
+  that "Log again" and "Edit" are still readable as words, not bare glyphs, and that nothing about them depends
+  on a tooltip that cannot fire there**; open "Copy selected" and
+  confirm the panel actually pulls the eye and the caret lands in it; and navigate several days back and forward,
+  confirming "Next" greys out on today.
+
+### Phase 8e — Scanning the time picker: quarter-hour option groups (2026-08-05 addition)
+
+**Why its own phase, and why not folded into 8d.** It is small, but it touches **the single most-used control in
+the app** at three call sites, it **amends a decision this doc has already made twice** (the 2026-07-25 native
+`<select>` and the 2026-07-26 label format, whose `<optgroup>` rejection is being reconsidered on different
+grounds — §4), and its correctness is **platform-dependent in a way CI cannot see**, so its review is mostly a
+cross-platform manual check that has nothing in common with 8d's. Bundling it would bury a control-level change
+to the everyday logging path inside a phase about buttons and emphasis. **Numbered 8e**, same convention.
+
+**Dependencies: none.** It shares no files with 8f and only `FoodEntryForm`/`LogMealDialog`/`CopyGroupDialog`
+with 8d's wrapper work, which does not touch the `<select>` itself. **It can run before, after or between 8d and
+8f** — sequencing here is preference, not constraint.
+
+**Presentation only, and that is the load-bearing property.** Every option keeps its 24-hour `HH:MM` value, all
+96 stay present, selectable and ordered, nothing is disabled, and `quarterHourOptions()` stays exported
+unchanged. Server validation, `localInputToUtcInTz`, exact-`consumed_at` grouping and the future-day cap cannot
+observe this change — the identical value/display boundary the zero-padded labels held.
+
+- **In:** `quarterHourOptionGroups()` and `quarterHourGroupIndexFor()` in `lib/domain/datetime.ts` (pure,
+  unit-tested, §3.3); three `<optgroup>`s — **Early (12 AM – 6 AM) / Daytime (6 AM – 8 PM) / Late (8 PM – 12 AM)**
+  — rendered at all three call sites (`FoodEntryForm`, `LogMealDialog` in both modes, `CopyGroupDialog` with its
+  sentinel kept outside the groups); best-effort `text-stone-500` de-emphasis on the Early/Late options; the
+  **off-grid injected option routed into its correct group**; and the **direct-child option-locator sweep** in
+  `e2e/` in the same change.
+- **Out:** removing, reordering, disabling or re-valuing **any** option (Jeff's explicit constraint); changing
+  the 15-minute grid, the label format, the floor-of-now default, the smart same-sitting default, or grouping
+  semantics; a custom listbox/combobox; a background fill on options; encoding the shading into label text
+  (would regress the fixed-width labels); `MealItemForm` (it has no time field at all); and any promise that
+  option **colour** renders on macOS or mobile — it will not, and that is expected (§5).
+- **§6 scope for qa-reviewer:** unit — `quarterHourOptionGroups`/`quarterHourGroupIndexFor`, with **the identity
+  row as the one to hammer**: the groups' options concatenated must deep-equal `quarterHourOptions()`. Acceptance
+  — the *"Time-picker grouping"* block in §6, with two further rows to hammer: **96 options still present,
+  selectable and undisabled** across all three call sites, and **the off-grid edit invariant** (a legacy `09:07`
+  is still injected, still selected, now inside Daytime, and an unrelated save still doesn't rewrite it).
+  Carried-forward Phase 3/7/8b time rows must pass unchanged — a regression there means the change reached below
+  the label boundary.
+- **Manual check (the part CI cannot do):** open the picker on **desktop and a real phone** and record what each
+  platform actually renders — group labels expected everywhere, colour on Windows/Linux only. **"No colour on
+  iOS" is the documented expected result, not a bug**; "no group labels anywhere" would be the finding worth
+  reporting.
+
+### Phase 8f — Saved meals: pinning and duplicating (2026-08-05 addition)
+
+**Why its own phase, and why these two together.** Both are `/meals`-only, both land on the same `MealList` card
+action row, and they must be designed against each other (does a duplicate inherit a pin? — §3.3 says no, and
+that is a decision, not a detail). Splitting them would mean two phases reopening the same file to re-derive the
+same card-expander invariants — 8b's exact reasoning for bundling its two bulk actions. Keeping them **out of
+8d** is the other half of the same rule: different screen, and this phase carries **the only schema change in the
+batch**, which Phase 2's own precedent says to isolate rather than mix into a UI diff. **Numbered 8f.**
+
+**Dependencies: Phase 7/7c (hard), Phase 8d (soft but real).** It builds on the meals library and its shared
+ordering, and its expander uses the `ActionPanel` primitive 8d introduces — building 8f first would mean
+building that component twice, the same argument that placed 8c after 8b.
+
+**This is the first migration since Phase 2, and it should be reviewed like one.** One column
+(`meals.is_pinned boolean not null default false`), no new table, no backfill, no index, and **no new RLS
+policy — because the existing four already cover it** (§3.2). That last claim is the one a reviewer must
+**verify by querying the policies**, not by reading the migration: "an ALTER needs no policy" is true here and
+would not be true of a new table, and this project's Absolute Rules do not permit assuming it.
+
+- **In:** the migration above and `Meal.is_pinned` in `lib/types.ts`; **`setMealPinned`** and **`duplicateMeal`**
+  in `lib/actions/meals.ts` (§3.3 — ownership re-read through the RLS-scoped client, `meal_not_found` reused,
+  compensating delete reused, `sort_order` **preserved**, `is_pinned` **not** copied, strictly read-only on the
+  source); `sortMealsByName` **partitioning pinned-first** with the existing comparator inside each block, and
+  `duplicateMealName`, both in `lib/domain/meals.ts` with unit tests; a **pin toggle** (icon + visually-hidden
+  text + `aria-pressed`) and a **"Pinned" status pill** on each `MealList` card; a **"Duplicate"** control opening
+  **`components/meals/DuplicateMealDialog.tsx`** (new, wrapped in `ActionPanel`, name prefilled and
+  pre-selected); `LogMealDialog`'s picker gaining **`Pinned` / `All meals` optgroups** only when something is
+  pinned, with 7c's name-first label invariant intact; **`ActionPanel` applied to `LogMealDialog`'s two call
+  sites** so `/meals` doesn't keep a visibly different idiom; **adoption of Phase 8d's icon vocabulary on this
+  screen** (§3.4) — `MealList`'s per-**item** rows get icon + `Tooltip` for Edit/Delete, the
+  existing ↑/↓ arrows keep their `aria-label` and gain a `Tooltip`, and the pin toggle joins them as an icon-only
+  control (`aria-label` + `aria-pressed` + `Tooltip`, with the "Pinned" pill carrying the state in text);
+  **amended 2026-08-07** — per the "Icons replace buttons+text entirely" decision these are now **icon-only**,
+  not icon + visible label, so this bullet's original "+ visible label" wording is superseded and the pin toggle
+  is no longer the app's *only* icon-only control, just its only one with no text equivalent anywhere. Use the
+  same ``aria-label={`Delete ${itemName}`}`` disambiguation Phase 8g establishes on `/food`, so the two screens
+  ship one vocabulary. Also in: the **named refactor** replacing `MealList`'s
+  `renamingMealId`/`loggingMealId` with a single `cardAction: { mealId, kind }` (the `FoodEntryList.groupAction`
+  shape) — called out here rather than left to be found in the diff, which is exactly what produced a blocking
+  finding in 7b and 7c.
+- **Out — say no to all of these explicitly:** `pinned_at`, a pin cap, drag-to-reorder, a manual `meals.sort_order`,
+  section headings or a divider between pinned and unpinned, tags/categories/folders (out of scope project-wide —
+  this phase must not be their door either); pinning overriding the filter; provenance on the duplicate
+  (`duplicated_from_id`); auto-unique naming (`(copy 2)`); duplicating **into** an existing meal, or duplicating
+  several at once; any multi-select on `/meals`; any change to the two-flat-queries read strategy, the filter, the
+  count readout, or expand-by-default; **any restructure of the card action row beyond adding these two controls**
+  (its density is a §5 open question — recommendation recorded, decision Jeff's); and any change to
+  `logMealForDay`, `createMealFromEntries` or `copyFoodEntries`.
+- **§6 scope for qa-reviewer:** unit — `sortMealsByName`'s pinned-first partition and `duplicateMealName`.
+  Acceptance — the whole *"Pinned meals and duplicating a meal"* block in §6, with **three rows to hammer**:
+  **(1) RLS on the new column verified by query** — including that user B cannot pin user A's meal, with a
+  service-role read proving A's row is untouched; **(2) the duplicate preserves non-contiguous `sort_order`**
+  (seed 0/2/5, so an implementation that mechanically reused `mealItemsFromEntries`' 0..N-1 renumbering fails);
+  and **(3) the source meal and its items are byte-identical afterwards**, `updated_at` included — Phase 7b's
+  read-only invariant, re-proved for the meal→meal direction. Carried-forward Phase 7/7b/7c/8c rows must keep
+  passing: meal CRUD, the filter and counts, both empty states, `logMealForDay` from both entry points, and the
+  picker's ordering and name-first labels.
+- **Manual-browser check:** pin two meals with a filter active and confirm the filter still wins; duplicate a
+  meal **with a card expanded and a filter applied** and confirm the refetch preserves both; and confirm the
+  pinned state is legible **without relying on the icon's fill** (the "Pinned" pill is the accessible carrier).
+
+### Phase 8g — Delete back on the entry row, icon-only row actions, and a louder editing highlight (2026-08-07 addition)
+
+**Why its own phase, and why these three together.** Jeff's findings 5, 6 and 7 from the 2026-08-07 round all
+land in the **same three files** (`FoodEntryList`, `FoodEntryForm`, `FoodDayView`) and, more to the point, in the
+**same JSX block** — the row-action conditional. They also have to be designed against each other: the new trash
+icon must not fight the stronger highlight, and the highlight's suppression rule is what decides whether a
+mid-edit row has a delete affordance at all (it doesn't — §3.4). Splitting them would mean three sessions
+re-deriving one interaction rule in one conditional, which is precisely the outcome §4's scoping rule exists to
+avoid, and the same reasoning 8b used to bundle its two bulk actions. **Numbered 8g**, the 7b/7c/8b/8c/8d/8e/8f
+convention, so no existing "Phase 9" reference moves.
+
+**It also absorbs the `FoodEntryList` half of the 2026-08-07 icon-only decision** (`ai-context/DECISIONS.md`,
+"Icons replace buttons+text entirely"), which was already decided and is merely unbuilt. That is not scope creep:
+dropping the visible labels from "Log again"/"Edit" edits the identical lines the trash icon is added to, so
+doing it in a separate session would have two developers fighting over one block. **The `/meals` half stays in
+Phase 8f**, unchanged, so that screen's files are still opened by exactly one phase.
+
+**Dependencies: Phase 8d (hard), nothing else.** It reverses 8d's Delete placement, edits the row actions 8d
+built, and reuses 8d's `Tooltip`/`icons.tsx`. 8d has shipped and is qa-reviewed; **8g should not start until Jeff
+approves 8d**, or the reversal lands on top of a diff he hasn't accepted yet.
+
+**Adds no server action, no schema, no `lib/domain/` module, and no new `components/ui/` primitive.** Everything
+it needs already exists (`deleteFoodEntry`, `TrashIcon`, `Tooltip`, `entryDisplayLabel`). If a migration or a new
+action appears, that is a deviation worth questioning.
+
+- **In:**
+  - **Delete returns to the entry row** as an icon-only `danger` button inside the **existing**
+    `!selectMode && !isEditingRow && !isGroupActive` conditional (no new branch), with a `window.confirm` naming
+    the entry, placed in `FoodDayView`'s handler — mirroring `MealList.handleDeleteMeal` exactly (§3.4).
+  - **`FoodEntryForm` loses `onDelete`, its "Delete entry" button and its `TrashIcon` import.**
+  - **`FoodDayView.handleDeleteEditingEntry()` becomes `handleDelete(entry)`**, keeping Phase 8d's qa **N-4**
+    error handling verbatim and additionally clearing `editingEntry` when the deleted row is the one being edited.
+  - **All three row actions become icon-only** (repeat / pencil / trash), each with
+    ``aria-label={`<Verb> ${entryLabel}`}`` built from the existing `entryDisplayLabel` helper, generous tap
+    padding, a hover/focus background, and its existing pointer-only `Tooltip`.
+  - **The editing row is promoted to emphasis level 1+** (§3.4): keep the `border-l-4 border-l-sage-deep` bar, add
+    `ring-2 ring-inset ring-sage-deep`, and change the "Editing" caption to a filled `bg-sage-deep text-paper`
+    pill. **Surface unchanged** — no row fill.
+  - **The in-the-same-change test sweep**, named because this is the fourth consecutive phase where an existing
+    suite pins something a new phase reverses: Phase 8d's *"the label is never hidden at a phone viewport"* row
+    and its *"the row is two actions, not three / Delete is in the edit form"* row both become **false by
+    design** and must be rewritten, not deleted or left red. Every existing spec that deletes an entry via
+    Edit → "Delete entry" (`food-logging`, `phase3-acceptance`, `phase7b-acceptance`, `phase8b-acceptance` — the
+    files Phase 8d itself edited for the opposite reason) goes back to the row control **and must now handle the
+    `confirm` dialog**, which is the specific thing that will otherwise hang every one of them.
+- **Out — say no to all of these explicitly:** bulk delete or a delete in `EntrySelectionBar` (destructive,
+  no undo, its own round — unchanged from 8b); an undo/toast-with-undo (a real feature, not a safeguard, and it
+  would change the delete action's contract); a custom confirmation dialog or modal (this codebase has declined a
+  modal primitive four times; `window.confirm` is the in-repo pattern); a `bg-sage-pale` or any other **fill** on
+  the editing row; renumbering the emphasis ladder; a second `scrollIntoView` targeting the edited row (8b's
+  rejection stands — §3.4); any change to select mode, the group expanders, `ActionPanel`, `DayNavigator`, the
+  `/meals` icon adoption (8f's), a server action, `lib/domain/*`, or the schema; and **any attempt to fix the
+  documented `Day`-input race** (§5, different investigation).
+- **§6 scope for qa-reviewer:** no new unit surface. Acceptance — the *"Row delete, icon-only actions, and the
+  stronger editing highlight"* block in §6, with **three rows to hammer**: **(1) both halves of the reversal
+  asserted together** (row control present **and** form control absent — a one-sided test passes an
+  implementation that ships two delete paths); **(2) dismissing the confirm deletes nothing**, proven by a
+  service-role read, not by the UI; and **(3) the highlight is louder without collateral damage** — computed
+  ring + filled pill present, row background unchanged, and a "From a saved meal" badge in that same row still
+  visible and distinguishable. Carried-forward Phase 8/8b/8d rows must keep passing — especially select mode,
+  the group expanders and refresh survival, since this phase edits the conditional they all flow through.
+- **Manual-browser check (do not skip):** on a **phone-sized viewport**, confirm the three icon buttons are
+  individually tappable without hitting a neighbour (this is the density change Jeff asked for, and the trash
+  sitting beside "Edit" is exactly the mis-tap 8d was protecting against — the confirm is what makes it
+  survivable, so tap it deliberately and confirm the prompt appears); and confirm the editing highlight is
+  findable when scrolling back to the list, since that — not the moment of clicking "Edit" — is when it has to
+  work (§3.4).
+
+### Phase 8h — Retire the dashboard; last-logged weight moves to `/metrics` (2026-08-07 addition)
+
+**Why its own phase, and why not folded into 8g.** It shares **no files** with 8g and has no interaction with it:
+it deletes one route and one component and touches `/metrics`. Bundling a route deletion plus a five-file e2e
+sweep into a phase about row buttons would make the diff unattributable, which is the failure mode §4's scoping
+rule and two prior blocking findings exist to prevent. It is small enough to ship in an afternoon and is
+**independent of 8g in both directions** — either order, or in parallel. **Numbered 8h.**
+
+**Dependencies: none.** Nothing in phases 8d–8g touches `(app)/page.tsx`, `TodaySummary` or `/metrics`'s read.
+
+**Recommendation, since Jeff asked for one rather than options: retire it.** The reasoning is in §3.4 — every
+candidate for a dashboard either already exists one click away (`DailyTotals` on `/food`, the charts on
+`/trends`) or belongs on the screen it is about (last-logged weight on `/metrics`). The current page is a literal
+duplicate of `/food`'s totals behind an extra click, in an app whose stated first priority is that logging must
+be fast.
+
+- **In:**
+  - **`(app)/page.tsx` becomes `redirect("/food")`** — the route stays so the auth callback, the sign-in redirect
+    and the header wordmark all keep working untouched. Its `metadata` goes with the page body.
+  - **`components/food/TodaySummary.tsx` is deleted** (nothing else imports it — verified).
+  - **A "last logged" line on `/metrics`**, above the form: *"Last logged: 182.4 lb · 18.2% body fat on
+    08/05/2026"*, via `weightForDisplay`/`formatWeight` and `formatDateLabel`, **absent entirely** when the user
+    has never logged a metric. Read inside `MetricForm`'s existing client fetch so the existing `refetch()` keeps
+    it accurate after a save — **its own commit**, since it reaches a Phase 4 file this phase otherwise doesn't
+    open (§4's scoping rule).
+  - **The e2e sweep, in the same change**: `e2e/auth.spec.ts`, `e2e/phase1-acceptance.spec.ts`,
+    `e2e/fetch-error-handling.spec.ts` and `e2e/phase8-acceptance.spec.ts` all assert on the dashboard or
+    `TodaySummary` today. `fetch-error-handling`'s dashboard row should **move to another client-read surface**,
+    not be dropped — that suite's whole point is that every browser-side read has an error+Retry path.
+- **Out — say no to all of these explicitly:** building any dashboard content (charts, streaks, recent entries,
+  goal rings); an all-time / "oldest-to-latest" progress chart (that is a `/trends` `All` range — §5, deferred
+  with a recommendation, not smuggled in here); any stored or denormalised "progress" value (AGENTS.md's standing
+  rule); repointing the wordmark, the auth callback or the sign-in redirect away from `/`; removing or renaming
+  any nav item; a Server Component read for the last-logged line (rejected on staleness-after-save — §3.4); and
+  any change to `MetricForm`'s tz gate, its upsert, or the `daily_metrics` schema.
+- **§6 scope for qa-reviewer:** no new unit surface. Acceptance — the *"Retiring the dashboard"* block in §6, with
+  **two rows to hammer**: **(1) `/` genuinely lands on a working `/food`** (assert real rendered content and the
+  final URL, since a redirect that 200s on an empty page passes a naive check), and **(2) the last-logged line
+  updates after a save without a reload** — the single behaviour the client-read choice exists to guarantee, and
+  the one a "simplification" back to a server read would silently break. Carried-forward auth/session rows must
+  keep passing: login still lands somewhere sensible, log out still clears the session.
+- **Manual-browser check:** log in and confirm the first thing on screen is the day's log, with no intermediate
+  flash of a dashboard; click the wordmark from `/settings` and confirm it lands on `/food`; and log a weight on
+  `/metrics` and watch the "last logged" line update in place.
+
+### Phase 8i — Visual identity v2: cool canvas, blue/orange accents, no serif (2026-08-09 addition)
+
+**Why a numbered phase this time, when the 2026-07-25 rollout was deliberately *not* one.** That rollout was
+framed as cross-cutting precisely because it had no place in the 1→9 dependency chain, and that framing is still
+true of the work itself. What changed is the evidence: cross-cutting framing came with *"qa-reviewer reviews it
+as a standalone change… not as a numbered §6 phase row"*, and the acceptance suite that pass produced
+(`e2e/visual-identity-acceptance.spec.ts`) has now hardened the old palette into the regression suite — so a
+successor cannot ship without a real checkpoint that owns rewriting it. It also **reverses two recorded
+decisions** and touches essentially every screen. Both are things this project's own rules say get a checkpoint
+and Jeff's approval. **Numbered 8i**, continuing the 8b–8h lettering rather than renumbering Phase 9.
+
+**The 2026-07-25 "Visual identity rollout" section at the end of this document is superseded by this phase** and
+is kept in place, marked, rather than deleted — the same convention `ai-context/DECISIONS.md` uses.
+
+**Dependencies: none, and it blocks nothing. But see the ordering note.** It touches no data model, no action, no
+RLS and no `lib/domain/` module. **Recommendation: land Phase 8h first** (§5) — 8h deletes two files 8i would
+otherwise restyle, and both phases must edit `e2e/visual-identity-acceptance.spec.ts`'s dashboard assertions.
+Either order works; **concurrently does not**.
+
+**Two passes, at the same seam that worked last time**, because the reasoning still holds: pass A is the
+dependency for pass B, and splitting there keeps each half independently reviewable and revertable.
+
+- **Pass A — tokens, fonts, and the eight primitives.** This is where ~80% of the visual change actually happens.
+  - **`src/app/globals.css`**: replace the six `:root` custom properties with the nine in §3.4's table
+    (`--canvas`, `--surface`, `--ink`, `--muted`, `--line`, `--line-strong`, `--accent`, `--accent-soft`,
+    `--accent-warm`); expose each in `@theme inline` as `--color-*`; repoint `--background`→`--canvas` and
+    `--foreground`→`--ink`; **remove `--font-serif`** from `@theme inline`. Leave the `@source` directive and the
+    `.tooltip-panel` media-query block untouched — both are load-bearing and unrelated (the first is the NB-1
+    dead-CSS fix, and this doc's own prose quoting old class names is exactly what it defends against).
+  - **`src/app/layout.tsx`**: delete the `Fraunces` import, its instance, and `${fraunces.variable}` from the
+    `<html>` className. Geist Sans and Geist Mono stay exactly as they are.
+  - **The eight primitives**, per §3.4's mapping table: `Button` (primary → `bg-accent text-white`; secondary
+    border → `--line-strong`, the SC 1.4.11 fix; both → `rounded-lg`; focus outline → `--accent`; **`danger`
+    unchanged**), `Card` (`rounded-xl`, `border-line`), `NavLink` (active → `bg-accent-soft text-ink`, **still a
+    pill**), `styles.ts` (`inputClass` border/focus, `labelClass` → `--ink`, placeholder → `--muted`;
+    **`errorTextClass` unchanged**), `StatusMessage`, `ActionPanel`, `Tooltip`, `icons.tsx` (`currentColor`
+    already — verify, don't edit).
+- **Pass B — the hand-edit list, which is the half that does not propagate.** §3.4 enumerates all seven items;
+  the four worth restating as sequencing risks: **(1)** every `font-serif` occurrence (at most sites, deleting
+  the single class is the entire edit — the weight/tracking classes are already beside it); **(2)** ~100
+  `stone-*` occurrences across ~31 files, where **text and border** uses move to the new **tokens** and only
+  fills/hovers may take a raw `slate-*`; **(3)** the sage arc `<svg>` in `(auth)/layout.tsx` is **deleted**;
+  **(4)** `chartTheme.ts`'s two hardcoded hexes and the 20 `text-sage-deep`/`text-clay` classNames in
+  `WeightChart`/`IntakeChart` — with calories taking `--accent-warm` so the chart agrees with 8j's bar colour.
+- **Out — say no to these explicitly:** any layout, copy, component-structure or interaction change (this is
+  colour, type and radius only); any change to `lib/domain/`, actions, schema or RLS; adopting a component
+  library; adding a second font family (**§5 open question — Jeff's call, not the developer's**); a dark theme
+  (still explicitly light-only for v1 — do **not** reintroduce a `prefers-color-scheme` block); restyling the
+  semantic reds or the amber auth-callback notice; and building anything from the reference that this doc did
+  not ask for (a logo mark, per-item icon chips in the food list, "Unlabeled meal" subtext).
+- **§6 scope for qa-reviewer:** the *"Visual identity v2"* block in §6. **The two rows to hammer**: **(1) the
+  tokens genuinely compute** in a real browser (a `:root` property never wired into `@theme inline` yields a
+  class that silently does nothing), and **(2) no serif survives anywhere**, including that Fraunces is
+  un-registered rather than merely unused. **The required in-the-same-change sweep is
+  `e2e/visual-identity-acceptance.spec.ts` (rewritten in place — every assertion is false by design) and
+  `src/components/food/FoodEntryList.test.tsx` (8 literal class-name assertions).** Fifth consecutive phase to
+  carry one of these; two of the previous four shipped without it and produced a blocking finding.
+- **Manual-browser check — Jeff's, and it is the only one that tests the actual complaint** ("dull and busy",
+  "green buttons and creme background look ugly", "ornate fonts in the summary card"): walk every screen — both
+  auth pages, `/food` (including an open `ActionPanel` and a row mid-edit), `/meals`, `/metrics`, `/trends`,
+  `/settings` — and confirm no cream, no green, no serif, and that the card borders now read as quiet rather than
+  boxed-in. Then check `/food` on a phone, since that is his primary device and the row actions are icon-only.
+
+### Phase 8j — Daily calorie/protein goal progress on `/food` (2026-08-09 addition)
+
+**Why its own phase, and why not folded into 8i.** It is a **feature**, not a restyle: it adds a pure domain
+module, a new data read on `/food`, a new shared `ui/` primitive and real user-visible behaviour with its own
+edge cases (no goal, one goal, over target). 8i is presentation-only and must stay that way — its whole
+verification premise is *"a red test outside the two named files means logic was touched"*, which folding a
+feature into it would destroy. This is the same scoping rule that split 8d/8e/8f.
+
+**Dependencies: soft on 8i, hard on nothing.** It could ship first and draw its bars in `--sage-deep`/`--clay`.
+**Recommendation: 8i first**, so the bars are born in their final colours and 8i's rewritten acceptance suite
+does not have to be touched twice. The two share exactly one file (`DailyTotals.tsx`), so **do not run them
+concurrently**.
+
+**Adds no schema and no server action** — confirmed, not assumed: `user_goals` already holds both targets,
+`getGoals()` already reads them, `/settings` already edits them, and `daily_food_totals` already supplies the
+consumed figures summed on read. If a migration or a new action appears in this diff, the scope was
+misunderstood.
+
+- **In:**
+  - **`lib/domain/goal-progress.ts`** — one pure function, signature in §3.4. **`pct` unclamped, `barPct`
+    clamped**; `null` for a `null`, zero or negative target.
+  - **`components/ui/ProgressBar.tsx`** — a thin decorative bar: neutral track, `--accent` or `--accent-warm`
+    fill, width from `barPct`, **`aria-hidden="true"`**, no `progressbar` role and no `aria-valuenow`.
+  - **`components/food/DailyTotals.tsx`** — three cards in a responsive grid (calories, protein, % from protein);
+    bar + `N of M · N remaining` caption on the first two **only when that card's target is set**; **"320 over"**
+    wording when over; a single *"Set daily targets"* link to `/settings` **only when both targets are unset**.
+  - **The goals read**: `getGoals()` in `food/page.tsx` (Server Component), passed as a prop through
+    `FoodDayView` → `FoodDayViewContent` → `DailyTotals`. `food/page.tsx` becomes `async`. **Deliberately
+    server-side, against this screen's client-read convention** — reasoning in §3.4/§4, and the asymmetry with
+    Phase 8h's client-read last-logged line is recorded so neither gets "simplified" into the other's bug.
+- **Out — say no to these explicitly:** any stored/denormalised progress value (AGENTS.md's standing rule); any
+  new summation logic (`daily_food_totals` and `sumEntries` already exist); a bar on the protein-% card (there is
+  no target for it); goal history or per-day targets (the 2026-07-19 "single current goal" decision stands —
+  browsing a past day shows it against **today's** target, §5); editing goals from `/food` (that is `/settings`,
+  and a second edit path is exactly what the 2026-07-31 dashboard descope rejected); reviving the dashboard;
+  streaks, rings, weekly rollups or "on track" projections; a red over-target bar; and any change to
+  `daily_food_totals`, `getGoals`/`updateGoals`, or `/settings`.
+- **§6 scope for qa-reviewer:** the *"Daily goal progress"* block in §6. **The two rows to hammer**: **(1) the
+  no-goal fallback is byte-for-byte today's behaviour** (assert the *absence* of bar and caption — a 0%-width bar
+  passes a presence-only test and looks broken), and **(2) over target keeps the caption truthful while clamping
+  only the bar** (`pct 140` / `barPct 100`), the one pairing a single clamped percentage silently breaks. Also:
+  partial goals are independent per card; nothing is stored; cross-user isolation through this new read path.
+- **Manual-browser check:** with no goals set, confirm `/food` looks exactly as it does today. Set a calorie
+  target only, and confirm the protein card is untouched. Log past the target and confirm it reads "over", the
+  bar is full, and nothing turns red. Then browse to a past day and confirm the totals change while the targets
+  do not.
+
+### Phase 8k — The `/food` day-action surface: one toolbar, one panel outlet, real disclosure affordances (2026-08-11 addition)
+
+**Why one phase for four findings.** Jeff's findings 1–4 from the 2026-08-11 round are all `/food` presentation,
+but that is not the reason they are bundled — findings 2, 3 and 4 are the *same surface* (the day-action row,
+its panels, and select mode), share the *same files* (`FoodDayView`, `CopyDayDialog`, `LogMealDialog`,
+`EntrySelectionBar`), and **have to be designed against each other**: where the panel renders (2) decides
+whether the selection bar can be its own accent region (3), and the toolbar container (4) is the thing that
+stops existing (2). Splitting them would mean three phases reopening one row to re-derive one layout rule —
+the expensive outcome, per the 8b/8f bundling precedent. **Finding 1 (the lookup expander's affordance) reaches
+two files this phase does not otherwise open** (`FoodEntryForm`, `FoodLookupPanel`), so it follows the recorded
+rule for that case: **still in this phase's checkpoint, but as its own commit**, exactly as Phase 8b handled the
+`StatusMessage` restyle. **Numbered 8k**, continuing the 8b–8j lettering.
+
+**Dependencies: 8b (hard), 8d (hard), 8c (soft).** It restructures select mode (8b), moves `ActionPanel`/
+`Tooltip` (8d) onto new callers, and must not regress `LogMealDialog`'s fixed-meal mode (8c). It depends on
+nothing after 8d and blocks nothing.
+
+**Adds no server action, no schema, no `lib/domain/` module, and no data read.** Two new presentational
+components (`food/DayActionBar.tsx`, `ui/DisclosureButton.tsx`), one moved piece of state, and layout. If a
+migration, an action, or a query appears in this diff, the scope was misunderstood.
+
+- **In (commit 1 — the day-action surface, findings 2/3/4):**
+  - **`components/food/DayActionBar.tsx`** — the three triggers in one quiet container
+    (`rounded-xl border border-line bg-white shadow-sm p-2`), each wrapped in `Tooltip` with the strings in
+    §3.4. **No `role="toolbar"`, no group `aria-label`.** It renders **no panel**.
+  - **`CopyDayDialog` and `LogMealDialog` become panel-only in every mode** — internal `open` state and the
+    collapsed-button branch removed; **both `w-full` wrappers deleted**. `MealList`'s fixed-meal call site needs
+    **no change**.
+  - **`FoodDayView`** owns `dayAction: "logMeal" | "copyDay" | null` (single slot, the `groupAction`/`cardAction`
+    shape), renders `DayActionBar` then a **panel outlet** directly beneath it, and keeps `selectMode` separate.
+    The N-3 rule holds: `dayAction` changes only from user clicks.
+  - **Select mode becomes one `ActionPanel`**, keyed on `bulkAction`, heading `"Select entries"` →
+    `"Copy selected"` → `"Save selected as a meal"`, with `EntrySelectionBar` and the chosen bulk form as its
+    children, and **the bar's four buttons suppressed while a bulk form is open** (the count stays; the
+    checkboxes stay live).
+- **In (commit 2 — disclosure affordances, finding 1):**
+  - **`components/ui/DisclosureButton.tsx`** — `Button variant="secondary" size="sm"` + the existing
+    `ChevronDownIcon` (`rotate-180` when open) + `aria-expanded` + `aria-controls`. No new glyph, no dependency.
+  - Applied to **both** `FoodEntryForm` expanders (lookup, and "Add detail"/"Hide detail"); the trigger **stays
+    rendered while open** and `FoodLookupPanel`'s separate "Close" link is **removed**.
+- **Out — say no to these explicitly:** wrapping `FoodEntryForm`, "Add detail" or `FoodLookupPanel` in
+  `ActionPanel` (§3.4's standing rule — these are optional detail, not actions awaiting completion); making the
+  lookup trigger a tab; a sticky/floating toolbar (still no sticky pattern in this codebase); any change to the
+  lookup, prefill, quantity/unit, grouping or copy behaviour; any change to `MealList`, `/meals`, or the group-
+  header action bar in `FoodEntryList`; and adding a fourth emphasis-ladder rung.
+- **§6 scope for qa-reviewer:** the *"The `/food` day-action surface"* block in §6. **The row to hammer** is the
+  geometric one — with each panel open in turn, all three triggers are still present **and above** the panel
+  (compare bounding boxes; a visibility-only assertion passes with the bug present). Also: exactly one accent
+  region in select mode, focus landing inside the bulk form, and **re-running the refresh-survival assertion
+  against the new structure** — the state changed owners, so the existing passing test proves nothing.
+  **This is the first phase in six with no *known* required rewrite of an existing spec — verify that claim,
+  do not trust it** (§5): `phase8b`'s `selectionBar()` helper and its `"Copy selected"`-submit lookups, and
+  `phase8d`'s "focus lands inside" rows, are the three places most likely to be wrong.
+- **Manual-browser check — the actual complaint:** open each of the three panels and confirm the buttons stay
+  together above it; enter select mode and confirm the bar reads as an active surface rather than a card; hover
+  each trigger on a pointer device and confirm the tooltip explains rather than repeats; then check the same row
+  at a phone width, where the three buttons wrap and the panel outlet matters most.
+
+### Phase 8l — The auth screens get the app's name back (2026-08-11 addition)
+
+**Why its own phase.** It shares **no files** with 8k (`(auth)/layout.tsx`, the two auth pages, a new
+`ui/Wordmark.tsx`, and one line of `(app)/layout.tsx`), it is presentation-only, and it is the direct consequence
+of a Phase 8i decision (deleting the sage arc) rather than part of 8k's interaction work. **Numbered 8l.**
+
+**Dependencies: 8i (hard — it is styling *within* the v2 palette), nothing else.** It blocks nothing except
+8m, which should inherit the finished auth treatment rather than be restyled after the fact.
+
+**Adds no route, no action, no schema, and no `lib/domain/` module.**
+
+- **In:**
+  - **`components/ui/Wordmark.tsx`** — "Health" in `--ink` + "Tracker" in `--accent`, plain text spans, **no
+    `aria-label`** (the header link's accessible name must stay exactly `"Health Tracker"`).
+  - **`(auth)/layout.tsx`** — the wordmark above the card, the tagline *"Log food, weight and body fat in
+    seconds."* (`text-sm text-muted`) beneath it, and `shadow-lg` on **this** card via `className`.
+  - **`(app)/layout.tsx`** — its header link renders `<Wordmark />` instead of the bare string, so there is one
+    implementation of the app's name.
+- **Out — say no to these explicitly:** **any decorative `<svg>` on the auth screens** (the Phase 8i guard in
+  `e2e/visual-identity-acceptance.spec.ts` must keep passing **unedited** — if this phase's diff touches that
+  assertion, it has gone out of scope); a logo mark or image asset; changing `Card`, `Button` or `styles.ts`;
+  changing either page's `<h1>`, any field label, `autoComplete` value or button text; restyling the amber
+  `auth_callback_failed` notice; and any copy change beyond the tagline.
+- **The one overrulable call:** the two-tone wordmark. If Jeff prefers plain ink, it is a one-line change in one
+  file — which is the argument for the component existing. Likewise the tagline is one deletable line.
+- **§6 scope for qa-reviewer:** the *"Auth-screen identity"* block in §6 — the app names itself on both auth
+  screens; the header link's accessible name is **exactly** unchanged; the zero-decorative-`<svg>` assertion
+  still passes as written; and `e2e/auth.spec.ts` + `e2e/phase1-acceptance.spec.ts` re-run in full, since every
+  locator on these two pages lives in them.
+- **Manual-browser check:** load `/login` cold and ask the question Jeff asked — does this page say what the app
+  is, and does it look deliberate? Then `/signup`, then both at a phone width.
+
+### Phase 8m — Password reset (2026-08-11 addition)
+
+**Why its own phase, and why it is not a small one.** It is the only genuinely **new capability** in this round:
+two new routes, two new Server Actions, two new pure validators, and an **email-triggered flow that leaves the
+app and comes back**, with a real edge case (a link that arrives with no valid session) that the other findings
+do not have. Folding it into a presentation phase would destroy that phase's verification premise, the same
+reasoning that split 8j from 8i. **Numbered 8m.**
+
+**Dependencies: 8l (soft but real).** It adds a link to `/login` and two pages inside `(auth)/`, which should be
+born with 8l's treatment rather than restyled afterwards; the two also both touch `/login`, so **do not run them
+concurrently**. It has no dependency on 8k in either direction.
+
+**Touches no application table, no RLS policy and no migration** — this is Supabase Auth only. `user_id` never
+appears; the Absolute Rules in play are "server-side only" (both actions are `'use server'`; no browser-side
+Supabase auth calls) and "no user data to third parties" (nothing leaves the system but the address Supabase
+already holds).
+
+- **In:**
+  - **`lib/domain/auth-validation.ts`** — `validateForgotPasswordInput`, `validateNewPasswordInput`, reusing
+    `isValidEmail`/`isValidPassword`/`MIN_PASSWORD_LENGTH`; the `FieldError` union is **unchanged**.
+  - **`lib/actions/auth.ts`** — `requestPasswordReset` (neutral confirmation always; a genuine send failure gets
+    its own generic message) and `updatePassword` (server-side session re-check, then `updateUser`, then
+    `signOut()` + `redirect("/login?reset=success")`).
+  - **`(auth)/forgot-password/page.tsx`** + its client form; **`(auth)/reset-password/page.tsx`** + its client
+    form, with the page doing a server-side `getUser()` check and rendering an explanatory
+    "invalid or has expired" state (and **no form**) when there is no session.
+  - **`(auth)/login`** — a "Forgot password?" link, and a `?reset=success` confirmation notice reusing the
+    existing `?error=` query-flag pattern.
+  - **`auth/callback/route.ts`** — **no logic change**; only the `auth_callback_failed` copy is generalised, and
+    it **must keep the substring "invalid or expired"** (an existing assertion depends on it).
+- **Out — say no to these explicitly:** changing a password while signed in (a `/settings` feature, §5);
+  magic-link or passwordless login; custom SMTP or a branded email template (the 2026-07-19 built-in-sender
+  decision stands); a second callback Route Handler; any change to `middleware.ts`, the `(app)/` auth gate, RLS,
+  or any table; and any client-side Supabase auth call.
+- **§6 scope for qa-reviewer:** the *"Password reset"* block in §6. **The two rows to hammer**: the **full
+  round trip against the real local stack** (request → email → link → set → **old password now fails and the new
+  one works** — assert both halves), and the **neutral confirmation** (an unknown address renders a byte-identical
+  message to a known one). Then: the no-session page state and the action's independent re-check, single-use
+  link behaviour, server-side validation, signed-out-on-success, and the `?next=` open-redirect guard.
+- **Environment note for the developer, from this repo's own history:** the recovery `redirectTo` is a
+  same-origin URL **with a query string**, which nothing exercises today. If the email lands anywhere but
+  `/auth/callback`, suspect `supabase/config.toml`'s `additional_redirect_urls` first (see §5 — the 2026-07-25
+  `127.0.0.1`-vs-`localhost` bug had this exact shape), and note the hosted project will need the same entry in
+  its dashboard. Local `[auth.rate_limit] email_sent = 2` per hour will bite while testing repeatedly.
+
 ### Phase 9 — PWA-lite shell
 - **In:** `app/manifest.ts` (`display:'standalone'`, `start_url`, name/theme) + `icon.png`/`apple-icon.png`.
 - **Out:** service worker / offline / sync / push (explicitly out of scope).
@@ -2387,7 +4812,21 @@ together.
   form, meal forms, metrics, settings, the meals filter and barcode entry. Any field that still prompts is an
   **escalation trigger** (§4), recorded with the field and the specific manager — not a failed phase.
 
-### Visual identity rollout (cross-cutting — two passes, not a numbered feature phase)
+### Visual identity rollout — SUPERSEDED 2026-08-09 by Phase 8i (cross-cutting — two passes, not a numbered feature phase)
+
+> **SUPERSEDED (2026-08-09) by "Phase 8i — Visual identity v2" above.** This section shipped and was
+> qa-reviewed; Jeff has since rejected the palette and typography it describes (*"the green buttons and creme
+> background of our app look ugly"*; *"I do not like the ornate fonts"*). **Kept in place, not deleted**, per
+> this project's convention — it is still the accurate record of how the app looked between 2026-07-26 and
+> Phase 8i, and 8i's own scope is defined partly by reversing it. **What still stands, and is reused rather than
+> re-decided by 8i:** the *structure* — tokens on `:root` exposed through `@theme inline`, `components/ui/` as
+> the single source of truth, no raw hex in components, light-only (no dark theme) — plus the two-pass
+> tokens-then-screens sequencing, which worked and is repeated. **What is reversed:** every colour value, the
+> Fraunces/serif decision, the pill-button and `rounded-2xl` shape conventions, and the "sage arc" motif (which
+> is deleted, not recoloured). **One claim below is now false and is the reason 8i needs a checkpoint of its
+> own:** *"no automated test asserts on Tailwind class-names or colors"* was true when written, but this pass's
+> own qa produced `e2e/visual-identity-acceptance.spec.ts`, and Phase 8g later added class-name assertions to
+> `src/components/food/FoodEntryList.test.tsx` — both now pin this identity and both must be rewritten by 8i.
 
 This restyles every existing screen to the palette/type/shape identity recorded in
 `ai-context/DECISIONS.md` ("Visual identity: warm-paper + sage/clay palette…" and "Visual-identity
@@ -2494,10 +4933,27 @@ is a recommendation only, because 9 is small, isolated and presentation-only, an
 renders on Phase 7's `MealList`, and its success toast uses the `StatusMessage` primitive **8b introduces**, so
 running it before 8b would mean building that component twice. It shares **no files** with 8b, so the two cannot
 conflict; 8c-immediately-after-8b is the recommendation, and 8c↔9 is another free ordering choice.
+(7) **Phases 8i and 8j (2026-08-09) sit outside the dependency chain entirely and block nothing** — 8i is
+presentation-only, 8j adds no schema and no action. But three ordering facts are real rather than preferences:
+**8h before 8i** (8h deletes two files 8i would restyle, and both edit `e2e/visual-identity-acceptance.spec.ts`);
+**8i before 8j** (so 8j's progress bars are born in their final colours and 8i's rewritten acceptance suite is
+not touched twice); and **none of 8h/8i/8j may run concurrently with each other**, because each pair shares at
+least one file — 8h↔8i share the dashboard files and that spec, 8i↔8j share `DailyTotals.tsx`. Sequentially, in
+that order, is the recommendation; any single one of them can also be deferred indefinitely without blocking
+Phase 9.
+(8) **Phases 8k, 8l and 8m (2026-08-11) also sit outside the dependency chain and block nothing**, but three
+facts are real rather than preferences: **8k depends hard on 8b and 8d** (it restructures select mode and moves
+`ActionPanel`/`Tooltip` onto new callers) and must not regress **8c**'s `/meals` call site; **8l depends hard on
+8i** (it is styling inside the v2 palette) and shares **no files** with 8k, so those two are a free ordering
+choice and may even run in parallel; and **8l before 8m**, because 8m adds two pages and a link to the very
+screens 8l restyles — running 8m first means building those pages twice, and running the two **concurrently is
+not safe**, since both edit `/login`. Recommended order: **8k, then 8l, then 8m** — but 8k is genuinely
+independent of the other two and can be resequenced or deferred on its own.
 
 ---
 **Definition of Done for this feature:**
-All 13 phases in §8 (1–9 plus 7b, 7c, 8b and 8c) implemented and individually approved through their per-phase checkpoint
+All 23 phases in §8 (1–9 plus 7b, 7c and 8b–8m — the count was last accurate at 13, before the 8d–8m
+additions; corrected 2026-08-11) implemented and individually approved through their per-phase checkpoint
 (developer implementation + unit tests → qa-reviewer's independent acceptance tests for that
 phase → Jeff's review and approval); the full §6 acceptance-test suite green in CI; and Jeff has
 used the app for real day-to-day food and weight logging for several days with no data loss and

@@ -92,4 +92,39 @@ describe("EntrySelectionBar", () => {
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(onDone).toHaveBeenCalledTimes(1);
   });
+
+  // Phase 8k: "while a bulk form is open, the bar collapses to just its 'N selected' count and
+  // hides its four buttons" (design doc §3.4) -- the same "a surface in a special state yields its
+  // ordinary actions" rule the editing row and the active group already follow.
+  it("bulkFormOpen hides all four buttons but keeps the count visible", () => {
+    render(
+      <EntrySelectionBar
+        selectedCount={2}
+        onCopySelected={vi.fn()}
+        onSaveSelectedAsMeal={vi.fn()}
+        onClear={vi.fn()}
+        onDone={vi.fn()}
+        bulkFormOpen
+      />,
+    );
+    expect(screen.getByText("2 selected")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy selected" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save selected as a meal" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Clear" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Done" })).not.toBeInTheDocument();
+  });
+
+  it("defaults to bulkFormOpen=false -- all four buttons show when the prop is omitted", () => {
+    render(
+      <EntrySelectionBar
+        selectedCount={0}
+        onCopySelected={vi.fn()}
+        onSaveSelectedAsMeal={vi.fn()}
+        onClear={vi.fn()}
+        onDone={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
+  });
 });

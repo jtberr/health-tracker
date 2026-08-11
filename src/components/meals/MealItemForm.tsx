@@ -90,12 +90,13 @@ export function MealItemForm({ mealId, editingItem = null, onSaved, onCancel }: 
   return (
     <form
       action={formAction}
-      className="flex flex-col gap-3 rounded-lg border border-stone-200 bg-stone-50 p-3.5"
+      className="flex flex-col gap-3 rounded-lg border border-line bg-slate-50 p-3.5"
       noValidate
+      autoComplete="off"
     >
-      {isEditing && <input type="hidden" name="id" value={editingItem!.id} />}
-      <input type="hidden" name="mealId" value={mealId} />
-      <input type="hidden" name="mode" value={mode} />
+      {isEditing && <input type="hidden" name="id" value={editingItem!.id} autoComplete="off" />}
+      <input type="hidden" name="mealId" value={mealId} autoComplete="off" />
+      <input type="hidden" name="mode" value={mode} autoComplete="off" />
 
       {!isEditing && <FoodLookupPanel onPick={handleCandidatePick} />}
 
@@ -111,6 +112,7 @@ export function MealItemForm({ mealId, editingItem = null, onSaved, onCancel }: 
           value={name}
           onChange={(e) => setName(e.target.value)}
           className={inputClass}
+          autoComplete="off"
         />
         {state.fieldErrors?.name && <p className={errorTextClass}>{state.fieldErrors.name}</p>}
       </div>
@@ -130,6 +132,7 @@ export function MealItemForm({ mealId, editingItem = null, onSaved, onCancel }: 
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
             className={inputClass}
+            autoComplete="off"
           />
           {state.fieldErrors?.quantity && <p className={errorTextClass}>{state.fieldErrors.quantity}</p>}
         </div>
@@ -145,6 +148,7 @@ export function MealItemForm({ mealId, editingItem = null, onSaved, onCancel }: 
             value={unit}
             onChange={(e) => setUnit(e.target.value)}
             className={inputClass}
+            autoComplete="off"
           />
         </div>
       </div>
@@ -164,6 +168,7 @@ export function MealItemForm({ mealId, editingItem = null, onSaved, onCancel }: 
             value={calories}
             onChange={(e) => setCalories(e.target.value)}
             className={inputClass}
+            autoComplete="off"
           />
           {state.fieldErrors?.caloriesPerUnit && (
             <p className={errorTextClass}>{state.fieldErrors.caloriesPerUnit}</p>
@@ -183,6 +188,7 @@ export function MealItemForm({ mealId, editingItem = null, onSaved, onCancel }: 
             value={protein}
             onChange={(e) => setProtein(e.target.value)}
             className={inputClass}
+            autoComplete="off"
           />
           {state.fieldErrors?.proteinGPerUnit && (
             <p className={errorTextClass}>{state.fieldErrors.proteinGPerUnit}</p>
@@ -194,21 +200,23 @@ export function MealItemForm({ mealId, editingItem = null, onSaved, onCancel }: 
         <legend className={labelClass}>
           Are the calories/protein above per unit, or a total for this quantity?
         </legend>
-        <label className="flex items-center gap-2 text-sm text-stone-700">
+        <label className="flex items-center gap-2 text-sm text-ink">
           <input
             type="radio"
+            autoComplete="off"
             checked={mode === "total"}
             onChange={() => setMode("total")}
-            className="h-4 w-4 accent-sage-deep"
+            className="h-4 w-4 accent-accent"
           />
           Total for the whole quantity
         </label>
-        <label className="flex items-center gap-2 text-sm text-stone-700">
+        <label className="flex items-center gap-2 text-sm text-ink">
           <input
             type="radio"
+            autoComplete="off"
             checked={mode === "perUnit"}
             onChange={() => setMode("perUnit")}
-            className="h-4 w-4 accent-sage-deep"
+            className="h-4 w-4 accent-accent"
           />
           Per unit
         </label>

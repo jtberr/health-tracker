@@ -31,7 +31,7 @@ async function logIn(page: Page, user: TestUser) {
   await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/food");
 }
 
 /**
@@ -700,8 +700,11 @@ test.describe("Phase7b QA: hasLoadedOnce prerequisite", () => {
     const group = await openSaveAsMeal(page, "QA Stay");
     await group.getByLabel("Meal name").fill("survives a delete");
 
+    // 2026-08-07 (Phase 8g): "Delete" is back on the entry row (icon-only, reversing Phase 8d's
+    // edit-form placement) and is guarded by a window.confirm naming the entry.
     const doomedGroup = page.locator("section", { hasText: "QA Doomed" });
-    await doomedGroup.getByRole("button", { name: "Delete" }).click();
+    page.once("dialog", (dialog) => dialog.accept());
+    await doomedGroup.getByRole("button", { name: /Delete/ }).click();
     await expect(page.getByText("QA Doomed")).toHaveCount(0);
 
     await expect(group.getByLabel("Meal name")).toHaveValue("survives a delete");

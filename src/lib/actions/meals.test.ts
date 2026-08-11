@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { execFileSync } from "node:child_process";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createConfirmedTestUser, deleteTestUser, type TestUser } from "../../../e2e/helpers/test-users";
 import { createUserClient } from "../../../e2e/helpers/user-client";
@@ -99,6 +100,70 @@ async function seedMeal(
   if (itemsError || !rows) throw new Error(`seedMeal items failed: ${itemsError?.message}`);
 
   return { meal: meal as Meal, items: rows as MealItem[] };
+}
+
+/** Seeds a meal with items at explicit, possibly NON-CONTIGUOUS `sort_order` values (e.g. 0/2/5) --
+ * `seedMeal` above always assigns sequential 0..N-1, which is exactly the case that would let a
+ * `duplicateMeal` implementation that mechanically renumbers pass by coincidence (design doc §6:
+ * "seed a source whose sort_orders are non-contiguous... so a renumbering implementation fails"). */
+async function seedMealWithSortOrders(
+  client: SupabaseClient,
+  user: TestUser,
+  name: string,
+  items: (SeedItem & { sortOrder: number })[],
+): Promise<{ meal: Meal; items: MealItem[] }> {
+  const { data: meal, error } = await client
+    .from("meals")
+    .insert({ user_id: user.id, name })
+    .select()
+    .single();
+  if (error || !meal) throw new Error(`seedMealWithSortOrders failed: ${error?.message}`);
+
+  const { data: rows, error: itemsError } = await client
+    .from("meal_items")
+    .insert(
+      items.map((item) => ({
+        meal_id: (meal as Meal).id,
+        user_id: user.id,
+        name: item.name,
+        quantity: item.quantity ?? 1,
+        calories_per_unit: item.caloriesPerUnit,
+        protein_g_per_unit: item.proteinGPerUnit,
+        sort_order: item.sortOrder,
+      })),
+    )
+    .select()
+    .order("sort_order", { ascending: true });
+  if (itemsError || !rows) throw new Error(`seedMealWithSortOrders items failed: ${itemsError?.message}`);
+
+  return { meal: meal as Meal, items: rows as MealItem[] };
+}
+
+/** Runs a SQL statement against the real local Supabase Postgres container via `docker exec psql`
+ * (the same technique `e2e/phase7b-acceptance.spec.ts`'s fault-injection tests already use), with
+ * `-t -A -F','` for tuple-only, unaligned, comma-separated output that's trivial to parse into
+ * rows of string cells. Used both to VERIFY the Phase 8f migration's RLS claim by querying the
+ * actual system catalogs (design doc §3.2/§6: "verify by query, not by reading the SQL") and to
+ * fault-inject a forced `meal_items` insert failure for `duplicateMeal`'s compensating-delete test. */
+function psqlCsv(sql: string): string[][] {
+  const raw = execFileSync(
+    "docker",
+    ["exec", "supabase_db_health-tracker", "psql", "-U", "postgres", "-d", "postgres", "-t", "-A", "-F", ",", "-c", sql],
+    { encoding: "utf8" },
+  );
+  return raw
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line.split(","));
+}
+
+function psqlExec(sql: string): void {
+  execFileSync(
+    "docker",
+    ["exec", "supabase_db_health-tracker", "psql", "-U", "postgres", "-d", "postgres", "-c", sql],
+    { encoding: "utf8" },
+  );
 }
 
 /** Builds a FormData with a repeated `entryIds` field, matching how SaveGroupAsMealDialog submits
@@ -757,6 +822,389 @@ describe.skipIf(!hasSupabaseEnv)("meals actions (integration, real Postgres/RLS)
 
       expect(result.ok).toBe(false);
       expect(result.error).toBe("entries_not_found");
+
+      const admin = createAdminClient();
+      const { data: attackerMeals } = await admin.from("meals").select("*").eq("user_id", attacker.id);
+      expect(attackerMeals ?? []).toHaveLength(0);
+    });
+  });
+
+  // -----------------------------------------------------------------------------------------
+  // Phase 8f -- "Saved meals: pinning and duplicating" (2026-08-05/08)
+  // -----------------------------------------------------------------------------------------
+
+  describe("Phase 8f migration + RLS (verified by query, not by reading the SQL)", () => {
+    it("meals.is_pinned exists as NOT NULL DEFAULT false, RLS is still enabled, and all four policies are unchanged", () => {
+      const columnRows = psqlCsv(
+        "select is_nullable, column_default from information_schema.columns " +
+          "where table_schema='public' and table_name='meals' and column_name='is_pinned';",
+      );
+      expect(columnRows).toHaveLength(1);
+      expect(columnRows[0][0]).toBe("NO"); // not null
+      expect(columnRows[0][1]).toContain("false"); // default false
+
+      const rlsRows = psqlCsv(
+        "select relrowsecurity from pg_class where relname='meals' and relnamespace = 'public'::regnamespace;",
+      );
+      expect(rlsRows).toHaveLength(1);
+      expect(rlsRows[0][0]).toBe("t");
+
+      const policyRows = psqlCsv(
+        "select policyname from pg_policies where schemaname='public' and tablename='meals' order by policyname;",
+      );
+      expect(policyRows.map((row) => row[0])).toEqual([
+        "meals_delete_own",
+        "meals_insert_own",
+        "meals_select_own",
+        "meals_update_own",
+      ]);
+    });
+
+    it("a pre-existing meal (created before this test, i.e. via the ordinary insert path) defaults to is_pinned = false", async () => {
+      const user = await createConfirmedTestUser();
+      try {
+        const client = await createUserClient(user);
+        currentClient = client;
+        const { meal } = await seedMeal(client, user, "Default Pin Check", []);
+        expect(meal.is_pinned).toBe(false);
+      } finally {
+        await deleteTestUser(user.id);
+      }
+    });
+  });
+
+  describe("setMealPinned", () => {
+    let user: TestUser;
+    let client: SupabaseClient;
+
+    beforeEach(async () => {
+      user = await createConfirmedTestUser();
+      client = await createUserClient(user);
+      currentClient = client;
+    });
+
+    afterEach(async () => {
+      await deleteTestUser(user.id);
+    });
+
+    it("pins and unpins a meal the caller owns", async () => {
+      const { meal } = await seedMeal(client, user, "Pin Me", []);
+      const { setMealPinned } = await import("./meals");
+
+      const pinned = await setMealPinned(meal.id, true);
+      expect(pinned.ok).toBe(true);
+      const admin = createAdminClient();
+      const { data: afterPin } = await admin.from("meals").select("*").eq("id", meal.id).single();
+      expect((afterPin as Meal).is_pinned).toBe(true);
+
+      const unpinned = await setMealPinned(meal.id, false);
+      expect(unpinned.ok).toBe(true);
+      const { data: afterUnpin } = await admin.from("meals").select("*").eq("id", meal.id).single();
+      expect((afterUnpin as Meal).is_pinned).toBe(false);
+    });
+  });
+
+  describe("setMealPinned -- cross-user rejection (the real RLS test, not just reading the migration)", () => {
+    let attacker: TestUser;
+    let victim: TestUser;
+    let attackerClient: SupabaseClient;
+
+    beforeEach(async () => {
+      attacker = await createConfirmedTestUser();
+      victim = await createConfirmedTestUser();
+      attackerClient = await createUserClient(attacker);
+      currentClient = attackerClient;
+    });
+
+    afterEach(async () => {
+      await deleteTestUser(attacker.id);
+      await deleteTestUser(victim.id);
+    });
+
+    it("user B cannot pin user A's meal -- A's row is untouched (service-role read)", async () => {
+      const victimClient = await createUserClient(victim);
+      const { meal: victimMeal } = await seedMeal(victimClient, victim, "Victim's Meal", []);
+      expect(victimMeal.is_pinned).toBe(false);
+
+      currentClient = attackerClient;
+      const { setMealPinned } = await import("./meals");
+      // `meals_update_own`'s `using`/`with check` mean this UPDATE simply matches zero rows -- not
+      // a thrown error -- so the action itself reports ok:true even though nothing was touched.
+      // The load-bearing assertion is the service-role read below, exactly as the design doc's §6
+      // row specifies ("assert, via a service-role read, that A's row is untouched").
+      await setMealPinned(victimMeal.id, true);
+
+      const admin = createAdminClient();
+      const { data: victimRow } = await admin.from("meals").select("*").eq("id", victimMeal.id).single();
+      expect((victimRow as Meal).is_pinned).toBe(false);
+    });
+  });
+
+  describe("duplicateMeal", () => {
+    let user: TestUser;
+    let client: SupabaseClient;
+
+    beforeEach(async () => {
+      user = await createConfirmedTestUser();
+      client = await createUserClient(user);
+      currentClient = client;
+    });
+
+    afterEach(async () => {
+      await deleteTestUser(user.id);
+    });
+
+    it("duplicates a 3-item meal faithfully, preserving NON-CONTIGUOUS sort_order (not renumbered)", async () => {
+      const { meal, items } = await seedMealWithSortOrders(client, user, "Weekday breakfast", [
+        { name: "Eggs", sortOrder: 0, caloriesPerUnit: 70, proteinGPerUnit: 6 },
+        { name: "Toast", sortOrder: 2, caloriesPerUnit: 80, proteinGPerUnit: 3 },
+        { name: "Coffee", sortOrder: 5, caloriesPerUnit: 5, proteinGPerUnit: 0 },
+      ]);
+      expect(items.map((i) => i.sort_order)).toEqual([0, 2, 5]);
+
+      const { duplicateMeal } = await import("./meals");
+      const result = await duplicateMeal(
+        { ok: false, error: null },
+        formData({ mealId: meal.id, name: "Weekday breakfast (copy)" }),
+      );
+
+      expect(result.ok).toBe(true);
+      expect(result.meal?.name).toBe("Weekday breakfast (copy)");
+      expect(result.meal?.id).not.toBe(meal.id);
+
+      const admin = createAdminClient();
+      const { data: newItems } = await admin
+        .from("meal_items")
+        .select("*")
+        .eq("meal_id", result.meal!.id)
+        .order("sort_order", { ascending: true });
+
+      // sort_order PRESERVED (0/2/5), NOT renumbered to 0/1/2 -- a mechanical
+      // `mealItemsFromEntries`-style renumbering implementation would fail this assertion.
+      expect((newItems ?? []).map((i) => i.sort_order)).toEqual([0, 2, 5]);
+      expect((newItems ?? []).map((i) => i.name)).toEqual(["Eggs", "Toast", "Coffee"]);
+      expect((newItems ?? []).map((i) => i.quantity)).toEqual(items.map((i) => i.quantity));
+      expect((newItems ?? []).map((i) => i.unit)).toEqual(items.map((i) => i.unit));
+      expect((newItems ?? []).map((i) => i.calories_per_unit)).toEqual(
+        items.map((i) => i.calories_per_unit),
+      );
+      expect((newItems ?? []).map((i) => i.protein_g_per_unit)).toEqual(
+        items.map((i) => i.protein_g_per_unit),
+      );
+
+      // The generated-total invariant: the duplicate's summed totals equal the source's exactly,
+      // because both sides run the identical round(quantity * per-unit) generated expression.
+      const sourceTotalCalories = items.reduce((sum, i) => sum + i.calories, 0);
+      const newTotalCalories = (newItems ?? []).reduce((sum, i) => sum + i.calories, 0);
+      expect(newTotalCalories).toBe(sourceTotalCalories);
+    });
+
+    it("the source meal and its items are byte-identical afterwards, updated_at included", async () => {
+      const { meal } = await seedMeal(client, user, "Source Untouched", [
+        { name: "Rice", caloriesPerUnit: 130, proteinGPerUnit: 2.5 },
+      ]);
+
+      const admin = createAdminClient();
+      const { data: mealBefore } = await admin.from("meals").select("*").eq("id", meal.id).single();
+      const { data: itemsBefore } = await admin
+        .from("meal_items")
+        .select("*")
+        .eq("meal_id", meal.id)
+        .order("sort_order", { ascending: true });
+
+      const { duplicateMeal } = await import("./meals");
+      const result = await duplicateMeal(
+        { ok: false, error: null },
+        formData({ mealId: meal.id, name: "Source Untouched (copy)" }),
+      );
+      expect(result.ok).toBe(true);
+
+      const { data: mealAfter } = await admin.from("meals").select("*").eq("id", meal.id).single();
+      const { data: itemsAfter } = await admin
+        .from("meal_items")
+        .select("*")
+        .eq("meal_id", meal.id)
+        .order("sort_order", { ascending: true });
+
+      expect(mealAfter).toEqual(mealBefore);
+      expect(itemsAfter).toEqual(itemsBefore);
+    });
+
+    it("is_pinned is NOT copied -- the duplicate starts unpinned even when the source is pinned", async () => {
+      const { meal } = await seedMeal(client, user, "Pinned Source", [
+        { name: "Snack", caloriesPerUnit: 50, proteinGPerUnit: 2 },
+      ]);
+      const { setMealPinned, duplicateMeal } = await import("./meals");
+      await setMealPinned(meal.id, true);
+
+      const result = await duplicateMeal(
+        { ok: false, error: null },
+        formData({ mealId: meal.id, name: "Pinned Source (copy)" }),
+      );
+      expect(result.ok).toBe(true);
+      expect(result.meal?.is_pinned).toBe(false);
+    });
+
+    it("an empty source meal (zero items) duplicates successfully into an empty meal, still refused by logMealForDay", async () => {
+      const { meal } = await seedMeal(client, user, "Empty Meal", []);
+      const { duplicateMeal, logMealForDay } = await import("./meals");
+
+      const result = await duplicateMeal(
+        { ok: false, error: null },
+        formData({ mealId: meal.id, name: "Empty Meal (copy)" }),
+      );
+      expect(result.ok).toBe(true);
+      expect(result.meal).toBeTruthy();
+
+      const admin = createAdminClient();
+      const { data: newItems } = await admin
+        .from("meal_items")
+        .select("*")
+        .eq("meal_id", result.meal!.id);
+      expect(newItems ?? []).toHaveLength(0);
+
+      const logResult = await logMealForDay(
+        { ok: false, error: null },
+        formData({ mealId: result.meal!.id, logDate: localToday(), logTime: "12:00", logTz: "UTC" }),
+      );
+      expect(logResult.ok).toBe(false);
+      expect(logResult.error).toBe("empty_meal");
+    });
+
+    it("rejects a blank name and creates no meal", async () => {
+      const { meal } = await seedMeal(client, user, "Blank Name Source", []);
+      const { duplicateMeal } = await import("./meals");
+      const before = await createAdminClient()
+        .from("meals")
+        .select("*")
+        .eq("user_id", user.id);
+
+      const result = await duplicateMeal(
+        { ok: false, error: null },
+        formData({ mealId: meal.id, name: "   " }),
+      );
+      expect(result.ok).toBe(false);
+      expect(result.fieldErrors?.name).toBeTruthy();
+
+      const admin = createAdminClient();
+      const { data: after } = await admin.from("meals").select("*").eq("user_id", user.id);
+      expect((after ?? []).length).toBe((before.data ?? []).length);
+    });
+
+    it("independence in both directions: editing/deleting the duplicate leaves the source untouched, and vice versa", async () => {
+      const { meal: source, items } = await seedMeal(client, user, "Independence Source", [
+        { name: "Bagel", caloriesPerUnit: 250, proteinGPerUnit: 9 },
+      ]);
+      const { duplicateMeal, updateMeal, deleteMealItem } = await import("./meals");
+      const result = await duplicateMeal(
+        { ok: false, error: null },
+        formData({ mealId: source.id, name: "Independence Source (copy)" }),
+      );
+      expect(result.ok).toBe(true);
+      const duplicate = result.meal!;
+
+      // Editing the duplicate's name must not touch the source.
+      await updateMeal({ ok: false, error: null }, formData({ id: duplicate.id, name: "Renamed Copy" }));
+      const admin = createAdminClient();
+      const { data: sourceAfterEdit } = await admin.from("meals").select("*").eq("id", source.id).single();
+      expect((sourceAfterEdit as Meal).name).toBe("Independence Source");
+
+      // Deleting the SOURCE's item must not touch the duplicate's item.
+      await deleteMealItem(items[0].id);
+      const { data: duplicateItemsAfterSourceDelete } = await admin
+        .from("meal_items")
+        .select("*")
+        .eq("meal_id", duplicate.id);
+      expect(duplicateItemsAfterSourceDelete ?? []).toHaveLength(1);
+    });
+
+    it("FAULT INJECTION: a failed meal_items insert leaves no orphan meal (compensating delete)", async () => {
+      const { meal } = await seedMeal(client, user, "Compensate Source", [
+        { name: "Item", caloriesPerUnit: 10, proteinGPerUnit: 1 },
+      ]);
+      const before = await createAdminClient().from("meals").select("*").eq("user_id", user.id);
+
+      // Forces the SECOND statement (the new meal_items insert) to fail while the first (the new
+      // meals row) succeeds -- the exact residual-state window the compensating-delete contract is
+      // about. A distinct trigger name from phase7b-acceptance.spec.ts's own fault injection, so
+      // the two can never collide even if ever run concurrently against the same DB.
+      psqlExec(
+        "create or replace function public.d8f_block_items() returns trigger as " +
+          "$fn$ begin raise exception 'Phase 8f forced meal_items failure'; end; $fn$ language plpgsql; " +
+          "create trigger d8f_block_items before insert on public.meal_items " +
+          "for each row execute function public.d8f_block_items();",
+      );
+      try {
+        const { duplicateMeal } = await import("./meals");
+        const result = await duplicateMeal(
+          { ok: false, error: null },
+          formData({ mealId: meal.id, name: "Compensate Source (copy)" }),
+        );
+        expect(result.ok).toBe(false);
+      } finally {
+        psqlExec(
+          "drop trigger if exists d8f_block_items on public.meal_items; " +
+            "drop function if exists public.d8f_block_items();",
+        );
+      }
+
+      const admin = createAdminClient();
+      const { data: after } = await admin.from("meals").select("*").eq("user_id", user.id);
+      // No orphan "Compensate Source (copy)" meal survives -- only the original source remains.
+      expect((after ?? []).length).toBe((before.data ?? []).length);
+      expect((after ?? []).map((m) => m.name)).not.toContain("Compensate Source (copy)");
+    });
+  });
+
+  describe("duplicateMeal -- cross-user rejection", () => {
+    let attacker: TestUser;
+    let victim: TestUser;
+    let attackerClient: SupabaseClient;
+
+    beforeEach(async () => {
+      attacker = await createConfirmedTestUser();
+      victim = await createConfirmedTestUser();
+      attackerClient = await createUserClient(attacker);
+      currentClient = attackerClient;
+    });
+
+    afterEach(async () => {
+      await deleteTestUser(attacker.id);
+      await deleteTestUser(victim.id);
+    });
+
+    it("rejects ANOTHER user's mealId with meal_not_found (reused, not a new code) and writes zero rows for either user", async () => {
+      const victimClient = await createUserClient(victim);
+      const { meal: victimMeal } = await seedMeal(victimClient, victim, "Victim's Meal", [
+        { name: "VictimSnack", caloriesPerUnit: 40, proteinGPerUnit: 1 },
+      ]);
+
+      currentClient = attackerClient;
+      const { duplicateMeal } = await import("./meals");
+      const result = await duplicateMeal(
+        { ok: false, error: null },
+        formData({ mealId: victimMeal.id, name: "Stolen Duplicate" }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe("meal_not_found");
+
+      const admin = createAdminClient();
+      const { data: attackerMeals } = await admin.from("meals").select("*").eq("user_id", attacker.id);
+      expect(attackerMeals ?? []).toHaveLength(0);
+      const { data: victimMeals } = await admin.from("meals").select("*").eq("user_id", victim.id);
+      expect((victimMeals ?? []).map((m) => m.id)).toEqual([victimMeal.id]);
+    });
+
+    it("rejects a nonexistent mealId", async () => {
+      const { duplicateMeal } = await import("./meals");
+      const result = await duplicateMeal(
+        { ok: false, error: null },
+        formData({ mealId: "00000000-0000-4000-8000-000000000000", name: "Ghost Duplicate" }),
+      );
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe("meal_not_found");
 
       const admin = createAdminClient();
       const { data: attackerMeals } = await admin.from("meals").select("*").eq("user_id", attacker.id);

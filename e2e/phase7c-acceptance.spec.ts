@@ -29,7 +29,11 @@ import { createUserClient } from "./helpers/user-client";
 test.use({ timezoneId: "UTC" });
 
 /** Meal-name headings on /meals, in DOM order. The page h1 is text-2xl, so this matches cards only. */
-const MEAL_NAME_SELECTOR = "p.font-serif.text-lg";
+// 2026-08-10 (Phase 8i, "Visual identity v2"): `font-serif` was removed from every heading in the
+// app, including MealList's meal-name <p> (see ai-context/DECISIONS.md's Phase 8i entry) -- this
+// structural locator is updated to match the surviving classes rather than a colour/shape value,
+// since it's used to FIND elements, not to assert on their computed style.
+const MEAL_NAME_SELECTOR = "p.text-lg.font-semibold";
 
 /** MealList's genuinely-empty-library copy. Must never appear for a user who HAS meals. */
 const EMPTY_LIBRARY_COPY = "No saved meals yet. Create one above to get started.";
@@ -39,7 +43,7 @@ async function logIn(page: Page, user: TestUser) {
   await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/food");
 }
 
 /** Seeds meals ONE STATEMENT AT A TIME so each row gets a distinct created_at (Postgres now() is
@@ -314,7 +318,13 @@ test.describe("Phase 7c - duplicate names order deterministically (5: duplicates
     ]);
 
     // The item-count subtitles reveal WHICH Snack is where: oldest (1 item) first.
-    const subtitles = page.locator(MEAL_NAME_SELECTOR + " + p");
+    // Bugfix (2026-08-10): the bare name `<p>` (MEAL_NAME_SELECTOR) now sits one level deeper,
+    // inside its own wrapping `<div>` alongside the Rename icon/Pinned pill (see MealList.tsx's
+    // "the bare name now lives in its OWN <p>" comment) -- the subtitle `<p>` is no longer that
+    // name-`<p>`'s DIRECT sibling, it's the sibling of the WRAPPING div instead. `:has()` finds the
+    // same subtitle correctly against the new structure: "a <p> immediately following a <div> that
+    // directly contains a MEAL_NAME_SELECTOR match".
+    const subtitles = page.locator(`div:has(> ${MEAL_NAME_SELECTOR}) + p`);
     const firstLoad = await subtitles.allTextContents();
     expect(firstLoad[1]).toContain("1 item ");
     expect(firstLoad[2]).toContain("2 items");
@@ -530,7 +540,9 @@ test.describe("Phase 7c - nothing else regressed (Phase 7 CRUD / logging still w
     await expect(page.locator(MEAL_NAME_SELECTOR)).toHaveCount(2);
 
     // Rename the first filtered card to something that no longer matches the active filter.
-    await page.getByRole("button", { name: "Rename" }).first().click();
+    // Bugfix (2026-08-10): "Rename" is now an icon-only button named "Rename <meal name>" -- a
+    // prefix regex is robust to the exact meal name, same fix shape as phase7-acceptance.spec.ts.
+    await page.getByRole("button", { name: /^Rename/ }).first().click();
     await page.getByLabel("Meal name").fill("Turkey and rice");
     await page.getByRole("button", { name: "Save" }).click();
 

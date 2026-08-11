@@ -12,7 +12,7 @@ async function logIn(page: Page, user: TestUser) {
   await page.getByLabel("Email").fill(user.email);
   await page.getByLabel("Password").fill(user.password);
   await page.getByRole("button", { name: "Log in" }).click();
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/food");
 }
 
 test.describe("off-grid edit invariant", () => {
@@ -47,13 +47,21 @@ test.describe("off-grid edit invariant", () => {
     expect(ins.error).toBeNull();
 
     await page.goto("/food");
-    await page.getByLabel("Day").fill(day);
+    // { exact: true } (2026-08-10): see food-logging.spec.ts's identical comment -- DayNavigator's
+    // icon-only chevrons now carry aria-label="Previous day"/"Next day", colliding with the real
+    // <label>Day</label> under Playwright's default substring matching.
+    await page.getByLabel("Day", { exact: true }).fill(day);
     await expect(page.getByText("LegacyOffGrid")).toBeVisible();
 
     await page.locator("li", { hasText: "LegacyOffGrid" }).getByRole("button", { name: "Edit" }).click();
 
     // (a) The select must show the exact off-grid value, not fall back to 00:00.
-    const timeSelect = page.getByLabel("Time");
+    // qa-review N-1 (Phase 8d): unscoped getByLabel("Time") is a substring match and can
+    // strict-mode-collide with unrelated "time"-containing text elsewhere on the page (e.g. a
+    // Next.js dev "Runtime Error" overlay) -- the same collision class already documented in
+    // ai-context/DECISIONS.md's "Copy to time does not avoid a getByLabel collision..." entry.
+    // { exact: true } scopes this to the real "Time" label only.
+    const timeSelect = page.getByLabel("Time", { exact: true });
     await expect(timeSelect).toHaveValue("09:07");
     await expect(timeSelect.locator("option[value='09:07']")).toHaveCount(1);
 

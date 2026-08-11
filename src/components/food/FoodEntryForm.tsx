@@ -8,11 +8,14 @@ import {
   defaultConsumedAtForNextEntry,
   formatTimeLabel,
   localDateInTz,
+  quarterHourGroupIndexFor,
+  quarterHourOptionGroups,
   quarterHourOptions,
   utcToLocalTime,
 } from "@/lib/domain/datetime";
 import type { FoodCandidate } from "@/lib/domain/lookup";
 import { Button } from "@/components/ui/Button";
+import { DisclosureButton } from "@/components/ui/DisclosureButton";
 import { errorTextClass, inputClass, labelClass } from "@/components/ui/styles";
 import { FoodLookupPanel } from "./FoodLookupPanel";
 import type { FoodCandidatePrefill, FoodEntry } from "@/lib/types";
@@ -26,6 +29,10 @@ import type { FoodCandidatePrefill, FoodEntry } from "@/lib/types";
  * mode. Editing an existing entry always shows full detail (there's no ambiguity to progressively
  * disclose once real per-unit values already exist).
  *
+ * This form no longer has a "Delete" control of any kind (2026-08-07, Phase 8g reverses the
+ * 2026-08-05/Phase 8d placement) -- deleting an entry is a `FoodEntryList` row action again, guarded
+ * by a `window.confirm` owned by the caller (`FoodDayView.handleDelete`), not a form control here.
+ *
  * `prefill` is the seam Phase 3 built for Phase 6 (food lookup) to plug an initial
  * `FoodCandidatePrefill` into at mount -- no caller passes it yet, but it's still wired end-to-end
  * (auto-expands + fills quantity/unit/per-unit). Phase 6 itself plugs in via a second, dynamic
@@ -34,12 +41,41 @@ import type { FoodCandidatePrefill, FoodEntry } from "@/lib/types";
  * candidate picked *after* the form has already mounted (a barcode/search result), rather than
  * only at construction time. Either path is a prefill for review, never an auto-submit -- the
  * user still explicitly presses "Add entry".
+ *
+ * **`tz`/`today` resolved in a mount-only Effect, not at render time (2026-08-06, Phase 8d qa-
+ * review N-6).** This form previously computed both via plain `useState` initializers
+ * (`browserTimeZone()`/`localDateInTz(...)` called directly during render) -- the exact SSR/client
+ * hydration-mismatch anti-pattern already found and fixed in `FoodDayView.tsx` (see that file's
+ * doc comment and `ai-context/DECISIONS.md`). Today this form is only ever reached through
+ * `FoodDayView`'s own mount-only-Effect gate (`FoodDayViewContent` never renders until `FoodDayView`
+ * has already resolved client-side, so this component's *own* first render is already client-only,
+ * with nothing server-rendered to hydrate against) -- so the bug was latent, not live. Fixed anyway
+ * as a tripwire: nothing here should depend on being rendered from behind someone else's gate to be
+ * safe, and a future caller that renders this form from a server-rendered path would otherwise
+ * silently reintroduce the exact mismatch `FoodDayView` just fixed. Follows the identical shape:
+ * `FoodEntryForm` (below) owns ONLY the `tz`/`today` resolution + a matching "Loading…" placeholder
+ * on the server pass and the client's first pass; `FoodEntryFormContent` (everything the form used
+ * to do directly) receives them as required, already-resolved props -- the same
+ * `FoodDayView`/`FoodDayViewContent` and `MetricForm`/`MetricEntryForm` split.
+ *
+ * **Adapted, not copy-pasted, for this form's edit-mode branch**: when editing, `tz` must still be
+ * the entry's OWN originally-captured `consumed_tz` (`editingEntry.consumed_tz`), never the
+ * browser's current tz -- load-bearing existing behaviour (§3.4/§4: an unrelated edit, e.g. fixing
+ * a typo, must never silently shift `consumed_local_date` just because the editor is in a different
+ * tz today, e.g. the user travelled since logging it). That value is already known synchronously
+ * from props with no browser API involved, so the mount Effect below still resolves it (uniformly
+ * with the add-mode branch, rather than special-casing away the placeholder for edits) but there is
+ * no real async wait either way -- `Intl`-based tz/date resolution is synchronous, so in practice
+ * this placeholder is visible for at most one paint, not a perceptible loading state on every
+ * edit/add/Clear-triggered remount.
  */
 
 const initialActionState: FoodEntryActionState = { ok: false, error: null };
 
 /** Static — the same 96 buckets regardless of date/tz — so it's built once at module scope. */
 const TIME_OPTIONS = quarterHourOptions();
+/** Static — the same 3 <optgroup>s regardless of date/tz (Phase 8e). */
+const TIME_OPTION_GROUPS = quarterHourOptionGroups();
 
 type InputMode = "perUnit" | "total";
 
@@ -94,7 +130,40 @@ function computeInitialDateTime(params: {
   return { date: selectedDate, time: utcToLocalTime(defaultIso, tz).time };
 }
 
-export function FoodEntryForm({
+export function FoodEntryForm(props: FoodEntryFormProps) {
+  const { editingEntry = null } = props;
+  const isEditing = editingEntry !== null;
+  const [tz, setTz] = useState<string | null>(null);
+  const [today, setToday] = useState<string | null>(null);
+
+  // Client-only: resolves post-mount, avoiding the SSR/client hydration mismatch described in the
+  // file doc comment above -- the same pattern FoodDayView/MetricForm/MealsView already use. The
+  // tz branch preserves the existing edit-mode invariant (an entry's own originally-captured tz,
+  // never the browser's current one); `editingEntry`/`isEditing` come from props, so they're valid
+  // effect dependencies, not stale closures.
+  useEffect(() => {
+    const resolvedTz = isEditing ? editingEntry!.consumed_tz : browserTimeZone();
+    const resolvedToday = localDateInTz(new Date(), browserTimeZone());
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTz(resolvedTz);
+    setToday(resolvedToday);
+  }, [isEditing, editingEntry]);
+
+  // Same placeholder on the server pass and the client's first pass (both have tz === null),
+  // which is what keeps hydration in sync -- see the module doc comment above.
+  if (tz === null || today === null) {
+    return <p className="text-sm text-muted">Loading…</p>;
+  }
+
+  return <FoodEntryFormContent {...props} tz={tz} today={today} />;
+}
+
+/**
+ * Everything `FoodEntryForm` used to own directly, unchanged, now receiving the already-resolved
+ * `tz`/`today` as required props instead of computing them itself -- see the file doc comment above
+ * for why this split exists (the 2026-08-06 Phase 8d qa-review N-6 hydration-mismatch fix).
+ */
+function FoodEntryFormContent({
   editingEntry = null,
   lastConsumedAt = null,
   selectedDate,
@@ -103,18 +172,13 @@ export function FoodEntryForm({
   onSaved,
   onCancelEdit,
   onClear,
-}: FoodEntryFormProps) {
+  tz,
+  today,
+}: FoodEntryFormProps & { tz: string; today: string }) {
   const isEditing = editingEntry !== null;
   const action = isEditing ? updateFoodEntry : addFoodEntry;
   const [state, formAction] = useActionState(action, initialActionState);
   const idPrefix = useId();
-
-  // The tz used for a *new* entry is always the current browser tz. When editing, we keep the
-  // entry's originally-captured tz (`editingEntry.consumed_tz`) so an unrelated edit (e.g. fixing
-  // a typo in the name) can't silently shift consumed_local_date just because the editor happens
-  // to be in a different tz today (e.g. the user travelled since logging it).
-  const [tz] = useState(() => (isEditing ? editingEntry!.consumed_tz : browserTimeZone()));
-  const [today] = useState(() => localDateInTz(new Date(), browserTimeZone()));
 
   const [expanded, setExpanded] = useState(
     () => isEditing || Boolean(prefill && (prefill.quantity !== 1 || prefill.unit)),
@@ -149,6 +213,12 @@ export function FoodEntryForm({
   // into view once, right when this instance mounts in edit mode. FoodDayView remounts this
   // component (a fresh key) every time the edit target changes, so a plain mount-only effect
   // (empty deps) fires exactly once per "Edit" click, not on every keystroke/re-render.
+  //
+  // Known follow-up, NOT fixed here (qa-review N-7, Phase 8d): this `behavior: "smooth"` has the
+  // same missing `prefers-reduced-motion` guard `ActionPanel.tsx` was just given -- flagged by
+  // qa-reviewer as informational/pre-existing, not required for this phase. Left as-is rather than
+  // expanding this fix's scope unprompted; worth picking up alongside any future work that touches
+  // this effect.
   useEffect(() => {
     if (isEditing) {
       formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -193,17 +263,30 @@ export function FoodEntryForm({
   // validation, but must be handled defensively — e.g. legacy data), the fixed 96-value list alone
   // would cause the select to silently fall back to its first option, silently rewriting the time
   // on save. Inject the current value as an extra option whenever it isn't already one of the 96.
-  const timeOptions = TIME_OPTIONS.some((option) => option.value === consumedTime)
-    ? TIME_OPTIONS
-    : [...TIME_OPTIONS, { value: consumedTime, label: formatTimeLabel(consumedTime) }].sort(
-        (a, b) => a.value.localeCompare(b.value),
+  //
+  // Phase 8e (2026-08-08): with the options now partitioned into three <optgroup>s, the injected
+  // option must land INSIDE the group that actually contains its hour (`quarterHourGroupIndexFor`)
+  // — appending it outside every group, or dropping it, would silently reintroduce the exact
+  // time-rewriting bug this invariant exists to prevent (design doc §3.4/§6 Phase 8e).
+  const isOnGrid = TIME_OPTIONS.some((option) => option.value === consumedTime);
+  const timeOptionGroups = isOnGrid
+    ? TIME_OPTION_GROUPS
+    : TIME_OPTION_GROUPS.map((group, index) =>
+        index === quarterHourGroupIndexFor(consumedTime)
+          ? {
+              ...group,
+              options: [...group.options, { value: consumedTime, label: formatTimeLabel(consumedTime) }].sort(
+                (a, b) => a.value.localeCompare(b.value),
+              ),
+            }
+          : group,
       );
 
   return (
     <form
       ref={formRef}
       action={formAction}
-      className="flex flex-col gap-4 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm sm:p-5"
+      className="flex flex-col gap-4 rounded-xl border border-line bg-white p-4 shadow-sm sm:p-5"
       noValidate
       autoComplete="off"
     >
@@ -322,11 +405,37 @@ export function FoodEntryForm({
             onChange={(e) => setConsumedTime(e.target.value)}
             className={`${inputClass} tabular-nums`}
           >
-            {timeOptions.map((option) => (
-              <option key={option.value} value={option.value} className="tabular-nums">
-                {option.label}
-              </option>
-            ))}
+            {/* Bugfix (2026-08-10): the <optgroup> ELEMENT ITSELF is now dropped entirely, not just
+                its `label` text -- the 2026-08-09 fix removed the `label` attribute but kept the
+                <optgroup> wrapper, on the belief it left "only a small blank gap between groups".
+                Confirmed live (headed Chromium) that this understated it: an <optgroup> with no
+                `label` still reserves a full BLANK, non-selectable ROW in the rendered popup --
+                visually indistinguishable from a broken/missing option, which is what Jeff flagged
+                from a screenshot. Since the visible header text is already gone (superseded, not
+                wanted per that same 2026-08-09 call) and de-emphasis is carried entirely by each
+                <option>'s own background class below, the <optgroup> grouping itself was providing
+                no remaining visual benefit -- only this artifact -- so it's flattened away with
+                `.flatMap()` into one flat run of 96 <option>s, identical in effect to
+                `quarterHourOptions()`. `quarterHourOptionGroups()`/`group.deEmphasized` are still
+                what decide each option's shading; only the DOM structure changed. */}
+            {timeOptionGroups.flatMap((group) =>
+              group.options.map((option) => (
+                <option
+                  key={option.value}
+                  value={option.value}
+                  // Bugfix (2026-08-09): de-emphasis shades the option's BACKGROUND, not its
+                  // text color (was `text-stone-500`) -- Jeff's explicit call, reversing the
+                  // 2026-08-05 "a background fill was rejected in favour of colour" reasoning in
+                  // ai-context/DECISIONS.md. Still presentation-only and still a best-effort
+                  // bonus, not the load-bearing mechanism -- unaffected platforms (mobile pickers,
+                  // macOS Safari/Chrome, which ignore <option> CSS) simply show all 96 options
+                  // undecorated, same as before.
+                  className={group.deEmphasized ? "tabular-nums bg-slate-100" : "tabular-nums"}
+                >
+                  {option.label}
+                </option>
+              )),
+            )}
           </select>
           {state.fieldErrors?.consumedTime && (
             <p className={errorTextClass}>{state.fieldErrors.consumedTime}</p>
@@ -334,18 +443,26 @@ export function FoodEntryForm({
         </div>
       </div>
 
-      {!expanded && (
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className="self-start text-sm font-medium text-sage-deep hover:text-sage-deep/80"
-        >
-          + Add detail (quantity, unit)
-        </button>
+      {/* Phase 8k: a single `DisclosureButton` (real button chrome + a rotating chevron +
+          `aria-expanded`/`aria-controls`) replaces the old pair of bare accent-text links
+          ("+ Add detail (quantity, unit)" when collapsed, "Hide detail" — only in add mode — inside
+          the expanded box). The trigger now stays rendered while open (toggling it again closes
+          it) and always shows the SAME label -- the chevron alone carries the open/closed state,
+          the same "trigger stays rendered while open" pattern `FoodLookupPanel`'s own trigger now
+          uses. Hidden entirely in edit mode: editing already always shows full detail with no
+          toggle at all (there's no ambiguity to progressively disclose once real per-unit values
+          already exist) -- unchanged from before this phase. */}
+      {!isEditing && (
+        <DisclosureButton
+          label="Add detail (quantity, unit)"
+          open={expanded}
+          onToggle={() => setExpanded((prev) => !prev)}
+          controls={`${idPrefix}-detail`}
+        />
       )}
 
       {expanded && (
-        <div className="flex flex-col gap-3 rounded-lg bg-stone-50 p-3.5">
+        <div id={`${idPrefix}-detail`} className="flex flex-col gap-3 rounded-lg bg-slate-50 p-3.5">
           <div className="grid grid-cols-2 gap-3">
             <div className="flex flex-col gap-1">
               <label htmlFor={`${idPrefix}-quantity`} className={labelClass}>
@@ -388,37 +505,27 @@ export function FoodEntryForm({
             <legend className={labelClass}>
               Are the calories/protein above per unit, or a total for this quantity?
             </legend>
-            <label className="flex items-center gap-2 text-sm text-stone-700">
+            <label className="flex items-center gap-2 text-sm text-ink">
               <input
                 type="radio"
                 autoComplete="off"
                 checked={mode === "total"}
                 onChange={() => setMode("total")}
-                className="h-4 w-4 accent-sage-deep"
+                className="h-4 w-4 accent-accent"
               />
               Total for the whole quantity
             </label>
-            <label className="flex items-center gap-2 text-sm text-stone-700">
+            <label className="flex items-center gap-2 text-sm text-ink">
               <input
                 type="radio"
                 autoComplete="off"
                 checked={mode === "perUnit"}
                 onChange={() => setMode("perUnit")}
-                className="h-4 w-4 accent-sage-deep"
+                className="h-4 w-4 accent-accent"
               />
               Per unit
             </label>
           </fieldset>
-
-          {!isEditing && (
-            <button
-              type="button"
-              onClick={() => setExpanded(false)}
-              className="self-start text-sm font-medium text-sage-deep hover:text-sage-deep/80"
-            >
-              Hide detail
-            </button>
-          )}
         </div>
       )}
 
@@ -431,7 +538,7 @@ export function FoodEntryForm({
         </p>
       )}
 
-      <div className="flex items-center gap-3 pt-1">
+      <div className="flex flex-wrap items-center gap-3 pt-1">
         <SubmitButton
           label={isEditing ? "Save changes" : "Add entry"}
           pendingLabel={isEditing ? "Saving..." : "Adding..."}

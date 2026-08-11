@@ -13,7 +13,7 @@ export const metadata: Metadata = { title: "Saved meals — Health Tracker" };
 export default function MealsPage() {
   return (
     <div className="flex flex-col gap-5">
-      <h1 className="font-serif text-2xl font-semibold tracking-tight text-ink">Saved meals</h1>
+      <h1 className="text-2xl font-semibold tracking-tight text-ink">Saved meals</h1>
       <MealsView />
     </div>
   );
