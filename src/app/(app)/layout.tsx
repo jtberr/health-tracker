@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { signOut } from "@/lib/actions/auth";
 import { Button } from "@/components/ui/Button";
 import { NavLink } from "@/components/ui/NavLink";
+import { Wordmark } from "@/components/ui/Wordmark";
 
 /**
  * Single auth gate for every authenticated route (per the design doc §3.1: "layout.tsx ←
@@ -28,8 +29,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     <div className="flex min-h-full flex-1 flex-col">
       <header className="border-b border-line bg-white/80 backdrop-blur-sm">
         <nav className="mx-auto flex max-w-4xl items-center justify-between px-4 py-3">
-          <Link href="/" className="text-base font-semibold tracking-tight text-ink">
-            Health Tracker
+          <Link href="/" className="text-base font-semibold tracking-tight">
+            {/* Phase 8l (2026-08-11): one shared Wordmark component, not a bare string, so the
+             * app's name has a single implementation across the header and the auth screens.
+             * Wordmark renders no aria-label, so this link's accessible name stays exactly
+             * "Health Tracker" -- unchanged from the plain string it replaces. */}
+            <Wordmark />
           </Link>
           <div className="flex items-center gap-1 text-sm sm:gap-2">
             <NavLink href="/food">Food</NavLink>
