@@ -17,6 +17,14 @@ import type { HTMLAttributes } from "react";
  * `Button` secondary, and any select/interactive outline use `--line-strong` (≥3:1). See
  * ai-context/DECISIONS.md's Phase 8i entry for the full reasoning and the standing rule this
  * leaves behind: UI components -> line-strong; decorative containers/dividers -> line.
+ *
+ * Trap for a future caller: `shadow-sm` is baked in here and appended AFTER `className`, so a
+ * caller passing a different shadow utility (e.g. `shadow-lg`) does not reliably win — Tailwind v4
+ * emits utility CSS in alphabetically-sorted class order, not JSX/className order, so `shadow-sm`
+ * can still win the cascade regardless of which class appears later in the string. Phase 8l hit
+ * this for real (see ai-context/PROGRESS.md's Phase 8l entry) and worked around it by suffixing
+ * the caller's class with `!` (e.g. `shadow-lg!`) rather than editing this file. If you need a
+ * different shadow on a specific Card, do the same — don't assume plain className overrides win.
  */
 export function Card({ className = "", ...props }: HTMLAttributes<HTMLDivElement>) {
   return <div {...props} className={`rounded-xl border border-line bg-white shadow-sm ${className}`} />;
