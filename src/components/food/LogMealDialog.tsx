@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
 import { queryTimeoutSignal } from "@/lib/supabase/query-timeout";
@@ -124,6 +124,31 @@ export function LogMealDialog({ selectedDate, today, tz, onLogged, meal, onCance
   });
 
   const isFixedMeal = meal !== undefined;
+  // Picker mode only: whether the real form (vs. a loading/error/empty placeholder) is showing.
+  // Computed here, before any hook that reads it, rather than down by its one prior use near the
+  // final return -- a hook below needs it and hooks can't follow the `if (meal) return formBody`
+  // early return further down.
+  const canShowForm = !loading && !loadError && meals.length > 0;
+
+  // qa-review N-1 (Phase 8k/8l review, 2026-08-13): `ActionPanel`'s own mount effect (the caller
+  // wraps picker-mode `LogMealDialog` in one) focuses the first focusable descendant exactly once,
+  // synchronously on mount -- correct for every OTHER `ActionPanel` user, all of which render their
+  // real form immediately. This one doesn't: on mount, `meals` is still empty and `canShowForm` is
+  // false, so `ActionPanel` finds only the transient "Close" fallback button (below) and focuses
+  // that. Once the fetch resolves and the real form swaps in, that button unmounts and focus is
+  // orphaned onto <body> -- confirmed live, not assumed (3/3 runs). Rather than changing
+  // `ActionPanel`'s one-time-on-mount contract (which the other five callers correctly rely on),
+  // this component makes up the difference itself: the moment the real form actually appears for
+  // the first time, move focus into its first field -- the same thing `ActionPanel` would already
+  // have done had the content been ready synchronously. `hasFocusedFormRef` makes this fire once
+  // per mount, not on every re-render while `canShowForm` stays true.
+  const mealSelectRef = useRef<HTMLSelectElement>(null);
+  const hasFocusedFormRef = useRef(false);
+  useEffect(() => {
+    if (isFixedMeal || !canShowForm || hasFocusedFormRef.current) return;
+    hasFocusedFormRef.current = true;
+    mealSelectRef.current?.focus();
+  }, [isFixedMeal, canShowForm]);
 
   useEffect(() => {
     // Fixed-meal mode never fetches — there's no picker to populate (see the module doc comment).
@@ -208,6 +233,7 @@ export function LogMealDialog({ selectedDate, today, tz, onLogged, meal, onCance
             Meal
           </label>
           <select
+            ref={mealSelectRef}
             id="log-meal-select"
             name="mealId"
             required
@@ -337,8 +363,8 @@ export function LogMealDialog({ selectedDate, today, tz, onLogged, meal, onCance
   // itself, exactly as it wraps every other day-level/bulk expander (Phase 8k) -- this renders only
   // the loading/error/empty/form content. The loading/error/empty states get a lightweight "Close"
   // fallback (the form's own Cancel row above only exists once `formBody` itself renders), so the
-  // panel is always dismissable regardless of fetch state.
-  const canShowForm = !loading && !loadError && meals.length > 0;
+  // panel is always dismissable regardless of fetch state. (`canShowForm` itself is computed above,
+  // near `isFixedMeal` -- the focus-recovery effect above needs it before this early return.)
 
   return (
     <>
