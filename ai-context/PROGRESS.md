@@ -4783,6 +4783,17 @@ state, plus 630/630 unit tests. All three are ready for qa-reviewer.**
   - **Ready for Jeff's approval.**
 
 ## Up Next
+-2. **Vercel deploy is on a deprecated Node.js version — must be fixed before 2026-10-01 or
+   production deploys will start hard-failing.** A production deployment now exists: Vercel
+   project `jeff-berrys-projects/health-tracker` at `https://health-tracker-one-plum.vercel.app`,
+   backed by a hosted Supabase project (`orjkyuftprmqzumjnuwg` — migrations applied, RLS confirmed
+   enabled on all five tables via direct query). Every build currently prints: *"Node.js version
+   20.x is deprecated. Deployments created on or after 2026-10-01 will fail to build."* Fix: add
+   `"engines": { "node": "24.x" }` to `package.json` (this repo's `.nvmrc`/CI pin is also still 20 —
+   see the 2026-07-20 "Node version pin added" Completed entry — and should move to 22+/24 in the
+   same change, since `@supabase/supabase-js` and several of its subpackages already warn at build
+   time that they require Node >=22). Not urgent today; will start breaking deploys if left past
+   the deadline above.
 -1. **Phase 9 ("PWA-lite shell") is QA-REVIEWED (2026-08-17, qa-reviewer) — READY TO GATE, no
    blocking findings. Awaiting Jeff's final approval** — once given, the entire Phase 1–9
    architect-planned build-out is complete (anything raised after that is a new finding/request, not
