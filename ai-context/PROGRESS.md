@@ -1,9 +1,89 @@
 # Progress
 # Health Tracker
 
-**Last updated**: 2026-08-14
+**Last updated**: 2026-08-17
 
-> **Next action (2026-08-14):** **Jeff approved Phase 8k and Phase 8l.** Both are done —
+> **Next action (2026-08-17):** **Phase 9 ("PWA-lite shell") is qa-reviewed — READY TO GATE, no
+> blocking findings.** Independently verified: `/manifest.webmanifest` is valid JSON with
+> `display: "standalone"`/`start_url: "/"`/real icons; `theme_color`/`background_color` genuinely
+> match Phase 8i's current `--ink`/`--canvas` tokens (not stale pre-8i values); all four generated
+> icons decode to real PNGs at their declared pixel dimensions (checked via each file's IHDR chunk,
+> not just a magic-number sniff) with a real rendered white "H" glyph (pixel-sampled in a browser,
+> not just assumed non-blank); and — the load-bearing check — **no service worker is registered
+> anywhere**, confirmed four independent ways including a runtime
+> `navigator.serviceWorker.register` trap across five real pages. Scope is genuinely isolated
+> (confirmed by file mtime, not just trusted from the diff). Full regression: lint/tsc/build clean,
+> unit 746/746 (serial), e2e 485/487 fresh (both failures pre-existing, unrelated, already
+> documented, and reproduce cleanly in isolation). **7 non-blocking notes (N-1 through N-7) and 3
+> environment findings (E-1/E-2/E-3)** — none blocking, none fixed yet, deferred per this project's
+> usual practice pending Jeff's word. See the new "Phase 9 qa-reviewed" Completed entry below and the
+> updated Up Next item -1 for the full list. **This is the last phase in the design doc's §8 phased
+> plan — once Jeff approves, the entire architect-planned Phase 1–9 build-out is complete** (anything
+> raised after that is a new finding/request, not a gap in the original plan).
+>
+> **Previously (2026-08-17):** **Phase 9 ("PWA-lite shell") was IMPLEMENTED (developer) — was ready
+> for qa-reviewer, now reviewed, see above.** `src/app/manifest.ts` (`display: 'standalone'`,
+> `start_url: '/'`, name/theme colors matching Phase 8i's `--ink`/`--canvas` tokens, two icon
+> entries) plus four new icon-generating files (`icon.tsx`, `apple-icon.tsx`, `icon-192/route.tsx`,
+> `icon-512/route.tsx`, all built on `next/og`'s `ImageResponse` — no hand-authored image asset was
+> available in this sandbox, so the conventional Next.js code-generation route was used instead of a
+> static PNG).
+>
+> **Before that (2026-08-15):** **The six-phase qa backlog (8g/8e/8f/8h/8i/8j) is fully gated — all
+> six reviewed, all six clean or explicitly accepted by Jeff.** A qa-reviewer session worked through
+> all six phases (each with its own independent test suite, verdict, and Completed entry below) but
+> was cut off by an account spend limit before writing a final consolidated summary or running one
+> last combined regression — see each phase's own entry for its own verified lint/tsc/build/test
+> results in the meantime; **a fresh full-suite regression across all six is still worth running
+> once agent capacity is back**, since no single combined run has confirmed zero cross-phase
+> interaction since all six landed together.
+> - **8g, 8f, 8h, 8i, 8j: ready to gate, no blocking findings** (8f additionally verified its
+>   `meals.is_pinned` RLS claim by direct query and a real cross-user test — the highest-risk item
+>   in the batch, and it's clean).
+> - **8e: had ONE blocking finding (B-1) — resolved, Jeff accepted as-is (2026-08-15).** The
+>   feature's own load-bearing mechanism (three `<optgroup>`s — the design doc states explicitly
+>   that a group *label* is what's portable to mobile, since `<option>` CSS is unreliable there) was
+>   silently removed across two later "trivial bugfix" passes (2026-08-09, 2026-08-10), leaving only
+>   flat CSS-based shading — the exact thing the original design explicitly rejected, predicted to do
+>   nothing on Jeff's own phone. Jeff reviewed the three options qa-reviewer laid out and chose to
+>   accept the shipped state; the design doc and decision record are now corrected to describe it as
+>   the accepted target rather than a regression. See the Phase 8e "B-1 accepted, not fixed" Completed
+>   entry below and `ai-context/DECISIONS.md`'s "Phase 8e's `<optgroup>` removal accepted as-is..."
+>   entry.
+> **Phase 8m (password reset) remains fully gated** — qa-reviewed, its one blocking finding (B-1,
+> the neutral-confirmation account-existence leak) explicitly accepted by Jeff, no further action
+> required. See `ai-context/DECISIONS.md`'s "Phase 8m's account-existence leak (B-1)..." entry.
+> **Every lettered Phase 8 sub-phase (8, 8b, 8c, 8d, 8e, 8f, 8g, 8h, 8i, 8j, 8k, 8l, 8m) is now
+> implemented, qa-reviewed, and explicitly approved by Jeff** (8/8b/8c's approval recorded
+> 2026-08-15, closing the one outstanding paperwork gap from the note above). **Phase 9 (PWA-lite
+> shell) is the only remaining phase in the design doc's §8 plan not yet started.** A fresh combined
+> full-suite regression across the 8g/8e/8f/8h/8i/8j batch is still worth running once agent
+> capacity is back (see the note above) — otherwise the whole Phase 8 program is closed.
+>
+> **Previously (2026-08-15):** **Phase 8m (password reset) is IMPLEMENTED (developer) — was ready
+> for qa-reviewer.** Two new `(auth)/` pages (`forgot-password`, `reset-password`), two new Server
+> Actions (`requestPasswordReset`, `updatePassword`) in `lib/actions/auth.ts`, two new pure
+> validators in `lib/domain/auth-validation.ts`, a "Forgot password?" link + `?reset=success`
+> notice on `/login`, and the existing `/auth/callback` reused unchanged apart from generalising
+> its failure copy (keeping the "invalid or expired" substring `e2e/phase1-acceptance.spec.ts`
+> asserts on). Touches no schema/RLS/table — Supabase Auth only, per the design. **Fully manually
+> verified against the real local stack**, including fetching the actual recovery email from
+> Mailpit and completing the whole round trip (old password fails afterward, new one works), the
+> neutral-confirmation security property (byte-identical message for a real vs. an unknown email),
+> single-use-link behaviour, the no-session page state, the action's independent re-check, and
+> server-side validation bypassing the native `<input>` constraints — see the new Completed entry
+> for the full breakdown, including two real local-Supabase environment snags hit and worked around
+> along the way (a stale Docker-network DNS resolution in Kong after restarting the auth container
+> alone, and the local `email_sent = 2`/hour rate limit, both fully described there). One legitimate,
+> anticipated test update was needed: Phase 8l's own qa-reviewer suite had a "Phase 8m was NOT
+> started yet" scope guard (two tests) that is now obsolete by design — retired in place with an
+> explanatory comment, matching the established convention (see the Phase 8h `phase8-acceptance.spec.ts`
+> precedent). Full regression: lint/tsc/build clean, unit **675/675**, and a full freshly-started
+> `npx playwright test --workers=1` run of the entire suite passed **392/392, zero failures**
+> (14.1 min) — run twice, the first surfacing the two now-expected `phase8l-acceptance.spec.ts`
+> failures described above, the second (after retiring them) fully clean.
+>
+> **Previously (2026-08-14):** **Jeff approved Phase 8k and Phase 8l.** Both are done —
 > qa-review found zero blocking findings on either, and the two easy non-blocking items were fixed
 > directly (a warning comment in `Card.tsx` about the shadow-ordering trap `shadow-lg!` works around;
 > `supabase/.temp` added to ESLint's ignores). One real bug qa-review found — 8k's N-1, "Log a saved
@@ -16,10 +96,9 @@
 > already-documented pre-existing `meals.test.ts` UTC-boundary flake, Up Next item 0-pre-b), and the
 > 61 acceptance tests across every suite touching `LogMealDialog` in both modes all pass. See the two
 > new Completed entries below for the full breakdown.
-> **Next up: Phase 8m** (password reset) — see **Up Next item 14** for the full pointer: two new
-> `(auth)/` pages, two Server Actions, Supabase's built-in recovery email, the **existing**
-> `/auth/callback`. Design-only so far, not implemented — should be its own session since it edits
-> `/login`, the same file 8l just touched. Everything below this line is the pre-existing state.
+> **Superseded by the 2026-08-15 banner above — Phase 8m is now implemented, not design-only.** (This
+> paragraph is kept as the historical record of what was true on 2026-08-14; see the top of this file
+> for current status.) Everything below this line is the pre-existing state as of 2026-08-14.
 >
 > **Previously:** **Phase 8k and Phase 8l both qa-reviewed (qa-reviewer, 2026-08-13) — READY TO GATE,
 > no blocking findings on either.** See the "Phase 8k and Phase 8l qa-reviewed" Completed entry below
@@ -65,7 +144,7 @@
 
 ---
 
-## Current Status: Phase 4 qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Phase 5 (trend charts) implemented, qa-reviewed (one blocking bug found), and fixed up — ready for Jeff's approval (2026-07-25). **Sage-arc motif narrowed to auth screens only (2026-07-26, Jeff's direct decision, removed from the dashboard) — see `ai-context/DECISIONS.md`.** Visual identity rollout qa-reviewed (0 blocking findings, 5 non-blocking notes) — **NB-1 (dead old-palette CSS) and NB-2 (field-border/placeholder contrast) fixed, time-`<select>` alignment implemented, and the fetch-timeout follow-up closed, all 2026-07-26 (developer) — ready for Jeff's approval.** **Jeff approved Phase 6 (food lookup: barcode + description search), 2026-07-27.** **Phase 7 (Saved meals) implemented (2026-07-27, developer), then qa-reviewed (2026-07-28, qa-reviewer) — verdict: ready to gate to production, no blocking findings, 8 non-blocking notes (N-1 through N-8). N-1 (ungraceful invalid-timezone crash, shared with Phase 3's `addFoodEntry`/`updateFoodEntry`), N-7 (no direct action-level test coverage for `lib/actions/meals.ts`), and N-8 (a misdiagnosed "Node 24" environment note in this file's own history) fixed 2026-07-28 (developer) — ready for Jeff's approval. N-2 through N-6 logged below in Up Next, not fixed, per Jeff's explicit instruction to defer them.** The previously-flagged `supabase/seed.sql` time-of-day-dependent `db reset` failure has been root-caused (with a live repro) and fixed (2026-07-27, developer) — see Completed below. **Phase 7b ("Save a logged meal group as a Saved Meal") designed by the architect and approved as ready-to-implement (2026-07-30), then implemented (2026-07-30, developer) — `createMealFromEntries`, `mealItemsFromEntries`, `SaveGroupAsMealDialog`, `FoodEntryList`'s new group-header action bar, and the required `FoodDayView` `hasLoadedOnce` prerequisite fix are all in place — ready for qa-reviewer.** **Phase 7b qa-reviewed (2026-07-30, qa-reviewer): 23 independent acceptance tests (`e2e/phase7b-acceptance.spec.ts`) all green; full suite 395/395 unit + 222/222 e2e with zero regressions. The feature itself is correct — ownership invariant, copy-by-value, byte-identical source entries, the blank name field, and the compensating delete were all independently verified, the last with real fault injection plus a negative control. **One BLOCKING finding, B-1 — a scope/process issue, not a defect:** the change-set also carries undocumented out-of-scope changes (a new "Clear" button, a `lastConsumedAt`-on-edit semantics change contradicting design doc §3.4, a group-header AM/PM time-format change a recorded decision said would NOT be silently changed, and protein display rounding reaching Phase 7's already-reviewed `MealList.tsx`) — under a PROGRESS entry stating no deviations were needed. Plus 6 non-blocking notes (N-1..N-6). **B-1 resolved 2026-07-30 (Jeff's explicit call: document in place, don't split the diff)** — `ai-context/DECISIONS.md` gained three new entries recording the `lastConsumedAt`-on-edit change, the "Clear" reset-to-now behavior, and the group-header AM/PM change as deliberate, amending the two entries B-1 said were contradicted; `docs/architecture/food-weight-tracker.md` §3.4 and the `FoodEntryList` description were corrected to match; two new e2e tests pin the two previously-untested behavior changes; and N-1 (a raw Postgres error string reaching the UI from a malformed entry id) was fixed alongside. See the Completed entries below — **ready for Jeff's final approval.** **Phase 7c ("Saved-meals library: ordering, filtering, and counts") — designed by the architect (2026-07-30) in response to Jeff's "could the meals page get out of control?" question, then implemented (2026-07-30, developer): `lib/domain/meals.ts` (`sortMealsByName`/`filterMealsByName`), `MealsView`'s filter box + count readout + distinct no-match empty state, and `LogMealDialog`'s shared alphabetical ordering are all in place, verified against a real 60-meal fixture library in a live browser — ready for qa-reviewer.** **Phase 7c qa-reviewed (2026-07-30, qa-reviewer): 43 independent tests (24 unit in `src/lib/domain/meals.qa.test.ts`, 19 acceptance in `e2e/phase7c-acceptance.spec.ts`) all green. The feature as specified is correct — both rows §8 Phase 7c said to hammer (the two empty states staying distinct, and no data hidden at 60 meals across BOTH /meals and the LogMealDialog picker) were independently verified, along with shared alphabetical ordering, name-first picker labels, AND-of-tokens meal-name-only filtering, accurate counts, zero refetch while typing, and every explicit non-goal confirmed unbuilt. **One BLOCKING finding, B-1 — a real regression this time, not just a process issue:** the same working tree carries an undocumented `MealList.tsx` collapse-by-default → expand-by-default change that breaks **15 of `e2e/phase7-acceptance.spec.ts`'s 29 tests** (that suite clicks "Manage items" in 17 places; the button now reads "Hide items" on load). A scoped `git stash` of `MealList.tsx` alone restores 29/29 with all Phase 7c code intact, so none of the breakage is Phase 7c's own; it went unnoticed because Phase 7c's verification ran lint/tsc/build/unit but no e2e suite. Full run: unit 432/432; e2e 218/243 (15 = B-1, 10 = the documented pre-existing Day-input flakes). Plus 5 non-blocking notes (N-1..N-5), including an empirically-confirmed silent PostgREST `max_rows = 1000` truncation that lands on §5's own ~200-meal revisit trigger. **B-1 resolved (2026-07-30, direct edit per Jeff's explicit instruction: document in place, don't split the diff)** — `ai-context/DECISIONS.md` gained an entry recording the `MealList` expand-by-default change (made directly, before Phase 7c existed, in response to Jeff's live-testing feedback); the 17 stale `e2e/phase7-acceptance.spec.ts` assertions were updated to match (13 now-redundant "Manage items" clicks removed, plus 2 further "Delete"-button-ambiguity failures found and fixed once those were removed — `.first()`, since items now show by default); and the Phase 7c entry's inaccurate "no change to `MealList`" sentence was corrected in place. `e2e/phase7-acceptance.spec.ts`: 29/29. `max_rows = 1000` (N-1) is intentionally NOT fixed — carried forward in Up Next per Jeff's explicit "note it for later" instruction. One unrelated, pre-existing timezone-boundary flake in `src/lib/actions/meals.test.ts` (a file this session never touched) was newly observed while verifying — not fixed, logged in Up Next. **Phase 7c is ready for Jeff's final approval.** **Jeff approved all of Phase 7 in full (Phase 7, Phase 7b, and Phase 7c — saved meals, save-a-logged-group-as-a-meal, and the library findability pass), 2026-07-31.** **Phase 8 ("Ease-of-entry extras — copy/repeat: copy a whole day, "Log again" on a single entry, and "Copy this group") implemented (2026-07-31, developer) — `copyFoodEntries`, `validateCopyFoodEntriesInput`, `CopyDayDialog`, `CopyGroupDialog`, and the `FoodEntryList`/`FoodDayView` wiring are all in place. Several deviations/implicit decisions and known-deferred-class issues were flagged for qa-reviewer's attention — see the Completed entry below.** **Phase 8 qa-reviewed (2026-07-31, qa-reviewer): 50 independent tests all green, no blocking findings, 8 non-blocking notes (N-1 through N-8) — none recommended for action beyond amending two design-doc passages that describe unbuilt-but-non-blocking scope (multi-select copy, a dashboard quick-copy). Full regression suite confirmed green (both observed failures are already-documented pre-existing UTC-boundary flakes in files Phase 8 never touched) — ready for Jeff's approval.** **Phase 8b ("Multi-select bulk actions on the day's log") designed (2026-07-31, architect), resolving Phase 8's N-1/N-2 — a new design-doc section covers explicit select mode, cross-group selection, "Copy selected"/"Save selected as a meal" (both driving already-shipped actions with zero new server/domain code), and permanently descopes the stale dashboard quick-add line rather than building it. Phase 8's N-3/N-4 subsequently folded into Phase 8b too (2026-07-31, architect): a structural unmount-on-close fix for `CopyDayDialog`'s stale-error-on-reopen bug, and a "Log again" toast that names its destination. Phase 8b is ready for developer.** **N-8 fixed (2026-08-01, qa-reviewer): the `pastInstant()` UTC-midnight fixture-collision flake in `e2e/phase7b-acceptance.spec.ts` replaced with fixed-time-of-day fixtures — 23/23 re-confirmed, full suite 482/482 unit + 263/263 e2e. A different, unrelated local-midnight-window flake was newly found in `e2e/food-logging.spec.ts` and deliberately left unfixed — see Up Next 0-pre-c.** **Phase 8b fully designed (2026-08-01, architect) across six manual-testing findings (multi-select bulk actions, date formatting, a `StatusMessage` success-feedback restyle, a copy-group time override, an edited-row highlight, plus a separate autofill/password-manager hygiene pass) and then implemented (2026-08-01, developer) — lint/typecheck/build clean, unit 504/505, e2e 262/263 (both remaining failures are already-documented pre-existing UTC-boundary flakes in files this work didn't touch), independently re-verified — ready for qa-reviewer. Finding 5 (log a meal from `/meals`) was split out as its own Phase 8c, confirmed by Jeff, sequenced right after 8b since it depends on the new `StatusMessage` component.** **Phase 8c implemented (2026-08-01, developer) — a "Log this meal" action on `/meals` reusing `LogMealDialog` in a new fixed-meal mode; lint/typecheck/build clean, unit 504/505, e2e 262/263 (both remaining failures already-documented pre-existing flakes), plus 71/71 on the full Phase 7/7b/7c suite confirming zero regression — independently re-verified, ready for qa-reviewer.** **Phase 8b qa-reviewed (2026-08-02): 54/54 new acceptance tests plus 22 new unit tests, no blocking findings. Two real issues found and fixed during verification — a genuine `StatusMessage` timer bug (auto-dismiss silently reset by unrelated parent re-renders, now fixed) and an unrelated test-locator bug — full suite 529/529 unit, 54/54 new e2e, 34/34 on a targeted regression check. Phase 8b and 8c are both ready for Jeff's approval.** **A second, independent qa-review pass over Phase 8b/8c was run (2026-08-03) without realizing the 2026-08-02 pass above had already completed and approved both phases — it re-discovered the same `StatusMessage` timer bug (already fixed, confirmed still fixed) as its "N-1," but also found one genuinely new gap: the autofill/password-manager hygiene sweep never reached `/meals`. That gap (N-2) is now fixed (2026-08-03, developer) — see Completed below. Phase 8b and 8c remain ready for Jeff's approval; no new blocking findings.** **Phase 8d ("Day navigation, and emphasis/action hygiene on the day's log") implemented (2026-08-06, developer), per the architect's newest design-doc section and DECISIONS.md entries — `shiftIsoDate`, `DayNavigator`, `ActionPanel`, `Tooltip`, `icons.tsx` (all new), plus `FoodEntryList`/`FoodEntryForm`/`FoodDayView`/`CopyDayDialog`/`MetricForm` updates. Does NOT implement Phase 8e (time-picker `<optgroup>`s) or Phase 8f (meal pinning/duplicating) — confirmed untouched. Verification: lint/tsc/build clean, unit 571/571, a full freshly-started `npx playwright test --workers=1` run passed 333/333 with zero failures (11.6 min), manual phone-viewport/tooltip/ActionPanel/DayNavigator browser checks all confirmed via throwaway scripts (deleted afterward) — ready for qa-reviewer. See Completed below for the full breakdown, including a root-caused (not just observed) local-dev-only SSR/hydration timezone artifact that intermittently affected 4 `phase8b-acceptance.spec.ts` tests during verification, confirmed pre-existing and environment-specific, not a Phase 8d regression.** **Jeff approved Phase 8d, 2026-08-07** (approved specifically to unblock Phase 8g, which reverses part of it — see below). **Phase 8g ("Delete moves back onto the food-entry row; a louder editing highlight") and Phase 8h ("Retire the dashboard; last-logged weight/body fat moves to `/metrics`") both designed by the architect (2026-08-07) in response to Jeff's 2026-08-07 findings batch (Up Next item 11) — Jeff confirmed all three open calls: keep the `window.confirm()` safety net on the new row-level delete, approve Phase 8d (above), and approve the 8h dashboard-retirement plan as recommended (no oldest-to-latest progress chart for now). Both phases are ready for developer — see Up Next item 12.** **Phase 8g implemented (2026-08-07, developer) — `Button` gains an `icon` size, `FoodEntryList`'s three row actions ("Log again"/"Edit"/"Delete") are now icon-only with disambiguating `aria-label`s, "Delete" is back on the row guarded by a `window.confirm` owned by `FoodDayView.handleDelete` (mirroring `MealList.handleDeleteMeal`), `FoodEntryForm` loses its "Delete entry" button and `onDelete` prop entirely, and the editing-row highlight is strengthened to level 1+ (bar + inset `sage-deep` ring + filled `bg-sage-deep text-paper` "Editing" pill). Does NOT implement Phase 8h (confirmed untouched — no changes to `(app)/page.tsx`, `TodaySummary.tsx`, or `MetricForm.tsx`'s "last logged" line) or Phase 8e/8f. A real, previously-undocumented Playwright `getByLabel` collision was found and fixed during verification (an icon-only row's new `aria-label`, e.g. "Log again OldEntryRenamed", contains "Name" as a substring, colliding with an unscoped `getByLabel("Name")` elsewhere on the same page) — see the Completed entry and the new DECISIONS.md addendum. Verification: lint/tsc/build clean, unit 589/590 (the one failure is the already-documented pre-existing `meals.test.ts` UTC-boundary flake, item 0-pre-b, in a file this session never touched), two full freshly-started `npx playwright test --workers=1` runs — the first found and the second (after the `getByLabel` fix) confirmed 363/364 passed, the one remaining failure being the already-documented pre-existing `phase4-acceptance.spec.ts` UTC-boundary flake in a file/component (`MetricForm.tsx`/`lib/actions/metrics.ts`) this session never touched. Manual browser verification via a throwaway script confirmed the confirm-dialog dismiss/accept paths, the tooltip, the computed ring/pill styles, and phone-viewport tap targets (38×38px, individually tappable, zero console errors) — see Completed below for the full breakdown. Ready for qa-reviewer.** **Phase 8e ("Scanning the time picker: quarter-hour option groups") implemented (2026-08-08, developer) — `quarterHourOptionGroups`/`quarterHourGroupIndexFor` in `lib/domain/datetime.ts`, three `<optgroup>`s ("Early"/"Daytime"/"Late") rendered at all three call sites (`FoodEntryForm`, `LogMealDialog` in both modes, `CopyGroupDialog` with its sentinel kept outside every group), best-effort `text-stone-500` de-emphasis on the Early/Late options, and the off-grid edit invariant updated to inject into the correct group. Presentation-only, per design: `quarterHourOptions()` stays exported unchanged and every downstream consumer (validation, `localInputToUtcInTz`, grouping, the future-day cap) is untouched. Verification: lint/tsc/build clean, unit 600/600, a full freshly-started `npx playwright test --workers=1` run passed 364/364 with zero failures (15.1 min) — including every existing test that reads/selects time options at all three call sites. Desktop cross-platform check done and visually confirmed (screenshot of the real opened native dropdown shows the group label and the de-emphasis color); **the mobile half of the required manual check could not be completed** — no physical iOS/Android device was available in this sandbox, only Chromium's desktop-rendered mobile emulation, which doesn't produce a genuine native picker to eyeball — flagged as an outstanding manual check for whoever has real device access (see the Completed entry). Ready for qa-reviewer.** **Phase 8f ("Saved meals: pinning and duplicating") implemented (2026-08-08, developer) — the first schema migration since Phase 2 (`meals.is_pinned boolean not null default false`, no new RLS policy, verified by direct `psql` query against `information_schema.columns`/`pg_class`/`pg_policies` AND by a real cross-user integration test), `setMealPinned`/`duplicateMeal` in `lib/actions/meals.ts` (the latter structurally mirroring `createMealFromEntries` — ownership re-read, reused `meal_not_found`, reused compensating delete, `sort_order` PRESERVED not renumbered, `is_pinned` never copied), `sortMealsByName`'s pinned-first partition and `duplicateMealName` in `lib/domain/meals.ts`, a new `DuplicateMealDialog.tsx` (name prefilled + pre-selected, wrapped in `ActionPanel`), `LogMealDialog`'s picker gaining `Pinned`/`All meals` `<optgroup>`s (only when something is pinned) plus `ActionPanel` wrapping at both call sites, an icon-only pin toggle + "Pinned" text pill on each `MealList` card, icon-only Edit/Delete on `MealList`'s per-item rows (adopting Phase 8d/8g's vocabulary, per the 2026-08-07 icon-only amendment), and the named `cardAction: { mealId, kind }` refactor replacing `MealList`'s separate `renamingMealId`/`loggingMealId` state. Verification: lint/tsc/build clean, unit 621/621 (600 prior + 21 new: 8 domain + 13 real-Postgres/RLS integration tests including a fault-injected compensating-delete test and the RLS-verified-by-query test), a full freshly-started `npx playwright test --workers=1` run passed 364/364 with zero regressions (14.2 min — including every existing 8d/8e/8g test), and all three required manual-browser checks (pin-vs-filter, duplicate-with-filter-and-expanded-card survival, pinned-state legibility without relying on icon fill) confirmed via a throwaway script (deleted afterward). A real, previously-undocumented Playwright `getByLabel` collision was found and fixed during verification — wrapping `LogMealDialog`'s picker body in `<ActionPanel heading="Log a saved meal">` gives that region an accessible name containing "Meal" as a substring, colliding with two pre-existing tests' unscoped `getByLabel("Meal")` — see the Completed entry and the new DECISIONS.md addendum (the third instance of this exact collision class). Ready for qa-reviewer.** **Phases 8k ("The `/food` day-action surface"), 8l ("The auth screens get the app's name back") and 8m ("Password reset") DESIGNED (2026-08-11, architect) from six new manual-testing findings — design only, no code written; ready for developer. See Up Next item 14 and the three 2026-08-11 entries in `ai-context/DECISIONS.md`.** **Phase 8k implemented (2026-08-11, developer) — `DayActionBar`/`ui/DisclosureButton` (both new), `CopyDayDialog`/`LogMealDialog` made panel-only in every mode, `EntrySelectionBar`/`FoodDayView`'s select-mode block collapsed into one level-3 `ActionPanel` keyed on `bulkAction`, and `FoodLookupPanel`/`FoodEntryForm`'s "Add detail" expanders converted to `DisclosureButton`. Lint/tsc/build clean, unit 656/656, a full freshly-started `npx playwright test --workers=1` run passed 364/364 with zero regressions after fixing two real, expected breakages found along the way (a `getByRole` substring collision in `phase6-acceptance.spec.ts` between the persistent "Look up a food (barcode or search)" trigger and `BarcodeScanner`'s own "Look up" submit button, and `visual-identity-acceptance.spec.ts`'s "no arc anywhere" `appSvgs()` helper flagging the new legitimate chevron icons as decorative). Manual browser verification via a throwaway Playwright script (written, run, then deleted) confirmed via screenshots and computed-style checks that all three triggers stay visible and positioned above whichever panel is open, select mode reads as a real accent region (border/fill/heading all update per step), tooltips explain rather than repeat, the disclosure chevrons rotate correctly, and the phone-width layout wraps sensibly. Ready for qa-reviewer — see the Completed entry below for the full breakdown.** **Phase 8l ("The auth screens get the app's name back") implemented (2026-08-11, developer) — a new shared `components/ui/Wordmark.tsx` ("Health" in `--ink` + "Tracker" in `--accent`, no `aria-label`) used by both `(auth)/layout.tsx` (above the card, with the tagline "Log food, weight and body fat in seconds." beneath it and `shadow-lg` on the card) and `(app)/layout.tsx`'s header link (replacing the bare string), plus a `whitespace-nowrap` fix found during manual verification so the two-tone wordmark never splits across lines in a cramped header. Deliberately no decorative graphic — Phase 8i's zero-`<svg>` guard in `e2e/visual-identity-acceptance.spec.ts` needed no edit and passed unedited. A real bug was found and fixed during verification: `shadow-lg` passed via `className` was silently overridden by `Card`'s own `shadow-sm`, because Tailwind v4 emits utility CSS in alphabetically-sorted class-name order (not JSX/HTML attribute order); fixed with Tailwind v4's `!important` modifier (`shadow-lg!`), the first use of that modifier in this codebase. Both overrulable taste calls (two-tone wordmark, tagline) shipped exactly as designed. Verification: lint/tsc/build clean, unit 664/665 (the one failure is the already-documented pre-existing `meals.test.ts` UTC-boundary flake in a file this session never touched), two full freshly-started `npx playwright test --workers=1` runs (362/364 then, after the shadow/nowrap fixes, 363/364) with every failure drawn exclusively from this project's documented pre-existing flake list. Manual browser verification via a throwaway script (deleted afterward) confirmed the wordmark/tagline/shadow render correctly on `/login` and `/signup` at desktop and phone widths, and the authenticated header's wordmark link resolves an accessible name of exactly "Health Tracker" and correctly navigates to `/food`. Does NOT implement Phase 8m (password reset) — confirmed untouched. Ready for qa-reviewer — see the Completed entry below for the full breakdown.** **Phase 8k and Phase 8l qa-reviewed (2026-08-13, qa-reviewer) — no blocking findings on either; two non-blocking items fixed directly (the `Card.tsx` shadow-trap comment, the `supabase/.temp` lint-ignore) and 8k's N-1 (a real focus bug on "Log a saved meal" — focus landed on `<body>` instead of the meal picker once the form appeared) fixed and verified live in a browser with a negative control, 2026-08-14 — see the Completed entries below.** **Jeff approved Phase 8k and Phase 8l, 2026-08-14.**
+## Current Status: Phase 4 qa-reviewed and fixed up, ready for Jeff's approval (2026-07-22). Phase 5 (trend charts) implemented, qa-reviewed (one blocking bug found), and fixed up — ready for Jeff's approval (2026-07-25). **Sage-arc motif narrowed to auth screens only (2026-07-26, Jeff's direct decision, removed from the dashboard) — see `ai-context/DECISIONS.md`.** Visual identity rollout qa-reviewed (0 blocking findings, 5 non-blocking notes) — **NB-1 (dead old-palette CSS) and NB-2 (field-border/placeholder contrast) fixed, time-`<select>` alignment implemented, and the fetch-timeout follow-up closed, all 2026-07-26 (developer) — ready for Jeff's approval.** **Jeff approved Phase 6 (food lookup: barcode + description search), 2026-07-27.** **Phase 7 (Saved meals) implemented (2026-07-27, developer), then qa-reviewed (2026-07-28, qa-reviewer) — verdict: ready to gate to production, no blocking findings, 8 non-blocking notes (N-1 through N-8). N-1 (ungraceful invalid-timezone crash, shared with Phase 3's `addFoodEntry`/`updateFoodEntry`), N-7 (no direct action-level test coverage for `lib/actions/meals.ts`), and N-8 (a misdiagnosed "Node 24" environment note in this file's own history) fixed 2026-07-28 (developer) — ready for Jeff's approval. N-2 through N-6 logged below in Up Next, not fixed, per Jeff's explicit instruction to defer them.** The previously-flagged `supabase/seed.sql` time-of-day-dependent `db reset` failure has been root-caused (with a live repro) and fixed (2026-07-27, developer) — see Completed below. **Phase 7b ("Save a logged meal group as a Saved Meal") designed by the architect and approved as ready-to-implement (2026-07-30), then implemented (2026-07-30, developer) — `createMealFromEntries`, `mealItemsFromEntries`, `SaveGroupAsMealDialog`, `FoodEntryList`'s new group-header action bar, and the required `FoodDayView` `hasLoadedOnce` prerequisite fix are all in place — ready for qa-reviewer.** **Phase 7b qa-reviewed (2026-07-30, qa-reviewer): 23 independent acceptance tests (`e2e/phase7b-acceptance.spec.ts`) all green; full suite 395/395 unit + 222/222 e2e with zero regressions. The feature itself is correct — ownership invariant, copy-by-value, byte-identical source entries, the blank name field, and the compensating delete were all independently verified, the last with real fault injection plus a negative control. **One BLOCKING finding, B-1 — a scope/process issue, not a defect:** the change-set also carries undocumented out-of-scope changes (a new "Clear" button, a `lastConsumedAt`-on-edit semantics change contradicting design doc §3.4, a group-header AM/PM time-format change a recorded decision said would NOT be silently changed, and protein display rounding reaching Phase 7's already-reviewed `MealList.tsx`) — under a PROGRESS entry stating no deviations were needed. Plus 6 non-blocking notes (N-1..N-6). **B-1 resolved 2026-07-30 (Jeff's explicit call: document in place, don't split the diff)** — `ai-context/DECISIONS.md` gained three new entries recording the `lastConsumedAt`-on-edit change, the "Clear" reset-to-now behavior, and the group-header AM/PM change as deliberate, amending the two entries B-1 said were contradicted; `docs/architecture/food-weight-tracker.md` §3.4 and the `FoodEntryList` description were corrected to match; two new e2e tests pin the two previously-untested behavior changes; and N-1 (a raw Postgres error string reaching the UI from a malformed entry id) was fixed alongside. See the Completed entries below — **ready for Jeff's final approval.** **Phase 7c ("Saved-meals library: ordering, filtering, and counts") — designed by the architect (2026-07-30) in response to Jeff's "could the meals page get out of control?" question, then implemented (2026-07-30, developer): `lib/domain/meals.ts` (`sortMealsByName`/`filterMealsByName`), `MealsView`'s filter box + count readout + distinct no-match empty state, and `LogMealDialog`'s shared alphabetical ordering are all in place, verified against a real 60-meal fixture library in a live browser — ready for qa-reviewer.** **Phase 7c qa-reviewed (2026-07-30, qa-reviewer): 43 independent tests (24 unit in `src/lib/domain/meals.qa.test.ts`, 19 acceptance in `e2e/phase7c-acceptance.spec.ts`) all green. The feature as specified is correct — both rows §8 Phase 7c said to hammer (the two empty states staying distinct, and no data hidden at 60 meals across BOTH /meals and the LogMealDialog picker) were independently verified, along with shared alphabetical ordering, name-first picker labels, AND-of-tokens meal-name-only filtering, accurate counts, zero refetch while typing, and every explicit non-goal confirmed unbuilt. **One BLOCKING finding, B-1 — a real regression this time, not just a process issue:** the same working tree carries an undocumented `MealList.tsx` collapse-by-default → expand-by-default change that breaks **15 of `e2e/phase7-acceptance.spec.ts`'s 29 tests** (that suite clicks "Manage items" in 17 places; the button now reads "Hide items" on load). A scoped `git stash` of `MealList.tsx` alone restores 29/29 with all Phase 7c code intact, so none of the breakage is Phase 7c's own; it went unnoticed because Phase 7c's verification ran lint/tsc/build/unit but no e2e suite. Full run: unit 432/432; e2e 218/243 (15 = B-1, 10 = the documented pre-existing Day-input flakes). Plus 5 non-blocking notes (N-1..N-5), including an empirically-confirmed silent PostgREST `max_rows = 1000` truncation that lands on §5's own ~200-meal revisit trigger. **B-1 resolved (2026-07-30, direct edit per Jeff's explicit instruction: document in place, don't split the diff)** — `ai-context/DECISIONS.md` gained an entry recording the `MealList` expand-by-default change (made directly, before Phase 7c existed, in response to Jeff's live-testing feedback); the 17 stale `e2e/phase7-acceptance.spec.ts` assertions were updated to match (13 now-redundant "Manage items" clicks removed, plus 2 further "Delete"-button-ambiguity failures found and fixed once those were removed — `.first()`, since items now show by default); and the Phase 7c entry's inaccurate "no change to `MealList`" sentence was corrected in place. `e2e/phase7-acceptance.spec.ts`: 29/29. `max_rows = 1000` (N-1) is intentionally NOT fixed — carried forward in Up Next per Jeff's explicit "note it for later" instruction. One unrelated, pre-existing timezone-boundary flake in `src/lib/actions/meals.test.ts` (a file this session never touched) was newly observed while verifying — not fixed, logged in Up Next. **Phase 7c is ready for Jeff's final approval.** **Jeff approved all of Phase 7 in full (Phase 7, Phase 7b, and Phase 7c — saved meals, save-a-logged-group-as-a-meal, and the library findability pass), 2026-07-31.** **Phase 8 ("Ease-of-entry extras — copy/repeat: copy a whole day, "Log again" on a single entry, and "Copy this group") implemented (2026-07-31, developer) — `copyFoodEntries`, `validateCopyFoodEntriesInput`, `CopyDayDialog`, `CopyGroupDialog`, and the `FoodEntryList`/`FoodDayView` wiring are all in place. Several deviations/implicit decisions and known-deferred-class issues were flagged for qa-reviewer's attention — see the Completed entry below.** **Phase 8 qa-reviewed (2026-07-31, qa-reviewer): 50 independent tests all green, no blocking findings, 8 non-blocking notes (N-1 through N-8) — none recommended for action beyond amending two design-doc passages that describe unbuilt-but-non-blocking scope (multi-select copy, a dashboard quick-copy). Full regression suite confirmed green (both observed failures are already-documented pre-existing UTC-boundary flakes in files Phase 8 never touched) — ready for Jeff's approval.** **Phase 8b ("Multi-select bulk actions on the day's log") designed (2026-07-31, architect), resolving Phase 8's N-1/N-2 — a new design-doc section covers explicit select mode, cross-group selection, "Copy selected"/"Save selected as a meal" (both driving already-shipped actions with zero new server/domain code), and permanently descopes the stale dashboard quick-add line rather than building it. Phase 8's N-3/N-4 subsequently folded into Phase 8b too (2026-07-31, architect): a structural unmount-on-close fix for `CopyDayDialog`'s stale-error-on-reopen bug, and a "Log again" toast that names its destination. Phase 8b is ready for developer.** **N-8 fixed (2026-08-01, qa-reviewer): the `pastInstant()` UTC-midnight fixture-collision flake in `e2e/phase7b-acceptance.spec.ts` replaced with fixed-time-of-day fixtures — 23/23 re-confirmed, full suite 482/482 unit + 263/263 e2e. A different, unrelated local-midnight-window flake was newly found in `e2e/food-logging.spec.ts` and deliberately left unfixed — see Up Next 0-pre-c.** **Phase 8b fully designed (2026-08-01, architect) across six manual-testing findings (multi-select bulk actions, date formatting, a `StatusMessage` success-feedback restyle, a copy-group time override, an edited-row highlight, plus a separate autofill/password-manager hygiene pass) and then implemented (2026-08-01, developer) — lint/typecheck/build clean, unit 504/505, e2e 262/263 (both remaining failures are already-documented pre-existing UTC-boundary flakes in files this work didn't touch), independently re-verified — ready for qa-reviewer. Finding 5 (log a meal from `/meals`) was split out as its own Phase 8c, confirmed by Jeff, sequenced right after 8b since it depends on the new `StatusMessage` component.** **Phase 8c implemented (2026-08-01, developer) — a "Log this meal" action on `/meals` reusing `LogMealDialog` in a new fixed-meal mode; lint/typecheck/build clean, unit 504/505, e2e 262/263 (both remaining failures already-documented pre-existing flakes), plus 71/71 on the full Phase 7/7b/7c suite confirming zero regression — independently re-verified, ready for qa-reviewer.** **Phase 8b qa-reviewed (2026-08-02): 54/54 new acceptance tests plus 22 new unit tests, no blocking findings. Two real issues found and fixed during verification — a genuine `StatusMessage` timer bug (auto-dismiss silently reset by unrelated parent re-renders, now fixed) and an unrelated test-locator bug — full suite 529/529 unit, 54/54 new e2e, 34/34 on a targeted regression check. Phase 8b and 8c are both ready for Jeff's approval.** **A second, independent qa-review pass over Phase 8b/8c was run (2026-08-03) without realizing the 2026-08-02 pass above had already completed and approved both phases — it re-discovered the same `StatusMessage` timer bug (already fixed, confirmed still fixed) as its "N-1," but also found one genuinely new gap: the autofill/password-manager hygiene sweep never reached `/meals`. That gap (N-2) is now fixed (2026-08-03, developer) — see Completed below. Phase 8b and 8c remain ready for Jeff's approval; no new blocking findings.** **Phase 8d ("Day navigation, and emphasis/action hygiene on the day's log") implemented (2026-08-06, developer), per the architect's newest design-doc section and DECISIONS.md entries — `shiftIsoDate`, `DayNavigator`, `ActionPanel`, `Tooltip`, `icons.tsx` (all new), plus `FoodEntryList`/`FoodEntryForm`/`FoodDayView`/`CopyDayDialog`/`MetricForm` updates. Does NOT implement Phase 8e (time-picker `<optgroup>`s) or Phase 8f (meal pinning/duplicating) — confirmed untouched. Verification: lint/tsc/build clean, unit 571/571, a full freshly-started `npx playwright test --workers=1` run passed 333/333 with zero failures (11.6 min), manual phone-viewport/tooltip/ActionPanel/DayNavigator browser checks all confirmed via throwaway scripts (deleted afterward) — ready for qa-reviewer. See Completed below for the full breakdown, including a root-caused (not just observed) local-dev-only SSR/hydration timezone artifact that intermittently affected 4 `phase8b-acceptance.spec.ts` tests during verification, confirmed pre-existing and environment-specific, not a Phase 8d regression.** **Jeff approved Phase 8d, 2026-08-07** (approved specifically to unblock Phase 8g, which reverses part of it — see below). **Phase 8g ("Delete moves back onto the food-entry row; a louder editing highlight") and Phase 8h ("Retire the dashboard; last-logged weight/body fat moves to `/metrics`") both designed by the architect (2026-08-07) in response to Jeff's 2026-08-07 findings batch (Up Next item 11) — Jeff confirmed all three open calls: keep the `window.confirm()` safety net on the new row-level delete, approve Phase 8d (above), and approve the 8h dashboard-retirement plan as recommended (no oldest-to-latest progress chart for now). Both phases are ready for developer — see Up Next item 12.** **Phase 8g implemented (2026-08-07, developer) — `Button` gains an `icon` size, `FoodEntryList`'s three row actions ("Log again"/"Edit"/"Delete") are now icon-only with disambiguating `aria-label`s, "Delete" is back on the row guarded by a `window.confirm` owned by `FoodDayView.handleDelete` (mirroring `MealList.handleDeleteMeal`), `FoodEntryForm` loses its "Delete entry" button and `onDelete` prop entirely, and the editing-row highlight is strengthened to level 1+ (bar + inset `sage-deep` ring + filled `bg-sage-deep text-paper` "Editing" pill). Does NOT implement Phase 8h (confirmed untouched — no changes to `(app)/page.tsx`, `TodaySummary.tsx`, or `MetricForm.tsx`'s "last logged" line) or Phase 8e/8f. A real, previously-undocumented Playwright `getByLabel` collision was found and fixed during verification (an icon-only row's new `aria-label`, e.g. "Log again OldEntryRenamed", contains "Name" as a substring, colliding with an unscoped `getByLabel("Name")` elsewhere on the same page) — see the Completed entry and the new DECISIONS.md addendum. Verification: lint/tsc/build clean, unit 589/590 (the one failure is the already-documented pre-existing `meals.test.ts` UTC-boundary flake, item 0-pre-b, in a file this session never touched), two full freshly-started `npx playwright test --workers=1` runs — the first found and the second (after the `getByLabel` fix) confirmed 363/364 passed, the one remaining failure being the already-documented pre-existing `phase4-acceptance.spec.ts` UTC-boundary flake in a file/component (`MetricForm.tsx`/`lib/actions/metrics.ts`) this session never touched. Manual browser verification via a throwaway script confirmed the confirm-dialog dismiss/accept paths, the tooltip, the computed ring/pill styles, and phone-viewport tap targets (38×38px, individually tappable, zero console errors) — see Completed below for the full breakdown. Ready for qa-reviewer.** **Phase 8e ("Scanning the time picker: quarter-hour option groups") implemented (2026-08-08, developer) — `quarterHourOptionGroups`/`quarterHourGroupIndexFor` in `lib/domain/datetime.ts`, three `<optgroup>`s ("Early"/"Daytime"/"Late") rendered at all three call sites (`FoodEntryForm`, `LogMealDialog` in both modes, `CopyGroupDialog` with its sentinel kept outside every group), best-effort `text-stone-500` de-emphasis on the Early/Late options, and the off-grid edit invariant updated to inject into the correct group. Presentation-only, per design: `quarterHourOptions()` stays exported unchanged and every downstream consumer (validation, `localInputToUtcInTz`, grouping, the future-day cap) is untouched. Verification: lint/tsc/build clean, unit 600/600, a full freshly-started `npx playwright test --workers=1` run passed 364/364 with zero failures (15.1 min) — including every existing test that reads/selects time options at all three call sites. Desktop cross-platform check done and visually confirmed (screenshot of the real opened native dropdown shows the group label and the de-emphasis color); **the mobile half of the required manual check could not be completed** — no physical iOS/Android device was available in this sandbox, only Chromium's desktop-rendered mobile emulation, which doesn't produce a genuine native picker to eyeball — flagged as an outstanding manual check for whoever has real device access (see the Completed entry). Ready for qa-reviewer.** **Phase 8f ("Saved meals: pinning and duplicating") implemented (2026-08-08, developer) — the first schema migration since Phase 2 (`meals.is_pinned boolean not null default false`, no new RLS policy, verified by direct `psql` query against `information_schema.columns`/`pg_class`/`pg_policies` AND by a real cross-user integration test), `setMealPinned`/`duplicateMeal` in `lib/actions/meals.ts` (the latter structurally mirroring `createMealFromEntries` — ownership re-read, reused `meal_not_found`, reused compensating delete, `sort_order` PRESERVED not renumbered, `is_pinned` never copied), `sortMealsByName`'s pinned-first partition and `duplicateMealName` in `lib/domain/meals.ts`, a new `DuplicateMealDialog.tsx` (name prefilled + pre-selected, wrapped in `ActionPanel`), `LogMealDialog`'s picker gaining `Pinned`/`All meals` `<optgroup>`s (only when something is pinned) plus `ActionPanel` wrapping at both call sites, an icon-only pin toggle + "Pinned" text pill on each `MealList` card, icon-only Edit/Delete on `MealList`'s per-item rows (adopting Phase 8d/8g's vocabulary, per the 2026-08-07 icon-only amendment), and the named `cardAction: { mealId, kind }` refactor replacing `MealList`'s separate `renamingMealId`/`loggingMealId` state. Verification: lint/tsc/build clean, unit 621/621 (600 prior + 21 new: 8 domain + 13 real-Postgres/RLS integration tests including a fault-injected compensating-delete test and the RLS-verified-by-query test), a full freshly-started `npx playwright test --workers=1` run passed 364/364 with zero regressions (14.2 min — including every existing 8d/8e/8g test), and all three required manual-browser checks (pin-vs-filter, duplicate-with-filter-and-expanded-card survival, pinned-state legibility without relying on icon fill) confirmed via a throwaway script (deleted afterward). A real, previously-undocumented Playwright `getByLabel` collision was found and fixed during verification — wrapping `LogMealDialog`'s picker body in `<ActionPanel heading="Log a saved meal">` gives that region an accessible name containing "Meal" as a substring, colliding with two pre-existing tests' unscoped `getByLabel("Meal")` — see the Completed entry and the new DECISIONS.md addendum (the third instance of this exact collision class). Ready for qa-reviewer.** **Phases 8k ("The `/food` day-action surface"), 8l ("The auth screens get the app's name back") and 8m ("Password reset") DESIGNED (2026-08-11, architect) from six new manual-testing findings — design only, no code written; ready for developer. See Up Next item 14 and the three 2026-08-11 entries in `ai-context/DECISIONS.md`.** **Phase 8k implemented (2026-08-11, developer) — `DayActionBar`/`ui/DisclosureButton` (both new), `CopyDayDialog`/`LogMealDialog` made panel-only in every mode, `EntrySelectionBar`/`FoodDayView`'s select-mode block collapsed into one level-3 `ActionPanel` keyed on `bulkAction`, and `FoodLookupPanel`/`FoodEntryForm`'s "Add detail" expanders converted to `DisclosureButton`. Lint/tsc/build clean, unit 656/656, a full freshly-started `npx playwright test --workers=1` run passed 364/364 with zero regressions after fixing two real, expected breakages found along the way (a `getByRole` substring collision in `phase6-acceptance.spec.ts` between the persistent "Look up a food (barcode or search)" trigger and `BarcodeScanner`'s own "Look up" submit button, and `visual-identity-acceptance.spec.ts`'s "no arc anywhere" `appSvgs()` helper flagging the new legitimate chevron icons as decorative). Manual browser verification via a throwaway Playwright script (written, run, then deleted) confirmed via screenshots and computed-style checks that all three triggers stay visible and positioned above whichever panel is open, select mode reads as a real accent region (border/fill/heading all update per step), tooltips explain rather than repeat, the disclosure chevrons rotate correctly, and the phone-width layout wraps sensibly. Ready for qa-reviewer — see the Completed entry below for the full breakdown.** **Phase 8l ("The auth screens get the app's name back") implemented (2026-08-11, developer) — a new shared `components/ui/Wordmark.tsx` ("Health" in `--ink` + "Tracker" in `--accent`, no `aria-label`) used by both `(auth)/layout.tsx` (above the card, with the tagline "Log food, weight and body fat in seconds." beneath it and `shadow-lg` on the card) and `(app)/layout.tsx`'s header link (replacing the bare string), plus a `whitespace-nowrap` fix found during manual verification so the two-tone wordmark never splits across lines in a cramped header. Deliberately no decorative graphic — Phase 8i's zero-`<svg>` guard in `e2e/visual-identity-acceptance.spec.ts` needed no edit and passed unedited. A real bug was found and fixed during verification: `shadow-lg` passed via `className` was silently overridden by `Card`'s own `shadow-sm`, because Tailwind v4 emits utility CSS in alphabetically-sorted class-name order (not JSX/HTML attribute order); fixed with Tailwind v4's `!important` modifier (`shadow-lg!`), the first use of that modifier in this codebase. Both overrulable taste calls (two-tone wordmark, tagline) shipped exactly as designed. Verification: lint/tsc/build clean, unit 664/665 (the one failure is the already-documented pre-existing `meals.test.ts` UTC-boundary flake in a file this session never touched), two full freshly-started `npx playwright test --workers=1` runs (362/364 then, after the shadow/nowrap fixes, 363/364) with every failure drawn exclusively from this project's documented pre-existing flake list. Manual browser verification via a throwaway script (deleted afterward) confirmed the wordmark/tagline/shadow render correctly on `/login` and `/signup` at desktop and phone widths, and the authenticated header's wordmark link resolves an accessible name of exactly "Health Tracker" and correctly navigates to `/food`. Does NOT implement Phase 8m (password reset) — confirmed untouched. Ready for qa-reviewer — see the Completed entry below for the full breakdown.** **Phase 8k and Phase 8l qa-reviewed (2026-08-13, qa-reviewer) — no blocking findings on either; two non-blocking items fixed directly (the `Card.tsx` shadow-trap comment, the `supabase/.temp` lint-ignore) and 8k's N-1 (a real focus bug on "Log a saved meal" — focus landed on `<body>` instead of the meal picker once the form appeared) fixed and verified live in a browser with a negative control, 2026-08-14 — see the Completed entries below.** **Jeff approved Phase 8k and Phase 8l, 2026-08-14.** **Jeff approved Phase 8, Phase 8b, and Phase 8c, 2026-08-15** (all three had been qa-reviewed clean weeks earlier — Phase 8 on 2026-07-31, Phase 8b/8c on 2026-08-02/03 — but never had an explicit approval recorded in this file; closing that gap, not re-reviewing). **Phase 9 ("PWA-lite shell") implemented (2026-08-17, developer) — `manifest.ts` + `icon.tsx`/`apple-icon.tsx`/`icon-192`/`icon-512` (all `next/og`-generated, no service worker/offline/sync/push anywhere) — then qa-reviewed (2026-08-17, qa-reviewer): ready to gate, no blocking findings, 7 non-blocking notes and 3 environment findings (none fixed, all deferred) — see the two new Completed entries below. Awaiting Jeff's approval; once given, the entire Phase 1–9 architect-planned build-out is complete.**
 
 ---
 
@@ -3739,7 +3818,1042 @@ state, plus 630/630 unit tests. All three are ready for qa-reviewer.**
   (`e2e/phase7-acceptance.spec.ts`, `e2e/phase8c-acceptance.spec.ts`, `e2e/phase8k-acceptance.spec.ts`
   — 61 tests total) — **61/61 passed**, zero regressions.
 
+- [x] **Phase 8m ("Password reset") implemented** (2026-08-15, developer), against
+  `docs/architecture/food-weight-tracker.md`'s Phase 8m section (§3.1/§3.3/§3.4/§6/§8) and
+  `ai-context/DECISIONS.md`'s "Password reset: two pages, two Server Actions, and the existing
+  `/auth/callback`..." entry (2026-08-11). Sequenced as its own session, run after Phase 8k/8l were
+  both implemented, qa-reviewed, and Jeff-approved, per the design doc's own explicit dependency
+  note that 8m "should be its own session since it edits `/login`, the same file 8l just touched."
+  - **`src/lib/domain/auth-validation.ts`** gains `validateForgotPasswordInput({ email })` and
+    `validateNewPasswordInput({ password, confirmPassword })`, both reusing the existing
+    `isValidEmail`/`isValidPassword`/`MIN_PASSWORD_LENGTH` rather than restating either rule — the
+    existing `FieldError` union (`"email" | "password" | "confirmPassword"`) needed **no change**,
+    exactly as the design specifies. `validateNewPasswordInput` reports a too-short password AND a
+    mismatched confirmation **in the same call** when both apply (the design's explicit "the form
+    can't show one problem, get it fixed, and then reveal another" requirement) — verified by a
+    dedicated unit test.
+  - **`src/lib/actions/auth.ts`** gains two new `'use server'` actions beside `signIn`/`signUp`/
+    `signOut`, both reusing the existing `AuthActionState` shape so both new forms are ordinary
+    `useActionState` clients:
+    - `requestPasswordReset` calls Supabase's built-in `resetPasswordForEmail(email, { redirectTo:
+      \`${origin}/auth/callback?next=/reset-password\` })` — reusing the 2026-07-19 "built-in email
+      confirmation for v1, no custom SMTP" decision, not a new provider. **Always returns the same
+      neutral `info` on success**, regardless of whether the address has an account — verified live
+      (not assumed), see below. A genuine send failure (transport, or the local rate limit) is
+      surfaced as its own distinct, generic error, never folded into the neutral message.
+    - `updatePassword` independently re-checks `getUser()` before calling `updateUser({ password })`
+      — returning the short code `"reset_session_missing"` (mapped to friendly copy client-side,
+      matching this codebase's established short-code-error convention, e.g.
+      `logMealForDay`'s `meal_not_found`) if there's no session, regardless of what
+      `(auth)/reset-password/page.tsx` already rendered — this is the actual authorisation control,
+      the page-level check is UX only, per the design's explicit requirement. On success:
+      `signOut()` then `redirect("/login?reset=success")`.
+  - **`src/app/(auth)/forgot-password/page.tsx` + `ForgotPasswordForm.tsx`** (new) — a plain email
+    field calling `requestPasswordReset`; on `state.info`, replaces the form with the neutral
+    confirmation + a link back to `/login` (mirroring `SignupForm`'s existing info-state pattern).
+  - **`src/app/(auth)/reset-password/page.tsx` + `ResetPasswordForm.tsx`** (new) — the page is a
+    Server Component performing its **own** `getUser()` check before ever rendering the form: with
+    no session, it renders *"That reset link is invalid or has expired."* plus a link back to
+    `/forgot-password`, and **no password inputs at all** — never a dead form that can only fail on
+    submit. The form itself has two fields ("New password"/"Confirm new password", both
+    `autoComplete="new-password"`) and maps the defensive `reset_session_missing` error to the same
+    "invalid or has expired" copy with a link, for the rare case a session expires between page load
+    and submit (verified live by clearing cookies mid-form — see below).
+  - **`(auth)/login`**: `LoginForm.tsx` gains a "Forgot password?" link next to the password field;
+    `page.tsx` gains a `?reset=success` confirmation notice (`bg-accent-soft text-ink`, distinct from
+    the amber warning styling, since this is a genuine success rather than a warning — a judgment
+    call not pinned down by the design beyond "reuse this query-flag mechanism") and its existing
+    `auth_callback_failed` copy is **generalised** from signup-specific wording to cover both flows,
+    **keeping the required "invalid or expired" substring** verbatim.
+  - **`auth/callback/route.ts`**: confirmed to need **no code change** — it already accepts and
+    `safeRedirectPath`-validates `?next=`, and the code-exchange path is identical for a recovery
+    link and a signup-confirmation link. Only the *rendered copy* on `/login` (above) changed.
+  - **Unit tests**: `src/lib/domain/auth-validation.test.ts` gained two new `describe` blocks (9 new
+    cases) covering every row the design doc names — valid/empty/whitespace/malformed email;
+    too-short password and mismatched confirmation reported on the correct fields; both reported
+    together; empty-confirmation-as-mismatch (not a separate "required" error, matching
+    `validateSignupInput`'s existing convention); and a `MIN_PASSWORD_LENGTH`-boundary case pinning
+    that the shared constant is genuinely reused, not a second hardcoded `6`. Unit total: **675/675**
+    (666 prior + 9 new).
+  - **A necessary, expected update to a qa-reviewer-owned test file, not a deviation.** Phase 8l's
+    own independent acceptance suite (`e2e/phase8l-acceptance.spec.ts`) correctly carried a "Phase
+    8m was NOT started" scope guard (two tests: no `/forgot-password`/`/reset-password` route yet,
+    no "Forgot password?" link on `/login`) — accurate when Phase 8l shipped, and exactly the
+    guard the design doc's own dependency note anticipated becoming obsolete once 8m landed as its
+    own session. Both tests were **retired in place with an explanatory comment** pointing at this
+    entry and the matching DECISIONS.md entry — the same "retire, don't silently delete or leave
+    red" convention `e2e/phase8-acceptance.spec.ts` already established for its own since-superseded
+    dashboard guard (Phase 8h). New, positive acceptance coverage for the reset flow itself is left
+    for qa-reviewer's own independent suite, not authored here.
+  - **A real, previously-undocumented app-wide autofill-hygiene decay-guard update, not a
+    deviation.** `src/lib/domain/autofill-hygiene.qa.test.ts` (a qa-reviewer-owned "mechanical decay
+    guard," Phase 8b) hardcodes the exact list of every non-`off` `autoComplete` value in the app —
+    it correctly failed once the two new identity-bearing forms were added (`ForgotPasswordForm`'s
+    `email`, `ResetPasswordForm`'s two `new-password` fields), and was updated in place to include
+    them (renamed from "the two auth forms" to "the four auth forms" in its own assertion text) —
+    the exact "add the newly-legitimate entries, don't loosen the assertion" treatment this file's
+    own doc comment calls for.
+  - **Manual verification against the real local stack, not simulated.** Docker/local Supabase was
+    available this session. A throwaway Playwright script (written, run, then deleted — not part of
+    the delivered suite, per this project's established practice) drove the entire flow against the
+    real running app and a real Mailpit inbox, across several separate invocations (see the note on
+    the local rate limit below), confirming: (1) **the neutral-confirmation security property is
+    real, not just asserted** — a real test user's email and a clearly nonexistent one both produced
+    the byte-identical confirmation string, with no "no account"/"not found"/"unknown" text
+    anywhere; (2) **the full round trip works end to end**: request → fetched the real email from
+    Mailpit's REST API → followed its link (which itself redirects through GoTrue's own
+    `/auth/v1/verify` endpoint before landing on `/auth/callback?code=...&next=/reset-password`,
+    confirming the actual Supabase mechanics, not just the app's own expectations of them) → set a
+    new password → landed on `/login?reset=success` with the confirmation notice and no active
+    session (no "Log out" control reachable) → **the old password now fails to log in AND the new
+    one succeeds** (both halves asserted, not just the success half); (3) the **same link is
+    single-use** — revisiting it afterward correctly redirects to `/login?error=auth_callback_failed`
+    with "invalid or expired" visible; (4) `/reset-password` visited directly with no session shows
+    the expired-link state with **zero** password `<input>`s present, not a form that would only
+    fail on submit; (5) **the action independently re-checks** — reached the form via a real link
+    (page-level check passes), then cleared the browser context's cookies before submitting, and
+    confirmed the *action* rejects the submit with the "invalid or has expired" message, proving the
+    page-level `getUser()` check is not the only gate; (6) **server-side validation is real** — with
+    the native `<input minlength>`/`required` attributes stripped via `page.evaluate` before typing
+    a too-short, mismatched pair, the server still rejected both, and the password was confirmed
+    unchanged (by logging in with the old one afterward — not just by reading the returned error);
+    (7) the `?next=` open-redirect guard still holds through this flow
+    (`/auth/callback?code=...&next=//evil.com` still lands same-origin); (8) `/login`'s new "Forgot
+    password?" link is reachable logged out and lands on `/forgot-password`.
+  - **Two real local-Supabase environment snags hit and worked around during manual verification,
+    neither a code defect, both worth recording for whoever tests this flow locally next.**
+    (a) **The documented `[auth.rate_limit] email_sent = 2`/hour limit is real, global (not
+    per-email), and was hit almost immediately** — confirmed empirically that a *nonexistent* email
+    address still consumes a rate-limit slot equally (GoTrue does not special-case it, consistent
+    with never revealing account existence even via a timing/rate-limit side channel), so the first
+    manual-verification test (real address + unknown address, back to back) alone exhausted the
+    2/hour budget; the action's own generic "Couldn't send a reset email right now" error was
+    actually *seen* live as a direct result, confirming that path works too. Worked around locally by
+    restarting the `supabase_auth` (GoTrue) Docker container, which clears its in-memory rate-limit
+    counter without needing a full `supabase db reset` — restructured the remaining manual-test
+    scenarios to share a single email send wherever a validation failure doesn't consume the
+    underlying Supabase session (a rejected submit never calls `updateUser`), keeping the total
+    sends-per-verification-pass at or under budget. (b) **Restarting only the `supabase_auth`
+    container broke routing through Kong**: Docker containers get a new internal IP on restart, and
+    Kong (nginx-based) had cached the auth container's *old* IP, so every request through the
+    gateway to `/auth/v1/*` failed with a "Host is unreachable" 502 until **Kong was also
+    restarted** (confirmed via `docker logs supabase_kong_...`, which showed nginx's own
+    `connect() failed (113: Host is unreachable)` upstream error). Neither restart touched the
+    Postgres data volume or any other container — no data was lost, and both were left in a normal,
+    healthy state (confirmed via `docker ps`) after verification completed. Not a recommended
+    everyday practice — a full `supabase stop && supabase start` is the documented, safer way to
+    reset local Supabase state — but a viable narrower fix when only the auth rate limiter needs
+    clearing.
+  - **Full regression, all confirmed fresh this session**: `npm run lint` / `npx tsc --noEmit` /
+    `npm run build` all clean (`/forgot-password` builds static, `/reset-password` builds dynamic —
+    expected, since only the latter calls `getUser()` per-request). `npm test` **675/675**. A clean
+    `npx supabase db reset` was not re-run this session (not needed — no migration), but the stack
+    was confirmed healthy throughout. **Two full, freshly-started (`.next` cleared, no reused dev
+    server) `npx playwright test --workers=1` runs of the ENTIRE suite**: the first passed
+    **392/394**, the two failures being exactly the anticipated, now-retired Phase 8l scope-guard
+    tests described above (confirmed, not assumed, to be caused by those two tests specifically); the
+    second, after retiring them, passed **392/392, zero failures, in 14.1 minutes** — the entire
+    existing suite, including every carried-forward Phase 1/7/8h/8i/8k/8l test that touches
+    `/login`, `auth/callback`, or session/login flow, confirming zero regressions anywhere.
+  - **No deviations from the design doc's own §3.1/§3.3/§3.4/§8 Phase 8m scope were needed** beyond
+    the two expected, anticipated test-file updates above (both mechanical consequences of shipping
+    exactly the scope the design called for, not scope creep) — the doc specified the exact
+    action/validator signatures, the exact redirect targets, the exact "must keep this substring"
+    constraint, and the exact security property (neutral confirmation) precisely enough that this
+    was a comparatively literal implementation. One small implementation-level choice not pinned
+    down to the letter, flagged for qa-reviewer: the `?reset=success` notice's exact wording and its
+    `bg-accent-soft` styling (distinct from the amber warning box) are the developer's choice,
+    consistent with this app's existing "accent-soft = positive/neutral confirmation, amber =
+    warning" convention (e.g. `StatusMessage`, `MetricForm`'s "Already logged" pill) but not spelled
+    out letter-for-letter in the design doc beyond "reuse this query-flag mechanism."
+  - **Not yet approved by Jeff, not yet qa-reviewed — ready for qa-reviewer.**
+
+
+- [x] **Phase 8m qa-reviewed** (2026-08-15, qa-reviewer). The first phase in this project's history
+  approved by Jeff (on his own manual testing, 2026-08-15) **before** an independent review had run;
+  he then asked for the normal qa pass anyway to close that process gap. This entry is that pass.
+  Two new independent suites, written from the design doc's 3.3/3.4/6/8 Phase 8m rows and
+  `ai-context/DECISIONS.md`'s 2026-08-11 Phase 8m entry -- **not** from the developer's implementation
+  or their own `auth-validation.test.ts`, both of which were read only afterwards to look for gaps:
+  `e2e/phase8m-acceptance.spec.ts` (18 tests) and `src/lib/domain/auth-validation.qa.test.ts`
+  (23 tests). **All 41 pass.**
+  **Verdict: ONE BLOCKING finding (B-1 -- the phase's own stated security property is defeated in a
+  reachable state), plus 4 non-blocking notes. Everything else the design doc asked for is correct
+  and independently verified.** Jeff's approval is not retroactively gated by this; B-1 is reported at
+  its real severity and the accept-vs-fix call is his.
+  **Full regression, run fresh** (stale dev server killed, `.next` cleared, `--workers=1`):
+  `npx playwright test` **409/410**, the single failure being `phase3-acceptance.spec.ts`'s
+  "day pct is calorie-weighted ratio-of-sums" -- on this file's own documented pre-existing
+  `FoodDayView` `Day`-input-race flake list (2026-07-25 Notes), in a file Phase 8m never touched, and
+  confirmed by an isolated standalone re-run passing **11/11**. `npm test` **698/698** (675 prior +
+  23 new). `npm run lint` / `npx tsc --noEmit` / `npm run build` all clean; both new routes build as
+  expected (`/forgot-password` static, `/reset-password` dynamic).
+  **Independently verified and correct** -- the two rows 6 says to hammer, plus the rest: the **full
+  round trip against the real stack** (request -> real Mailpit email -> PKCE link -> `/reset-password`
+  -> set -> **the new password works AND the old one no longer does**, both halves asserted at
+  Supabase itself rather than through the UI, so a no-op action could not pass); success leaves the
+  user genuinely **signed out** on `/login?reset=success` with the notice, and `/food` still bounces
+  to `/login`; the link is **single-use** (a replay lands on `/login?error=auth_callback_failed` and
+  the generalised copy still contains the substring `/invalid or expired/i` that
+  `phase1-acceptance.spec.ts` asserts); `/reset-password` with no session renders the explanatory
+  state with **zero** password inputs and a link back to `/forgot-password`; **the action re-checks
+  independently of the page** -- reaching a state the page-level check would have blocked (form
+  rendered with a session, cookies cleared, then submitted) leaves the password unchanged, renders a
+  friendly message, and never leaks the `reset_session_missing` short code; server-side validation
+  holds with the native `minlength`/`required` stripped, for too-short, mismatched, and both-at-once,
+  with the old password provably intact each time; the **open-redirect guard** holds -- deliberately
+  exercised with a **real, exchangeable** `?code=` (a bogus code fails before the redirect is computed
+  and proves nothing), where `next=//evil.com` still lands same-origin. Adversarial code review
+  confirmed: both actions are server-only, **no browser-side Supabase auth call exists anywhere in
+  `src/`** (checked mechanically across every client-component file), the `FieldError` union is
+  genuinely unchanged, no application table/RLS/migration is touched, and both new validators route
+  through `isValidEmail`/`isValidPassword` -- made **mechanical** in the new unit suite (exactly one
+  email regex and exactly one bare 6 in the module, so a future restatement fails a test rather than
+  needing someone to re-read the file). The two edits to already-reviewed test files
+  (`phase8l-acceptance.spec.ts`'s now-vacuous "8m was NOT started" scope guard, retired with a comment
+  rather than silently deleted; `autofill-hygiene.qa.test.ts`'s enumerated list, **tightened** rather
+  than loosened) are both legitimate and correctly disclosed -- the undocumented-scope-creep pattern
+  that produced a blocking B-1 in Phases 7b and 7c did **not** recur.
+
+  **B-1 (BLOCKING) -- the neutral confirmation stops being neutral the moment a send fails, and a
+  send can only fail for an address that HAS an account. Two HTTP requests distinguish a real account
+  from a non-existent one.** This is the property the design doc calls "the phase's one security
+  property".
+  - **Reproduced deterministically, at the application level**, and pinned by
+    `e2e/phase8m-acceptance.spec.ts`'s "FINDING B-1 (pinned, NOT endorsed)" test: identical user
+    action, identical timing, only the address differs -- a **known** address renders "Couldn't send a
+    reset email right now. Please try again in a few minutes." while an **unknown** one renders "If an
+    account exists for that address, we've sent a link to reset your password."
+  - **Root cause is a contradiction inside the design, not a coding mistake.** 3.4 requires both
+    (a) an identical message regardless of account existence and (b) a *distinct* generic message for
+    a genuine send failure, "because swallowing it would tell the user an email is coming when it is
+    not" -- and it names the email rate limit as one such failure. Those are mutually exclusive:
+    Supabase never sends, and therefore never throttles or fails, for an address with no account, so
+    (b) can only ever fire for an address that exists. The implementation follows the design exactly;
+    the design's two requirements cannot both hold.
+  - **Confirmed at the GoTrue layer, not inferred** (direct `/auth/v1/recover` calls against the
+    running stack): from a freshly restarted limiter, **10 consecutive unknown addresses all returned
+    HTTP 200 and consumed nothing**, a known address then sent successfully, and at the **same
+    instant** a repeat for that known address returned **429** while an unknown address returned
+    **200**.
+  - **This directly contradicts a claim now in the project record**, which is why it is worth stating
+    plainly: the developer's own Phase 8m entry above says "confirmed empirically that a nonexistent
+    email address still consumes a rate-limit slot equally (GoTrue does not special-case it,
+    consistent with never revealing account existence even via a timing/rate-limit side channel)."
+    That is the exact check which, done correctly, would have surfaced this -- see **N-2** for why the
+    measurement came out backwards.
+  - **Severity in context, stated honestly:** this discloses only *whether an address has an account*
+    -- no data, no session, no takeover -- and plenty of production apps knowingly accept it. But it
+    is cheap (two requests), deterministic, needs no privilege, and defeats the one property this
+    phase was built around. **Recommended fix** (small, in `requestPasswordReset`): render the neutral
+    `info` message on **every** non-validation outcome and log the real failure server-side instead of
+    showing it. That trades away the design's honesty goal, so it is an architect/Jeff call rather
+    than something to change unilaterally. **Do not oversell whatever fix lands:** response *timing*
+    still differs (a real send does work an unknown address does not), so non-enumeration here is
+    best-effort regardless -- worth writing into the decision rather than discovering later.
+
+  **Non-blocking notes:**
+  - **N-1 -- an ordinary signed-in session can change the password with no re-authentication, and
+    that feature was explicitly NOT designed.** Both `/reset-password` and `updatePassword` check only
+    "is there a user", never that the session came from a recovery link (GoTrue does expose this --
+    the recovery session's AMR carries `recovery`). Verified live and pinned by the suite's "FINDING
+    N-1" test: log in normally with the current password, visit `/reset-password`, and the real form
+    renders and works. Two consequences: 5 lists "changing your password while logged in" as **OPEN,
+    not designed**, specifically because it needs a current-password re-auth decision -- that
+    capability is now shipped without the decision having been made; and it removes the usual barrier
+    between a stolen session cookie and a full account takeover. Low priority for a solo app, but it
+    should be a recorded choice rather than a side effect.
+  - **N-2 -- a factual correction to the project record, worth fixing so it does not mislead the next
+    reader.** The developer's entry attributes the throttling they hit to `[auth.rate_limit]
+    email_sent = 2`/hour, "real, global (not per-email)". The running container reports
+    `GOTRUE_RATE_LIMIT_EMAIL_SENT=360000` -- that setting is **not in force locally**, exactly as
+    `supabase/config.toml`'s own comment says ("Requires auth.email.smtp to be enabled"), and
+    `[auth.email.smtp]` is entirely commented out. What actually throttles locally is
+    `[auth.email] max_frequency = "1s"` (`GOTRUE_SMTP_MAX_FREQUENCY=1s`), which is **per-user** -- and
+    a per-user throttle cannot, by construction, apply to an address with no user. The misattributed
+    mechanism is what made the symmetry conclusion come out backwards, and hence B-1 get missed. Two
+    practical corrections for whoever tests this next: the local email budget is effectively unlimited
+    (no need to restart containers to reset it -- which is what triggered the developer's Kong-routing
+    snag (b)), and the *per-user* 1s window is the thing to design around.
+  - **N-3 -- `updatePassword` passes a raw provider error string straight to the UI.** `return
+    { error: error.message }` on `updateUser` failure. Verified live: resetting to the *same* password
+    renders GoTrue's own "New password should be different from the old password." Benign and even
+    helpful in this instance, but it is an unmapped provider string whose wording is not under the
+    app's control, it is inconsistent with `requestPasswordReset` a few lines above (which maps its
+    error to a generic sentence), and it is the same class already raised as Phase 7 N-5 and Phase 7b
+    N-1. Cheap fix: map unrecognised errors to a generic sentence, optionally keeping a friendly
+    mapping for the same-password case. Note this matches the pre-existing `signIn`/`signUp` in the
+    same file, so it is a recurrence, not a new pattern.
+  - **N-4 -- `ForgotPasswordForm` replaces itself with the confirmation, so a typo'd address is a dead
+    end.** On `state.info` the whole form unmounts, leaving only the message and a "Back to log in"
+    link -- a user who mistyped their address has no "try a different address" affordance and must
+    navigate back manually. Purely UX polish; the neutral-message design does not require the form to
+    disappear.
+
+  **One test-infrastructure note (T-1):** the acceptance suite needs the stack's mail catcher (Mailpit
+  at `127.0.0.1:54324`, overridable via `MAILPIT_URL`) and requests/follows each reset link **in the
+  same browser context**, because `resetPasswordForEmail` runs on the PKCE server client and
+  `/auth/callback`'s exchange needs that context's code-verifier cookie -- a link opened in a
+  different browser legitimately fails, exactly as 3.4 predicts. Both facts are documented at the top
+  of the spec so a future author does not read a cross-context failure as a defect. Also recorded
+  there: a sixth instance of this repo's recurring locator-collision class, found while writing these
+  tests -- `input[type=password]#password` is **not** unique to `/reset-password`, since `/login` uses
+  the same id, so asserting "the reset form is gone" by that selector silently passes against the
+  login page; the test asserts on the "Set new password" button instead.
+
+- [x] **B-1 accepted, not fixed (2026-08-15, Jeff's explicit call)** — the neutral-confirmation
+  account-existence leak above. Documented in full, including the mechanism, why the design's own
+  two requirements were mutually exclusive, and what a real fix would look like if this is ever
+  revisited, in `ai-context/DECISIONS.md`'s new "Phase 8m's account-existence leak (B-1) is accepted
+  as-is for now..." entry. **Phase 8m is now fully gated — implemented, qa-reviewed, and Jeff-
+  approved (2026-08-15).** N-1 through N-4 and T-1 are non-blocking and remain open, not yet fixed —
+  carried forward in Up Next below.
+
+- [x] **Phase 8g qa-reviewed** (2026-08-15, qa-reviewer) — "Delete back on the entry row, icon-only
+  row actions, and a louder editing highlight". One of six phases (8g/8e/8f/8h/8i/8j) implemented
+  weeks earlier and never sent through qa-review — a backlog gap in the usual architect → developer
+  → qa-reviewer → Jeff cycle, now closed.
+  Independent suite written from the design doc's §3.4 (both Phase 8g blocks), §6's "Row delete,
+  icon-only actions, and the stronger editing highlight" rows and §8's Phase 8g section — **not**
+  from the developer's implementation or their own `FoodEntryList.test.tsx`, both read only
+  afterwards to look for gaps. New file `e2e/phase8g-acceptance.spec.ts`, **15 tests, all green**
+  (re-run three times; the browser is pinned to UTC and every fixture seeded on today at a fixed
+  quarter-hour, sidestepping both documented pre-existing flakes).
+  **Verdict: ready to gate, no blocking findings.**
+  - **Both halves of the reversal asserted together**, per §6's explicit warning that a one-sided
+    test passes an implementation shipping two delete paths: the row exposes `Delete <entry>` **and**
+    the open edit form exposes no delete control of any kind (including no surviving Phase 8d
+    "Delete entry" button anywhere on the page).
+  - **The safety row holds**: dismissing the `window.confirm` leaves the entry rendered **and** in
+    the DB, proven by a service-role read after a deliberate settle delay — not by the UI's word.
+    Accepting it removes the row, removes the DB row, and decrements the day's totals; the prompt
+    text genuinely names the entry and says it can't be undone.
+  - **The N-4 error path (Phase 8d) has not regressed**: driven through a real, reachable failure
+    (clearing session cookies so `deleteFoodEntry` returns `unauthenticated`), the UI shows a
+    friendly "signed out" message, shows no raw Postgres text, and the entry survives.
+  - **Icon-only, verified as such**: each of the three buttons is a real `<button>` whose own
+    rendered text is empty, with an `aria-label` that starts with the unparaphrased verb and names
+    the entry via `entryDisplayLabel` ("Delete 2 cup — Rice bowl"), a single `aria-hidden` glyph, and
+    a supplementary `aria-describedby` tooltip whose text *explains* rather than repeats the label.
+    Labels genuinely disambiguate across a three-row day (each resolves to exactly one element).
+  - **Suppression covers all three actions** — on the edited row, in select mode, and inside an
+    active group expander — with Delete asserted specifically as the newcomer, and the sibling row
+    keeping all three (suppression is per-row, not global). A mid-edit row has **no** delete path
+    anywhere on the page, and cancelling restores the row's delete: the deliberate "Cancel → trash"
+    design, confirmed rather than assumed.
+  - **The highlight is louder without collateral damage**, asserted on *computed* styles: an inset
+    ring containing the accent colour, the accent left bar, a **filled** pill (accent fill, white
+    text, radius ≥500px per 8i's "status pills stay round" rule), the row's own background
+    **unchanged**, and a "From a saved meal" badge in that same row still visible and still a
+    different colour from the pill. Select mode and editing coexist; a merely-checked row gets no
+    background or ring of its own.
+  - **PALETTE NOTE, recorded so it isn't re-litigated:** 8g shipped against sage/clay and its own
+    PROGRESS entry describes a "sage-deep ring" and "bg-sage-deep text-paper" pill. Phase 8i later
+    swapped the token set, and its §3.4 mapping table states this row becomes
+    "bar + `ring-accent` + `bg-accent`/`text-white`". The suite asserts the **current** palette;
+    asserting sage would have been pinning a superseded spec, not finding a defect.
+  - **Required in-the-same-change sweep confirmed landed** (the thing that produced a blocking
+    finding in two earlier phases): `e2e/phase8d-acceptance.spec.ts`'s two now-false rows were
+    **rewritten in place** with explicit "SUPERSEDED 2026-08-07 (Phase 8g)" comments rather than
+    deleted or left red, and `e2e/phase8b-acceptance.spec.ts` was updated to assert 0 row-actions on
+    the edited row and 1 on its sibling. `src/components/food/FoodEntryList.test.tsx`'s literal
+    class assertions were updated to the new tokens and **not** loosened into "some class is
+    present", so real 8g coverage survives.
+  - **A test-authoring trap found and fixed in my own suite, recorded because it generalises:** the
+    first draft of the colour normalizer returned `undefined`, which made every `.toBe()` comparison
+    between two normalized colours pass **vacuously** — two "passing" assertions were asserting
+    nothing, and only the single `.not.toBe()` row exposed it. The helper now asserts its own
+    `r,g,b,a` output shape before returning. Separately, row `<li>`s carry `transition-colors`, so a
+    colour sampled immediately after a click is a mid-transition blend (an accent border read back
+    as `201,218,246` instead of `29,78,216`); every colour assertion now polls until settled with
+    the mouse parked away from the list so `hover:bg-slate-50/70` can't contaminate a reading.
+  - **Non-blocking notes:**
+    - **N-1**: `handleDelete`'s branch that clears `editingEntry` when the deleted row *is* the one
+      being edited is **unreachable from the UI** — the edited row suppresses its own Delete, by
+      design. It is defensively correct and should stay, but it is dead in practice; worth a comment
+      so a future reader doesn't remove it as dead code, and worth knowing that §6's "deleting the
+      entry currently being edited closes the form" row cannot be driven through the UI at all.
+    - **N-2**: the `window.confirm` names the entry with the bare `entry.name`, while the three
+      `aria-label`s use the richer `entryDisplayLabel` (quantity + unit + name). Both match their own
+      spec text; noting only that two different "how we name an entry" conventions now sit in one
+      interaction, and a quantity-only-differing pair of rows ("2 cup — Rice" vs "3 cup — Rice")
+      produces two identical confirm prompts.
+    - **N-3**: the row `aria-label`s embed user-supplied entry names, which makes this the first
+      surface where *user data* can trigger this project's documented `getByLabel`/`getByRole`
+      substring-collision class (six recorded instances). An entry named e.g. "Delete me" yields
+      "Delete Delete me". My suite uses `{ exact: true }` throughout; future test authors on `/food`
+      must too.
+
+- [x] **Phase 8e qa-reviewed** (2026-08-15, qa-reviewer) — "Scanning the time picker: quarter-hour
+  option groups". Second of the six-phase qa backlog.
+  Two independent suites written from the design doc's §3.3 (the `QuarterHourGroup` type comment and
+  both exported signatures), §3.4's "Shading early and late hours in the time `<select>`" block, §6's
+  "Time-picker grouping" rows and §8's Phase 8e section — **not** from the developer's own
+  `datetime.test.ts`, read only afterwards: `src/lib/domain/datetime-quarterhour.qa.test.ts`
+  (10 unit tests) and `e2e/phase8e-acceptance.spec.ts` (10 acceptance tests). **All 20 green.**
+  **Verdict: the functional contract is intact and correct, but ONE BLOCKING finding (B-1) needs
+  Jeff's decision before this phase should be approved — the feature's own load-bearing mechanism was
+  removed after implementation, so what ships is the exact thing the design explicitly rejected.**
+  - **Jeff's explicit constraint — nothing is lost — holds completely, and was hammered.** The
+    identity row (`groups.flatMap(g => g.options)` deep-equals `quarterHourOptions()`) passes; all 96
+    options are present, uniquely valued, chronologically ordered, zero-padded to a uniform 8-character
+    label, and **none is disabled**, at **all three** call sites (`FoodEntryForm`, `LogMealDialog` in
+    picker **and** fixed-meal mode, `CopyGroupDialog`). `CopyGroupDialog`'s `value=""` "Keep original
+    time(s)" sentinel is still first, still outside the times, and still the default.
+  - **Grouping is genuinely presentation-only** — proven by writing through the control, not by
+    reading it: selecting a Late-group time (`21:15`) and an Early-group time (`03:45`) each store
+    exactly that instant, with the correct `consumed_local_date`, verified by DB read.
+  - **The off-grid edit invariant — §6's "likeliest silent defect" — survives**, and is asserted
+    positionally rather than merely by presence: a seeded `09:07` is injected exactly once, is the
+    **selected** value, renders as `09:07 AM`, and sits **between `09:00` and `09:15`** (97 options
+    total), so an implementation that appended it outside the grouping or dropped it would fail. After
+    an unrelated rename-and-save, the stored `consumed_at` is byte-identical. An on-grid entry gets no
+    injected duplicate.
+  - **The `select > option` direct-child sweep is clean** — grepped `e2e/` and `src/`, zero
+    occurrences; my own helper deliberately uses a descendant selector so it would pass either way.
+  - **B-1 (BLOCKING — needs Jeff's decision, not a correctness/data bug).** **Phase 8e's load-bearing
+    mechanism is no longer in the DOM.** §3.4 states it in as many words: *"The load-bearing mechanism
+    is three `<optgroup>`s, because a group label is **content**"*, with the option CSS as *"a bonus"*,
+    because *"`<option>` CSS is not portable: macOS Safari/Chrome largely ignore it, and every mobile
+    browser renders the list as a native platform picker that ignores author CSS entirely"* — and its
+    named failure mode is that a CSS-only shading *"would work on Windows/Linux Chrome, Edge and
+    Firefox — **where Jeff would see it work** — and **silently do nothing on his phone**."* Two later
+    "trivial bugfix" passes removed first the `<optgroup>` **label text** (2026-08-09) and then the
+    `<optgroup>` **element itself** (2026-08-10, flattened via `.flatMap()`), leaving a single flat run
+    of 96 `<option>`s whose only differentiator is a `bg-slate-100` class. Verified in a real browser
+    at all three call sites: **zero `<optgroup>` elements anywhere.** So the shipped feature is exactly
+    the CSS-only shading the design rejected, and on Jeff's primary device it is expected to do
+    nothing at all. Both passes are individually reasonable and traceable to Jeff's own feedback (the
+    headless `<optgroup>` really did reserve a blank row in Chromium, which is a real artifact) — this
+    is not a developer error. But the net effect reverses a recorded, explicitly-reasoned decision
+    without an architect loop, and it is invisible precisely where the design predicted it would be.
+    **Three legitimate resolutions, Jeff's call:** (a) accept it as-is and amend §3.4/§8 and
+    `ai-context/DECISIONS.md` to record that the portable mechanism was traded away knowingly;
+    (b) restore `<optgroup>`s **with** labels, accepting the header rows Jeff disliked; or (c) drop
+    Phase 8e's shading entirely as not worth it. What should **not** happen is leaving the doc claiming
+    a portability property the code no longer has.
+  - **N-1 (non-blocking, but the same paperwork gap):** the **group boundaries changed and were never
+    recorded**. §3.3's unit bullet and §3.4 both specify **24 / 56 / 16** with *"boundaries exactly at
+    06:00 and 20:00"*, and §6 asks that `19:45`/`20:00` fall on **opposite** sides. The shipped code is
+    **24 / 57 / 15**: `20:00` was moved into Daytime on 2026-08-10 at Jeff's direct request ("shade the
+    entries AFTER 8:00 PM, leave 8:00 PM unshaded") — recorded **only in a code comment**, with no
+    `ai-context/DECISIONS.md` entry and no PROGRESS note, and the design doc still states the old
+    numbers. The change is fine; the paperwork is the gap, and it is the same class that produced
+    blocking findings in Phases 7b and 7c. Both my suites **pin the shipped 24/57/15 behaviour** as an
+    explicitly-labelled FINDING so it cannot drift again silently, and so nobody "fixes" the code back
+    to match a stale doc.
+  - **N-2 (non-blocking):** §6's *"group labels are present"* acceptance row is now false by design
+    (labels were deliberately removed 2026-08-09, which **is** recorded in DECISIONS.md). The row needs
+    rewriting or retiring in whichever change resolves B-1 — not left as a spec row nothing satisfies.
+  - **N-3 (non-blocking, informational):** the mobile half of §8's required manual cross-platform check
+    was never completed (no physical device was available to the developer, and none is available to me
+    either). Under B-1 that check has become more consequential, not less: it is now the only way to
+    observe that the feature does nothing there.
+  - **Carried-forward time rows all pass unchanged**, confirming the change never reached below the
+    label boundary (validation, `localInputToUtcInTz`, exact-`consumed_at` grouping and the future-day
+    cap are all untouched).
+
+- [x] **B-1 accepted, not fixed (2026-08-15, Jeff's explicit call: accept as-is)** — the `<optgroup>`
+  removal above. Jeff reviewed all three options qa-reviewer laid out (restore `<optgroup>`s, drop
+  the shading feature, or accept the CSS-only state as shipped) and chose to accept it — the shading
+  is a de-emphasis nicety, not a correctness feature, every option is still fully present/selectable/
+  correctly-valued on every platform regardless, and "no shading on mobile" is a difference in degree
+  from the original design's own already-accepted "no colour on iOS," not a difference in kind. Full
+  reasoning, including why restoring `<optgroup>` would re-litigate a UI call Jeff has now made twice,
+  is in `ai-context/DECISIONS.md`'s new "Phase 8e's `<optgroup>` removal accepted as-is..." entry.
+  `docs/architecture/food-weight-tracker.md`'s Phase 8e section and its §6 acceptance block are both
+  corrected in place to describe the shipped, `<optgroup>`-free, 24/57/15 state as the accepted
+  target — closing N-1 (the undocumented boundary change) and N-2 (the now-false "group labels are
+  present" row) at the same time, since both were paperwork gaps this same documentation pass fixes.
+  No code change — `quarterHourOptionGroups()`/`quarterHourGroupIndexFor()` are unchanged; only the
+  design doc and decision record were wrong. **Phase 8e is now fully gated.** N-3 (the outstanding
+  mobile manual check) is effectively mooted by this decision — see the design doc's corrected manual-
+  check bullet.
+
+- [x] **Phase 8f qa-reviewed** (2026-08-15, qa-reviewer) — "Saved meals: pinning and duplicating",
+  the batch's only schema change and the first migration since Phase 2. Third of the six-phase qa
+  backlog.
+  Three independent suites written from the design doc's §3.2/§3.3 (`setMealPinned`/`duplicateMeal`
+  signatures and `sortMealsByName`'s amended contract), §3.4's "Pinned meals and duplicating a meal"
+  block, §6's matching rows and §8's Phase 8f section — **not** from the developer's own
+  `meals.test.ts`/`meals.qa.test.ts`, read only afterwards: `src/lib/domain/meals-pinning.qa.test.ts`
+  (10 pure unit tests), `src/lib/actions/meals-pinning.qa.test.ts` (15 real-Postgres/RLS action
+  tests), `e2e/phase8f-acceptance.spec.ts` (12 UI acceptance tests). **All 37 green.**
+  **Verdict: ready to gate, no blocking findings.** All three rows §6 said to hammer pass.
+  - **ROW 1 — the migration and its RLS claim, verified BY QUERY against the running Postgres, not
+    by reading the SQL** (`docker exec ... psql`, and re-asserted as real tests so it cannot rot):
+    `meals.is_pinned` is `boolean|NO|false`; `pg_class.relrowsecurity = t`; **exactly four** policies,
+    byte-compared against `user_id = ( SELECT auth.uid() AS uid)` — including `meals_update_own`
+    carrying that predicate on **both** `qual` and `with_check`, which is what actually constrains an
+    `is_pinned` update; **zero** rows with a null `is_pinned` (the `not null default false` really did
+    fill existing rows in one statement); and the `anon` role still holds **no**
+    SELECT/INSERT/UPDATE/DELETE grant, so AGENTS.md's Absolute Rule survives the ALTER. The design's
+    claim that an ALTER needs no new policy is therefore **confirmed rather than assumed**.
+    Then the real test: **user B calling `setMealPinned` with user A's `mealId` leaves A's row
+    untouched**, proven by a service-role read — with a **non-vacuous control** in the same test
+    (A pinning her own meal succeeds, and unpinning reverses it), so the negative cannot be passing
+    because pinning is simply broken. `setMealPinned` also changes only `is_pinned` — name,
+    `created_at` and `user_id` are untouched.
+  - **ROW 2 — `sort_order` is PRESERVED, never renumbered.** Seeded deliberately non-contiguous
+    (`0/2/5`) exactly as §6 instructs, so an implementation that mechanically reused
+    `mealItemsFromEntries`' `0..N-1` assignment fails rather than coincidentally passing: the
+    duplicate's items come back `[0, 2, 5]`, in the same order, with identical `quantity` and
+    per-unit values, fresh ids/`meal_id`, the caller's `user_id`, and **summed totals equal to the
+    source's** — which holds by construction, since the generated `calories`/`protein_g` are never
+    copied but recomputed by the same expression.
+  - **ROW 3 — the source is BYTE-IDENTICAL afterwards.** Full-row deep equality on both the `meals`
+    row and its `meal_items`, `updated_at` included, which is what actually proves no UPDATE fired.
+    Same evidentiary bar as Phase 7b's read-only invariant, re-proved for the meal-to-meal direction.
+  - **The rest of §6's block also verified**: the duplicate is **not** pinned even when the source is
+    (asserted at both the action level and through the UI, where exactly one "Pinned" pill remains on
+    the page afterwards); an **empty source meal duplicates successfully** into an empty meal and that
+    copy is still refused by `logMealForDay` (`empty_meal`), so nothing downstream is at risk; a
+    foreign `mealId` and a nonexistent one are **indistinguishable** (`meal_not_found`, no enumeration
+    oracle) and write **zero** rows for either user; blank and whitespace-only names are field errors
+    writing nothing; and **independence holds in both directions** (renaming or deleting the copy
+    leaves the source and its items intact).
+  - **The compensating delete was proven by real fault injection, with a negative control** — not
+    deferred to "verified by review". A BEFORE INSERT trigger on `meal_items` (installed and dropped
+    via docker-exec psql in a finally block, under a distinct `qa8f_block_items` name so it can never
+    collide with phase7b's own) forces the second statement to fail: the action errors and **no
+    orphan `meals` row survives**. The control then runs the identical call with the trigger gone and
+    confirms it succeeds and adds exactly one meal — so the orphan's absence can only be the action's
+    own cleanup, not the whole thing failing atomically anyway.
+  - **UI rows all pass**: pinned-first ordering on **both** surfaces (a meal whose name sorts last
+    renders first on `/meals` **and** first in `LogMealDialog`'s picker, keeping 7c's one-shared-
+    ordering rule); **pinning one meal does not reshuffle the rest** (every other card's relative
+    order captured before and after and asserted unchanged); the picker's Pinned/All meals
+    `<optgroup>`s appear **only** when something is pinned, with 7c's name-first label invariant intact
+    inside them; **filtering beats pinning** (a pinned non-match is not rendered and "Showing 1 of 3"
+    agrees with the visible cards); the pinned state is **not colour-only** — a visible "Pinned" text
+    pill plus `aria-pressed`, both reversing on unpin; the duplicate name field opens **prefilled**
+    with the source name plus " (copy)" and **pre-selected** (asserted on the real selection range,
+    not just the value) and is overridable; and success **refetches without disturbing anything** —
+    with a filter active and a card expanded, the filter, its text, the updated count and the expanded
+    items all survive, which is the bug class this screen has shipped twice.
+  - **Non-blocking notes:**
+    - **N-1**: `MealList.handleTogglePinned` **discards `setMealPinned`'s result** and calls
+      `onChanged()` unconditionally, so a failed pin is indistinguishable from a successful one at the
+      point of action. This is the same class as Phase 8d's qa **N-4** against
+      `handleDeleteEditingEntry` — which *was* fixed, and which Phase 8g's spec required be kept
+      verbatim — recurring on an action added one phase later. Verified reachable in a real browser
+      (drop the session, click pin): the DB correctly does not change, and no message anywhere names
+      the failed pin. Severity is genuinely low, because the unconditional refetch re-renders from the
+      DB so the UI never shows a pin that did not happen; what is missing is any feedback that the
+      click did nothing. Pinned as a labelled FINDING test rather than fixed, since routing it through
+      an error channel is a small design choice (`MealList` currently has no `actionError` surface).
+    - **N-2**: `setMealPinned` returns `{ ok: true }` when its id/user_id filter matches **zero** rows
+      — e.g. a foreign or already-deleted meal. Not a security gap (RLS plus the redundant
+      `.eq('user_id')` is what actually blocks it, and that is proven above); it is the same
+      ambiguous-success-response class already deferred as Phase 7's **N-4**, now on a third action.
+    - **N-3**: §6's row *"opening Duplicate closes an open 'Log this meal' or Rename on the same
+      card"* is **unreachable for the Rename half, by construction**: Rename is not an `ActionPanel`
+      expander — it **replaces** the card header with an inline `MealForm`, so the Duplicate control
+      is not rendered at all while renaming. Mutual exclusion is genuinely enforced (`cardAction` is a
+      single value for the whole list) and is asserted for the reachable pairs — Duplicate closing an
+      open "Log this meal" on the same card, and an open expander on another card. The doc row should
+      be reworded rather than left describing an interaction that cannot occur.
+    - **N-4 (test-infrastructure, my own)**: `MealsView` loads its meals through a **client-side**
+      read, so the `/meals` heading renders before any card does. My first draft waited only on the
+      heading and intermittently read an empty list under load — corrected to wait on a caller-supplied
+      expected card count. Future `/meals` test authors should do the same rather than waiting on the
+      heading alone.
+
+- [x] **Phase 8h qa-reviewed** (2026-08-15, qa-reviewer) — "Retire the dashboard; last-logged weight
+  moves to `/metrics`". Fourth of the six-phase qa backlog.
+  Independent suite written from the design doc's §3.4 "Retiring the dashboard" block, §6's matching
+  rows and §8's Phase 8h section — **not** from the implementation. New file
+  `e2e/phase8h-acceptance.spec.ts`, **11 tests, all green.**
+  **Verdict: ready to gate, no blocking findings.** Both rows §6 said to hammer pass.
+  - **ROW 1 — `/` genuinely lands on a WORKING `/food`**, asserted on the final URL **and real
+    rendered content** (the "Food log" heading, the day-action triggers and the totals card), because
+    a redirect that 200s on an empty page passes a naive check. Verified from both entry points: the
+    post-login redirect, and a **direct** visit to `/`.
+  - **The header wordmark still works** — the link most likely to be broken by a careless route
+    deletion. It still points at `/`, and clicking it from `/settings` lands on a rendered `/food`.
+    The `/` route was genuinely kept rather than repointed, so the auth callback and sign-in redirect
+    are untouched, exactly as the design intended.
+  - **Nothing dashboard-shaped remains**: no "Today so far" and no "Welcome back" on any of `/food`,
+    `/meals`, `/metrics`, `/trends` or `/settings`; `components/food/TodaySummary.tsx` is genuinely
+    deleted (not merely unimported). Log out still clears the session, and `/` then resolves to
+    `/login` rather than the app.
+  - **ROW 2 — the last-logged line updates after a save WITHOUT a reload**, which is the single
+    behaviour the client-read choice exists to guarantee and the one a "simplification" back to a
+    Server Component read would silently break. Seeded a metric six days ago, logged today's weight
+    through the real form with no navigation, and the line moves to today's date and today's value.
+    Also proved in the other direction: deleting the newest day's row moves the line **back** to the
+    previous day, again with no reload.
+  - **The rest of the block verified**: with two seeded days the line shows the **most recent**, not
+    the oldest and not the browsed day; the date is rendered human-readably (`MM/DD/YYYY` via
+    `formatDateLabel`, and specifically **not** a raw ISO string); a weight-only day shows **no**
+    body-fat clause; and with **no** metrics ever logged the line is **absent entirely** — asserted
+    as an absence, including specifically that it is not a "Last logged: —" placeholder.
+  - **The unit really is the user's, not a hardcoded one**: with the same stored `weight_kg`, a
+    kg→lb switch changes the rendered line to `lb` **and converts the number** (80 kg → ~176.4 lb),
+    so an implementation that relabelled without converting, or hardcoded kg, would fail.
+  - **The required in-the-same-change e2e sweep is complete**, including the part larger than the
+    design doc named: all four files §8 listed were updated, `e2e/phase8-acceptance.spec.ts`'s
+    now-vacuous *"no copy/quick-add control was added to the dashboard"* guard was **retired with an
+    explanatory comment** rather than silently deleted, and `e2e/fetch-error-handling.spec.ts`'s
+    dashboard row genuinely **moved to `/meals`** rather than being dropped — that suite still covers
+    `/food`, `/metrics`, `/meals` and `/trends`, so its "every client read has an error+Retry path"
+    point survives. A grep confirms **zero** remaining `toHaveURL("/")` assertions anywhere in `e2e/`.
+  - **Non-blocking notes:**
+    - **N-1**: three **stale doc-comment references to the deleted `TodaySummary`** survive in
+      `src/components/food/LogMealDialog.tsx`, `src/components/trends/TrendsView.tsx` and
+      `src/lib/supabase/query-timeout.ts`. Cosmetic only (they are prose, not imports — the build and
+      the suites are unaffected), and the developer disclosed them; worth a one-line sweep so a future
+      reader doesn't go looking for a component that no longer exists.
+    - **N-2**: `fetchLastLogged` **swallows every error silently** (`try { … } catch {}`, and it also
+      ignores a returned `error`), so a persistently failing last-logged read is indistinguishable
+      from "this user has never logged a metric" — both render nothing. This is a deliberate,
+      documented choice and is defensible for a secondary "nice to know" line whose screen already has
+      its own error+Retry path for the primary read; recorded only so the trade is visible, since the
+      absent-line state now carries two different meanings.
+    - **N-3 (informational, verified not assumed)**: the new query is
+      `.from("daily_metrics").order(…).limit(1)` with **no `user_id` filter** — it relies entirely on
+      RLS through the RLS-scoped browser client. That is correct and consistent with the day-entry
+      read directly above it in the same component (whose cross-user isolation Phase 4's qa already
+      verified), and `daily_metrics`' RLS was verified by query in Phase 2; noted because a
+      `limit(1)` with no owner predicate is the shape that would leak loudly if RLS were ever
+      disabled on that table.
+    - **N-4 (test-infrastructure, my own)**: `/metrics` renders a tz placeholder before `MetricForm`
+      mounts, and the login redirect must be awaited before any further `page.goto` or the navigation
+      races the login POST and lands back on `/login`. Both are now handled in this suite's helpers;
+      future authors of `/metrics` tests should copy that shape rather than rediscover it.
+
+- [x] **Phase 8i qa-reviewed** (2026-08-15, qa-reviewer) — "Visual identity v2: cool canvas,
+  blue/orange accents, no serif". Fifth of the six-phase qa backlog.
+  §6 defines this phase's own acceptance work as a **rewrite in place** of
+  `e2e/visual-identity-acceptance.spec.ts`, and that rewrite **has landed and genuinely asserts the
+  new identity** (verified: the nine tokens, "no fraunces", the ~8px primary button, the surviving
+  nav pill, the SC 1.4.11 secondary-border fix, zero app-owned `<svg>` on the auth screens, and an
+  old-palette scan whose forbidden list is now the sage/clay/paper values). So this review adds a
+  deliberately **non-duplicate** second opinion — `e2e/phase8i-acceptance.spec.ts`, **14 tests, all
+  green** — concentrating on the assertions that suite could pass vacuously, a real positive control,
+  and the parts of §3.4's hand-edit list it does not reach.
+  **Verdict: ready to gate, no blocking findings.** Both rows §6 said to hammer pass.
+  - **ROW 1 — the tokens genuinely COMPUTE, not merely exist in `:root`.** `document.body` resolves
+    to `--canvas` and `--ink` on **every** app screen, and each of the eight token utilities the app
+    actually uses was probed by injecting a real element and reading its computed value back —
+    `bg-canvas`, `text-ink`, `text-muted`, `border-line`, `border-line-strong`, `bg-accent`,
+    `bg-accent-soft`, `bg-accent-warm` all resolve to the exact table values. A token defined in
+    `:root` but never wired into `@theme inline` would silently produce a class that does nothing;
+    none does.
+  - **ROW 2 — no serif survives, and Fraunces is genuinely UN-REGISTERED rather than unused.** No
+    computed `font-family` on any heading/text probe across five screens contains "fraunces" (with an
+    explicit non-vacuity check that each screen yielded >10 probes); `document.fonts` carries no
+    Fraunces face; and `grep` confirms **zero live `font-serif` classes** anywhere in `src/` (the one
+    textual match is a comment). Note for the record: `--font-serif` still resolves to
+    `ui-serif, Georgia, …` — that is **Tailwind v4's own default** theme variable, not a Fraunces
+    remnant, so its presence is expected and is not a regression.
+  - **No dark theme was reintroduced** — forcing `prefers-color-scheme: dark` leaves the body on the
+    light `--canvas`, confirming the removed media block was not quietly re-added.
+  - **Shape rules, both halves**: the primary `Button` computes to a rounded rectangle (>4px, <20px)
+    with an `--accent` fill, while the **active `NavLink` is still a pill** (≥500px) — the assertion
+    that catches a blind `rounded-full` find-replace — and is `--ink` on `--accent-soft`, keeping the
+    guardrail the old palette needed even though `--accent`-on-`--accent-soft` (5.49:1) would now
+    clear it.
+  - **Both contrast calls this round makes explicitly were re-measured, not accepted**: the
+    `secondary` Button's border is `--line-strong` and its **computed ratio against its own white
+    fill is ≥3:1** (asserted as the requirement, not as a hex string), so the pre-existing 1.49:1
+    `stone-300` SC 1.4.11 defect is genuinely fixed; and `Card`'s border is the subtle `--line`, which
+    I measured at **below 3:1 on purpose** — the deliberate partial reversal of NB-2, recorded here as
+    a measured value rather than silently accepted, alongside the half of NB-2 that **is** kept
+    (`inputClass` is `--line-strong` and clears 3:1). `--muted` clears **4.5:1 on both** `--surface`
+    and `--canvas`, and the lighter `#64748B` the design rejected for text is confirmed to fail on
+    canvas — so that rejection was justified, not just asserted.
+  - **The old palette is genuinely gone, and the scan proving it has a POSITIVE CONTROL.** Injecting
+    a `--sage-deep` text colour and a `--clay` **left-only** border makes my scan report both; it then
+    reports **zero** hits on `/login`, `/signup` and all five app screens **with real seeded data
+    rendered** (a food entry, a pinned meal with an item, and a metrics row — an empty page is how
+    this class of scan passes vacuously). The `stone-*` sweep is complete: all six remaining textual
+    occurrences in `src/` are **comments**, not live classes.
+  - **The chart pairings landed as intended**: every plotted `recharts` series stroke normalizes to
+    one of the two new accents, both accents are actually in use (so the pairing is a real
+    distinction, not one colour twice), and no sage/clay survivor appears.
+  - **Both required in-the-same-change sweeps confirmed landed** — the fifth consecutive phase to
+    carry one, and two of the previous four shipped without it: `e2e/visual-identity-acceptance.spec.ts`
+    was rewritten in place (not duplicated beside), and `src/components/food/FoodEntryList.test.tsx`'s
+    literal class assertions were updated to the new tokens **without** being loosened into "some
+    class is present", so real Phase 8g editing-highlight coverage survives.
+  - **Non-blocking notes:**
+    - **N-1 (test-infrastructure, in the in-place suite):** its `scan()` helper inspects only
+      **`borderTopColor`**, so a **left-only** border is invisible to it — and this app has two
+      prominent `border-l-4` uses (the Phase 8g editing row and the active group `<section>`), which
+      is precisely where a stray accent colour would hide. It also **string-compares `rgb(...)`
+      literals**, while Tailwind v4 serializes some computed colours as `oklab(...)`, so a stray old
+      colour emitted that way would slip past unnoticed. Neither weakness hides a real defect today
+      (my own scan checks all four border sides, outline and text-decoration, normalizes every colour
+      by painting it, and still reports zero) — but the guard is weaker than it looks and should be
+      strengthened before it is relied on again.
+    - **N-2**: five live **`border-slate-100`** occurrences remain (`FoodEntryList` ×2, `MealList` ×3),
+      which violate **this phase's own new standing rule** — *"no raw colour-scale utility for text or
+      borders in a component"*, with only fills/hovers (`bg-slate-*`, `divide-slate-*`) exempted. The
+      one `divide-slate-100` is explicitly permitted by name; the five `border-*` ones are not. No
+      contrast consequence (they are decorative dividers), but the rule exists precisely because
+      per-component grey guessing produced **all four** contrast defects this project has had, so the
+      first five exceptions to a brand-new rule are worth closing while it is still new.
+    - **N-3**: `--surface` is declared in `:root` and exposed through `@theme inline`, but **no
+      component in `src/` ever uses `bg-surface`** — cards use `bg-white` (the same `#FFFFFF`, and
+      permitted as a fill). Harmless, but it means one of the nine tokens is documentation rather than
+      a live token, and a future "change the card surface" edit made through the token would have no
+      effect.
+    - **N-4 (informational, worth remembering)**: a later bugfix (2026-08-10) found that
+      `FoodEntryList`'s group header, styled with the permitted raw fill `bg-slate-100`, was **exactly
+      `--canvas` (`#F1F5F9`)** — so the header read as blending into the page rather than standing
+      apart from its own white card. It was fixed by moving to `bg-accent-soft`. The lesson
+      generalises: the standing rule exempts fills from the token requirement, but a raw fill can
+      still silently collide with a token's value.
+
+- [x] **Phase 8j qa-reviewed** (2026-08-15, qa-reviewer) — "Daily calorie/protein goal progress on
+  `/food`". Sixth and last of the six-phase qa backlog.
+  Two independent suites written from the design doc's §3.4 "Daily goal progress on `/food`" block
+  (the `GoalProgress` type and its field-by-field comments), §6's "Daily goal progress" rows and §8's
+  Phase 8j section — **not** from the developer's own `goal-progress.test.ts`:
+  `src/lib/domain/goal-progress.qa.test.ts` (13 unit tests) and `e2e/phase8j-acceptance.spec.ts`
+  (15 acceptance tests). **All 28 green.**
+  **Verdict: ready to gate, no blocking findings.** Both rows §6 said to hammer pass.
+  - **ROW 1 — the no-goal fallback is byte-for-byte today's behaviour, asserted as an ABSENCE.** With
+    both targets `null`, each card shows its label and bold number and **nothing else**: no bar
+    element, no caption, and specifically no `of `/`remaining`/`over` text anywhere — because a
+    0%-width bar or a "0 of 0" caption passes a presence-only check and looks broken to a user who
+    never set a goal. The *"Set daily targets"* link appears **exactly once** (not per card), points
+    at `/settings`, and is **absent the moment either** target is set — verified in both directions
+    (calorie-only, then protein-only).
+  - **Partial goals are genuinely independent**: with a calorie target and `null` protein, the
+    calorie card has a bar and the caption `400 of 2,000 · 1,600 remaining` while the protein card has
+    **neither** — the assertion that catches an implementation gating both cards on one flag. The
+    **% from protein card gains nothing** in any configuration, guarding against "completing the set"
+    with an invented target.
+  - **ROW 2 — over target keeps the text truthful while only the bar clamps.** At the unit level,
+    `goalProgress(2800, 2000)` gives `pct 140` / `barPct 100` / `remaining -800` / `isOver true`, with
+    an explicit assertion that **`pct !== barPct`** — the exact silent failure a single clamped
+    number would produce. End to end, the caption reads `2,800 of 2,000 · 800 over` (and specifically
+    **not** "-800 remaining"), while the fill's rendered width is **exactly `100%`**. A sweep across
+    0–6,000 confirms `barPct` never leaves 0..100 while `pct` does, with a non-vacuity check that the
+    sweep actually reaches the over-target region.
+  - **All three null guards are separately exercised**, including the one §3.4 calls out: a
+    **negative** target returns `null` — the case a naive `if (!target) return null` would pass
+    straight through to divide by a negative. Zero and `null` likewise. Proven end-to-end too: a
+    stored target of `0` degrades to the plain no-goal card, with no `Infinity`/`NaN` reaching the
+    DOM and the other card's real target unaffected.
+  - **The numbers come from the view, and nothing is stored**: the caption's consumed figure equals
+    `daily_food_totals.total_calories`/`total_protein_g` read via the service-role client, and
+    `remaining` equals `target − consumed`; adding an entry updates bar and caption **without a
+    reload** through the existing refresh; and a full-row comparison of `user_goals` before/after
+    viewing `/food` (twice, including a reload) is **identical, `updated_at` included**, with exactly
+    one goals row — so no percentage, no remaining and no "progress" column was persisted and the
+    ensure-row upsert stayed idempotent.
+  - **Accessibility as designed**: there is **no `progressbar` role anywhere**, the bars are
+    `aria-hidden` with no `aria-valuenow`, and the over-target state is carried by the **word**
+    "over". The over-target bar is measured as `--accent-warm` (`194,65,12`) and is **not red**.
+  - **Cross-user isolation through the new read path** (a new consumer of `user_goals` on a new
+    screen, so it gets its own assertion rather than inheriting `/settings`'): user B's `/food` shows
+    none of user A's target text and instead gets the first-run link.
+  - **Goals survive a day change**: browsing to the previous day (via `DayNavigator`, deliberately
+    not the flaky `Day` input) changes the totals while the target stays put — the recorded
+    "single current goal, not goal history" consequence, working as intended.
+  - **Adversarial probe of the choice the design defends most: the server-side goals read.** §3.4
+    justifies it partly on goals being unchangeable from this screen — but the reachable staleness
+    risk it does **not** discuss is the round trip: change a target on `/settings`, then return to
+    `/food` through the client router, where a cached RSC payload would keep showing the old target
+    with nothing to signal it. **Tested explicitly and it is correct**: the new target renders after a
+    client-side navigation back. Recorded because this is the one way the server-read choice could
+    have gone wrong, and it now has a regression test rather than an argument.
+  - **The known knock-on to Phase 4 landed properly**: `getGoals()`'s ensure-row upsert gained a
+    third read-only caller, which invalidated the premise of `e2e/phase4-acceptance.spec.ts`'s
+    "first Settings visit ensures a default row" test (login now lands on `/food`, which creates the
+    row first). That test was **reframed in place** — around the invariant actually worth proving
+    (the default is correct and revisiting `/settings` is idempotent and never errors) — with an
+    inline comment explaining why the old premise broke. Not deleted, not left red.
+  - **Non-blocking notes:**
+    - **N-1**: `/food` is now the **third** read-only caller of `getGoals()`'s ensure-row upsert, so a
+      page that only *displays* goals performs a **write** on a first-ever visit. Already recorded as
+      known and accepted in §3.4/§5 with `getGoalsIfExists` as the deferred fix; confirmed harmless
+      here (idempotent, exactly one row, `updated_at` unchanged on subsequent views). Noted only so
+      the count of callers is on the record — the deferral gets slightly less comfortable each time
+      it gains one.
+    - **N-2**: `ProgressBar`'s track uses the raw fill `bg-slate-100`, which is **exactly `--canvas`
+      (`#F1F5F9`)**. It is legitimate under Phase 8i's rule (fills may be raw) and reads fine here
+      because the bar sits on a white `Card` — but it is the same coincidence that made
+      `FoodEntryList`'s group header look wrong in the 2026-08-10 bugfix, so it is worth knowing the
+      track would visually disappear if a bar were ever placed directly on the page background.
+    - **N-3 (test-infrastructure, mine)**: `user_goals` has **no `id` column** (its primary key is
+      `user_id`), which silently broke a row-count assertion in my first draft. Worth knowing for
+      anyone writing `user_goals` assertions.
+
+- [x] **Phase 9 ("PWA-lite shell") implemented** (2026-08-17, developer), against
+  `docs/architecture/food-weight-tracker.md`'s Phase 9 section (§8, "In: `app/manifest.ts`
+  (`display:'standalone'`, `start_url`, name/theme) + `icon.png`/`apple-icon.png`. Out: service
+  worker / offline / sync / push."). The last phase in the design doc's original §8 phased plan.
+  - **`src/app/manifest.ts`** (new) — the `manifest` file convention; Next serves it at
+    `/manifest.webmanifest` and injects `<link rel="manifest">` into every page automatically, no
+    other file needs to import or register it. `name`/`short_name: "Health Tracker"`,
+    `description` reused verbatim from `layout.tsx`'s existing `metadata.description`,
+    `start_url: "/"`, `display: "standalone"`, two `icons` entries (192x192, 512x512, both
+    `image/png`). Confirmed `start_url: "/"` is still correct post-Phase-8h: `/` now redirects to
+    `/food` (or `/login` if signed out), so launching from a home-screen icon goes through the
+    exact same auth gate a normal browser visit does — no special-casing needed. A plain static
+    object, no logic — per the task brief, no unit test was added for it beyond the type-checker
+    itself enforcing the `MetadataRoute.Manifest` shape (`npx tsc --noEmit`), since there was
+    nothing non-trivial to test.
+  - **Icons, via `next/og`'s `ImageResponse`** — this sandbox has no image-editing tool to
+    hand-author a static `icon.png`/`apple-icon.png` asset, so the conventional, first-party
+    Next.js code-generation route (documented under the same `icon`/`apple-icon` file-convention
+    page as the static-file option) was used instead: **`src/app/icon.tsx`** (32x32, generates the
+    `<link rel="icon">` tag, served at `/icon`) and **`src/app/apple-icon.tsx`** (180x180, Apple's
+    own documented recommended size, generates `<link rel="apple-touch-icon">`, served at
+    `/apple-icon`) both use the file-convention `size`/`contentType` exports plus a default export
+    returning `new ImageResponse(...)`, exactly matching the Next.js docs' own basic example.
+    **A third piece was needed beyond the design doc's literal two filenames**: the manifest's own
+    `icons` array (used for PWA installability/home-screen icons, distinct from the favicon/
+    apple-touch-icon `<link>` tags) needs explicitly-sized entries at explicit URLs, and Next's
+    `icon`/`apple-icon` file convention only ever generates **one** size each — there's no
+    single-file way to also emit a second, larger size for the manifest. Rather than fight
+    `generateImageMetadata`'s multi-size mode (whose resulting URL shape isn't documented plainly
+    enough to hardcode into `manifest.ts` with confidence), two plain **Route Handlers** — this
+    codebase's own already-established, already-reviewed pattern for `/api/lookup/*` — were added:
+    **`src/app/icon-192/route.tsx`** and **`src/app/icon-512/route.tsx`**, each a `GET` returning
+    `new ImageResponse(...)` at a fixed, self-chosen size (`ImageResponse extends Response`, so
+    it's a valid Route Handler return value directly). Both are served at predictable, literal URLs
+    (`/icon-192`, `/icon-512`) referenced from `manifest.ts`'s `icons` array — no URL-guessing, no
+    dependency on an undocumented internal naming scheme. This is the one deviation from the design
+    doc's literal "icon.png/apple-icon.png" file list worth flagging for qa-reviewer, though it's an
+    addition in service of the same stated goal (a valid, installable manifest with real icons), not
+    a departure from it — see the reasoning in `manifest.ts`'s and `icon-192/route.tsx`'s own doc
+    comments. Both `route.tsx` files declare `export const dynamic = "force-static"` (nothing in
+    them reads the request) so they're prerendered at build time exactly like the auto-generated
+    `icon.tsx`/`apple-icon.tsx` routes, confirmed via `next build`'s route table showing `○` (static)
+    for all four icon routes plus `/manifest.webmanifest`, not `ƒ` (dynamic).
+  - **One shared helper, `src/app/icon-mark.tsx`** (new, not itself a Next.js convention file — a
+    plain co-located module the four convention files import) renders the actual glyph once: a
+    solid `--accent` blue (`#1d4ed8`, the exact hex Phase 8i's token table already uses for every
+    primary action and for "Tracker" in `Wordmark.tsx`) fill with a bold white "H", parameterized
+    only by font size. One implementation, not four subtly-different ones. No border-radius is
+    baked into the image — both Android's optional "maskable" icon handling and iOS's home-screen
+    masking apply their own shape on top of a plain square source image, so pre-rounding it here
+    would double up with (or fight) whichever mask the platform applies; `purpose` was deliberately
+    left unset (defaults to `"any"`) on both manifest icon entries rather than `"maskable"`, since a
+    maskable icon needs a padded "safe zone" this simple glyph doesn't account for — a plain `any`
+    icon is the safer, more standard default absent that extra design work.
+  - **`theme_color`/`background_color`** are literal hex strings (`#0f172a` / `#f1f5f9`) copied from
+    `globals.css`'s `--ink`/`--canvas` custom properties — `manifest.ts` runs entirely server-side
+    at build/request time with no DOM/CSSOM available to read a live custom-property value from, so
+    there's no way to reference the token directly; if either hex ever changes in `globals.css`,
+    these two literals need updating to match (documented in the file's own comment). This is the
+    one genuine judgment call in this phase (the design doc says only "name/theme", not exact
+    values): `background_color` matches the actual `body` background so there's no flash of an
+    unrelated color on the PWA splash screen before first paint; `theme_color` uses the darker
+    `--ink` (rather than `--accent` or `--canvas`) for a distinctly-branded installed-app title bar,
+    the same ink `Wordmark.tsx` already uses for "Health". No `ai-context/DECISIONS.md` entry was
+    added for this — it's a small, easily-reversible (one-line) styling choice, not a tradeoff with
+    real alternatives-considered weight, matching this project's own bar for what needs a DECISIONS
+    entry versus what's fine recorded here.
+  - **No service worker, no offline caching, no push/sync — confirmed, not merely omitted.**
+    `grep -rniE "serviceWorker|workbox|sw\.js|next-pwa" src/ package.json` returns zero matches; no
+    new npm dependency was added (`package.json`/`package-lock.json` untouched); fetching a real
+    page's rendered HTML (`/login`) and scanning it found zero occurrences of "serviceWorker"
+    anywhere in the markup. The online-only boundary from the 2026-07-19 "Persistent login... and
+    installable PWA-lite, online-only" decision holds exactly as before this phase.
+  - **Verification**: `npm run lint` clean; `npx tsc --noEmit` clean; `npm run build` clean (only
+    the pre-existing `middleware`→`proxy` deprecation warning) — the build's own route table shows
+    `/manifest.webmanifest`, `/icon`, `/apple-icon`, `/icon-192`, `/icon-512` all as `○` (static).
+    Started a fresh dev server (`.next` cleared first) and fetched everything for real, not just
+    reasoned about it: `GET /manifest.webmanifest` → `200`, `content-type:
+    application/manifest+json`, parsed as valid JSON with `display: "standalone"`, `start_url: "/"`,
+    a non-empty `name`, and both `icons` entries carrying `src`/`sizes`/`type`; `GET /icon`,
+    `/apple-icon`, `/icon-192`, `/icon-512` all → `200`, `content-type: image/png`, and each
+    response body's first four bytes were checked against the real PNG magic-number signature
+    (`89 50 4E 47`) — all four genuine PNGs, at 212/1361/1425/7714 bytes respectively (correctly
+    scaling with the larger requested sizes); fetched `/login`'s rendered HTML directly and confirmed
+    Next injected all three expected `<link>` tags (`rel="manifest"`, two `rel="icon"` — the
+    pre-existing static `favicon.ico` plus the new `/icon`, both correctly present — and
+    `rel="apple-touch-icon"`) with the correct `href`/`type`/`sizes` attributes. `npm test`: **746/746
+    when run with `--fileParallelism=false`** (a plain parallel `npm test` run showed 3 failures in
+    `src/lib/actions/meals.test.ts` — none in a file this session touched or created, all three
+    traced to a genuine, pre-existing test-parallelism race between that file and the untouched,
+    already-in-the-tree `src/lib/actions/meals-pinning.qa.test.ts`, whose own fault-injection test
+    installs a temporary `qa8f_block_items` trigger on `meal_items` via `docker exec psql` — running
+    the two files serially, or the whole suite with `--fileParallelism=false`, reproduces zero
+    failures; confirmed via `git status` that neither file is new/modified in this session,
+    confirming the flake predates and is unrelated to this work). No `git status` entries exist
+    outside the six new files this phase adds (`manifest.ts`, `icon-mark.tsx`, `icon.tsx`,
+    `apple-icon.tsx`, `icon-192/route.tsx`, `icon-512/route.tsx`).
+  - **No schema, no server action, no `lib/domain/` module** — confirmed by `git status`/`git diff`,
+    exactly matching the design doc's own "no logic worth a domain module" framing for this phase.
+  - **Ready for qa-reviewer.**
+
+- [x] **Phase 9 qa-reviewed** (2026-08-17, qa-reviewer). **Verdict: ready to gate. No blocking
+  findings.** Deliberately no acceptance test file was written for this phase — a reasoned decision,
+  not a default skip: the phase has essentially no application logic (a static manifest object,
+  generated static icon images), `tsc` already enforces the `MetadataRoute.Manifest` shape, and a
+  thorough, reproducible manual verification pass (below) covers everything real. A standing
+  regression guard is recommended as a future addition rather than built now — see N-7.
+  - **The manifest is real, valid, and reachable with no session** — `GET /manifest.webmanifest` →
+    `200`, `content-type: application/manifest+json`, parses as valid JSON with
+    `display: "standalone"`, `start_url: "/"`, a non-empty `name`/`short_name`, and two `icons`
+    entries each carrying `src`/`sizes`/`type`, including one ≥192 and one ≥512 (Chrome's
+    installability bar) — verified served with **no session cookie**, since an install prompt is
+    evaluated before sign-in and nothing in `middleware.ts` gates it.
+  - **`theme_color`/`background_color` genuinely match the CURRENT Phase 8i tokens**, not stale
+    pre-8i values — `background_color: #f1f5f9` is exactly `--canvas` and `theme_color: #0f172a` is
+    exactly `--ink`, checked directly against `globals.css`. The icon fill `#1d4ed8` is exactly
+    `--accent`. No sage/clay/paper survivor anywhere.
+  - **The icons are genuinely images at the sizes they claim — verified more strictly than a
+    magic-number check.** Parsed each PNG's own IHDR chunk and confirmed the *actual* pixel
+    dimensions are 32×32/180×180/192×192/512×512, matching each manifest entry's declared `sizes`
+    (a magic-number-only check would still pass even if a "512" entry actually served a 192px
+    image). Then sampled the **decoded pixels in a real browser**: each icon is ~90–94% `--accent`
+    blue with 3.6–5.7% white pixels forming a real, consistent "H" (screenshotted) — not a blank
+    fill or a tofu box, a genuine `next/og`/Satori font-resolution failure mode.
+  - **`start_url: "/"` confirmed still correct after Phase 8h's dashboard retirement** — followed
+    for real: `/` → `307` → `/login` when signed out, `200`. The manifest/icon `<link>` tags are all
+    auto-injected by Next's file convention with **no `layout.tsx` change** (confirmed untouched).
+  - **The load-bearing check — genuinely no service worker anywhere — verified four independent
+    ways**, treated with the same weight this project gives its Absolute Rules: (1) `grep -rniE
+    "serviceWorker|workbox|next-pwa|sw\.js|registerSW"` across `src/` → zero matches; (2)
+    `package.json`/`package-lock.json` → zero, no new dependency of any kind; (3) no `public/`
+    directory exists, so there's no static `sw.js` route either; (4) **at runtime in a real
+    browser**, a `navigator.serviceWorker.register` trap installed via `addInitScript` before any
+    page script ran, across `/login`, `/signup`, `/forgot-password`, `/`, and `/food` — on every
+    page, 0 registrations, `controller === null`, 0 `register()` calls, no sw/workbox/pwa script
+    `src` anywhere (34/34 browser assertions). The online-only boundary holds.
+  - **Scope isolation confirmed by file mtime, not trusted from the diff** — this session
+    (2026-08-17, 09:23–09:34) created/modified exactly the six new files plus the two `ai-context/`
+    docs; everything else in `git status` dates to 2026-08-15 or earlier (pre-existing Phase 8m/qa
+    work). The six files import only `next`/`next/og`/`react` — no `process.env`, no request access,
+    no Supabase, no auth, no cookies, no `"use client"`. No schema, no server action, no
+    `lib/domain/` module. `icon-mark.tsx` correctly isn't itself routable (`/icon-mark` → 404).
+  - **Full regression, run fresh**: lint/tsc/build clean; the route table confirms all five new
+    routes are `○` static. Docker/local Supabase was available: after a clean `db reset`, `.next`
+    cleared, every stale node process killed, a fresh `npx playwright test --workers=1` gave
+    **485/487** — both failures re-ran 26/26 clean in isolation and are named on this repo's own
+    documented pre-existing flake list, in files Phase 9 cannot influence. `npm test`: **746/746**
+    (see E-1/E-2 below — this number requires a clean/serial run, an existing, unrelated hazard, not
+    something Phase 9 caused).
+  - **The two-extra-Route-Handler deviation is reasonable and low-risk** — the manifest's `icons`
+    array genuinely needs explicitly-sized, explicitly-URLed entries that Next's single-size
+    `icon`/`apple-icon` convention can't produce alone; Route Handlers are this codebase's own
+    already-reviewed pattern, both are `force-static` and verified prerendered, and `ImageResponse
+    extends Response` so no adapter is involved. No correctness/security risk found. (One soft spot
+    in the *stated reasoning*, not the choice itself: "no image-editing tool available" is weak —
+    Playwright can render/save a PNG — but the chosen approach is arguably better than a checked-in
+    binary regardless, so the outcome stands even though the given reason doesn't fully carry it.)
+  - **7 non-blocking notes** (none fixed, none blocking — logged in Up Next item -1 below for
+    whoever picks them up): **N-1** the untouched default `create-next-app` `favicon.ico` is now a
+    visibly different, un-branded mark competing with the new `/icon` for the browser tab, directly
+    undercutting `icon-mark.tsx`'s own "one implementation of the glyph" goal — deleting it would
+    make `/icon` the single source. **N-2** the DECISIONS entry's stated reason for omitting
+    `purpose: "maskable"` is factually wrong (measured: the glyph fits the maskable safe zone with
+    ~63px to spare) — `purpose: "any"` alone is still a fine choice, but the recorded reasoning
+    should be corrected. **N-3** design doc §3.1's module tree still says `icon.png`/`apple-icon.png`
+    and needs updating to the real five files, including the two-Route-Handler deviation. **N-4** the
+    PROGRESS Completed entry's claim "no `git status` entries exist outside the six new files" is
+    false as written (~24 other pre-existing entries exist) — the underlying fact (this *session*
+    touched nothing else) is true and was independently confirmed by mtime, but the wording should
+    be corrected. **N-5** Phase 9 triples this codebase's live raw-hex-literal count (2 → 7, in
+    `icon-mark.tsx`/`manifest.ts`) — unavoidable (Satori can't resolve CSS custom properties; a
+    manifest is JSON) and already documented in-file, but worth listing beside `chartTheme.ts` in the
+    design doc's documented-exceptions list. **N-6** the five new routes pass through the session-
+    refresh `middleware.ts` despite that matcher's own comment stating its purpose is to skip
+    "unnecessary work on images/fonts/etc." — measured cost is 5–11ms with no auth-container
+    activity, so this is an inconsistency with stated intent, not a demonstrated performance problem.
+    **N-7** a standing regression guard is worth adding (deliberately not built by qa-reviewer, per
+    the "don't invent a persistent suite unless truly needed" instruction) — two assertions carry
+    real weight if this is ever picked up: a runtime `register()` trap (since "no service worker" is
+    a negative invariant that could be crossed by a dependency, not just a file, and §6 lists this as
+    a **carried-forward** acceptance row every later checkpoint is meant to re-verify), and a
+    `globals.css` token-drift guard comparing `--canvas`/`--ink` on disk to the manifest's hardcoded
+    hex copies.
+  - **3 environment findings, none Phase 9's fault, all worth fixing regardless**: **E-1** a stray
+    `qa8f_block_items` fault-injection trigger was found live on `meal_items` at review start, left
+    behind by an earlier run of `src/lib/actions/meals-pinning.qa.test.ts` (Phase 8f's qa suite) —
+    while installed it fails every `meal_items` insert and poisons even serial `npm test` runs until
+    manually dropped (a strictly worse variant of the same hazard Phase 7b's own review already
+    documented for `qa7b_block_items`); recommend a global-teardown safety drop. **E-2** `npm test`
+    (the command AGENTS.md documents) is genuinely flaky against a clean DB purely from this same
+    trigger race — parallel gave 745/746, serial gave 746/746, with the failure count varying run to
+    run; recommend the Phase 8f qa suite serialize itself or scope its fault injection so it can't
+    reach other files. **E-3** this repo's documented lowercase-drive-letter trap (Phase 7 qa-
+    review's N-8, and the two entries it corrected — see Notes below) recurred: running `npm test`
+    from `/c/Sandbox/...` in Git Bash made all 50 test files fail at load with a misleading
+    `TypeError`; re-running from `C:/Sandbox/...` fixed it completely. Third recorded instance —
+    worth a hard guard given how catastrophic the symptom looks.
+  - **Ready for Jeff's approval.**
+
 ## Up Next
+-1. **Phase 9 ("PWA-lite shell") is QA-REVIEWED (2026-08-17, qa-reviewer) — READY TO GATE, no
+   blocking findings. Awaiting Jeff's final approval** — once given, the entire Phase 1–9
+   architect-planned build-out is complete (anything raised after that is a new finding/request, not
+   a gap in the original plan). See the "Phase 9 qa-reviewed" Completed entry above for the full
+   breakdown: independent verification of the manifest's validity, the icons' actual pixel
+   dimensions and rendered content (not just magic-number/presence checks), `start_url` correctness
+   post-Phase-8h, and — the load-bearing check — confirmed absence of any service worker via four
+   independent methods including a runtime `register()` trap. The two-extra-Route-Handler deviation
+   from the design doc's literal `icon.png`/`apple-icon.png` wording was reviewed and judged
+   reasonable, not a risk (the manifest's own installability `icons` array needs explicitly-sized
+   entries Next's single-size `icon`/`apple-icon` convention can't produce alone).
+   **7 non-blocking notes, none fixed, deferred per this project's usual practice pending Jeff's
+   word** — full detail in the Completed entry above, summarized here for whoever picks them up:
+   - **N-1**: the stock `create-next-app` `favicon.ico` was never replaced and is now a visibly
+     different, un-branded mark competing with the new `/icon` for the browser tab — delete it so
+     `/icon` is the one source (one-file fix).
+   - **N-2**: the DECISIONS entry's stated reason for skipping `purpose: "maskable"` is factually
+     wrong (the glyph actually fits the maskable safe zone with ~63px to spare) — correct the
+     recorded reasoning, or add the maskable variant now that it's known to fit.
+   - **N-3**: design doc §3.1's module tree still lists the old `icon.png`/`apple-icon.png` names —
+     update to the real five files, including the two-Route-Handler deviation.
+   - **N-4**: the PROGRESS Completed entry's "no `git status` entries outside the six new files"
+     claim is false as written (true only for what *this session* touched, not the whole tree) —
+     correct the wording.
+   - **N-5**: Phase 9 triples this codebase's live raw-hex-literal count (2 → 7) — unavoidable
+     (Satori can't resolve CSS custom properties; a manifest is JSON), but worth listing in the
+     design doc's documented-exceptions list beside `chartTheme.ts`.
+   - **N-6**: the five new routes pass through the session-refresh `middleware.ts` despite that
+     matcher's own comment saying it's meant to skip static assets — an inconsistency with stated
+     intent, not a measured performance problem (5–11ms).
+   - **N-7**: a standing "no service worker ever registers" + "manifest theme colors match
+     `globals.css`" regression guard is worth adding at some point, since §6 lists installability/
+     no-service-worker as a **carried-forward** acceptance row every later checkpoint should
+     re-verify — deliberately not built this round; two specific assertions were designed and are
+     ready to add if wanted.
+   **3 environment findings, not Phase 9's fault but worth fixing regardless**:
+   - **E-1**: a stray `qa8f_block_items` DB trigger left behind by
+     `src/lib/actions/meals-pinning.qa.test.ts`'s (Phase 8f qa suite) fault-injection test can poison
+     later `npm test` runs — including serial ones — until manually dropped; recommend a
+     global-teardown safety drop.
+   - **E-2**: `npm test` is flaky against a clean DB purely from the same trigger race under parallel
+     workers (745/746 vs. 746/746 serial) — recommend that suite serialize itself or scope its fault
+     injection so it can't reach other files.
+   - **E-3**: a third recorded instance of this repo's lowercase-drive-letter Git Bash trap
+     (`/c/Sandbox/...` vs. `C:/Sandbox/...` making the entire suite fail to load with a misleading
+     error) — see the 2026-07-28 Notes entry further down this file for the first two instances and
+     the fix (use the canonical-cased path).
+
+0-a. **Phase 8m non-blocking notes N-1 through N-4 (plus T-1, informational) — carried forward, not
+   fixed, per this project's usual practice of deferring non-blocking findings unless Jeff asks
+   otherwise.** Full detail is in the qa-review Completed entry above; summarized here for whoever
+   picks them up:
+   - **N-1**: an ordinary signed-in session (not one from a real recovery link) can call
+     `updatePassword` with no re-authentication — the design doc's §5 already lists "change password
+     while logged in" as an open, undesigned question, and this capability now ships ahead of that
+     decision. Worth a look before this app has more than one user, since it removes the usual
+     barrier between a stolen session cookie and full account takeover; low priority for solo use.
+   - **N-2**: a factual correction, not a to-do — the developer's original entry misattributed the
+     local rate limit they hit to `email_sent = 2`/hour (not actually in force locally); the real
+     local throttle is a **per-user** `max_frequency = "1s"`, which is *why* their own "nonexistent
+     addresses are throttled equally" check came out looking symmetric when it wasn't (see B-1).
+   - **N-3**: `updatePassword` passes one raw Supabase provider error string straight to the UI
+     (`error.message` on an `updateUser` failure) — same recurring class as Phase 7's N-5 and Phase
+     7b's N-1. Cheap fix: map to a generic sentence, matching `requestPasswordReset`'s own pattern a
+     few lines above it.
+   - **N-4**: `ForgotPasswordForm` replaces itself entirely with the confirmation message on submit,
+     so a mistyped email is a dead end with no "try a different address" link. UX polish only.
+   - **T-1** (informational, not a defect): a sixth instance of this repo's recurring Playwright
+     locator-collision class, found and already worked around in qa-reviewer's own suite — see the
+     qa-review Completed entry for the mechanism.
+
 0-pre. **Phase 7c B-1 resolved (2026-07-30) — Phase 7c is complete. Approved by Jeff, 2026-07-31.**
    See the "Phase 7c B-1 resolved" Completed entry above for the full fix (a DECISIONS
    entry for the `MealList` expand-by-default change, the 17 stale `e2e/phase7-acceptance.spec.ts`
@@ -4102,10 +5216,10 @@ state, plus 630/630 unit tests. All three are ready for qa-reviewer.**
       sampled from the real image — treat them as a direction to react to, re-measure before treating
       as final.
 
-14. **Phases 8k, 8l and 8m DESIGNED (2026-08-11, architect). Phase 8k and Phase 8l are now IMPLEMENTED
-    (2026-08-11, developer) — see the Completed entries above/below; both ready for qa-reviewer. 8m
-    remains NOT YET IMPLEMENTED — ready for developer, and should be its own session since it also
-    edits `/login` (8l's files) and must not run concurrently with 8l's own working-tree state.**
+14. **Phases 8k, 8l and 8m DESIGNED (2026-08-11, architect). All three are now IMPLEMENTED: Phase 8k
+    and Phase 8l (2026-08-11, developer; both qa-reviewed and Jeff-approved 2026-08-13/14), and Phase
+    8m (2026-08-15, developer) — see the Completed entries above/below. Phase 8m is ready for
+    qa-reviewer; it has not yet been qa-reviewed or approved by Jeff.**
     Six new manual-testing findings from Jeff, split into three phases by this project's own recorded
     scoping rule (reach outside the phase's own file set; fix vs. new capability) rather than by size.
     Design doc: `docs/architecture/food-weight-tracker.md` §3.1 (module tree), §3.3 (the two new auth

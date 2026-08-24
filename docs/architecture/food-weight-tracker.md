@@ -3479,8 +3479,10 @@ display-unit prop. No global store.
     `getByRole("option")` (excluding `CopyGroupDialog`'s sentinel), in the same order, with the same `HH:MM`
     values and the same zero-padded labels, and **none is disabled**. Jeff's constraint was explicit; this is the
     row that enforces it.
-  - *Three groups, at the right boundaries:* group labels are present and `05:45`/`06:00` and `19:45`/`20:00`
-    fall on the expected sides.
+  - *Three de-emphasis bands, at the right boundaries (amended 2026-08-15 — see below):* `05:45`/`06:00` fall on
+    the expected sides (Early ends at `05:45`); `20:00` itself is **unshaded** (Daytime runs through `19:45`
+    **and** `20:00`, Late starts at `20:15`) — the shipped **24 / 57 / 15** split, not the originally-specified
+    24/56/16. There is **no `<optgroup>` element and no group label text anywhere** — accepted as-is, see below.
   - *All three call sites:* `FoodEntryForm`, `LogMealDialog` (**both** picker and fixed-meal modes) and
     `CopyGroupDialog`. In the last, the `value=""` "Keep original time(s)" sentinel sits **outside** every group
     and is still the default.
@@ -3492,8 +3494,9 @@ display-unit prop. No global store.
   - *Required in-the-same-change sweep:* any existing locator using a **direct-child** selector (`select >
     option`) breaks under `<optgroup>` and must be updated in this change. This is the fourth consecutive phase
     where an existing suite pins something a new phase changes; it produced a blocking finding twice.
-  - *Manual, not automatable:* the group labels and the `stone-500` de-emphasis must be eyeballed on **desktop
-    and a real phone**, and the result recorded — including "colour not honoured here", which is expected, not a
+  - *Manual, not automatable (amended 2026-08-15):* this row is now largely moot — with the `<optgroup>` gone
+    there is nothing platform-portable left to eyeball. The `slate-100` background de-emphasis must be eyeballed
+    on **desktop**, and the result recorded — including "no visible shading here", which is expected, not a
     defect (§5).
 - **Pinned meals and duplicating a meal (2026-08-05 addition, Phase 8f):**
   - *Migration and RLS (verify by query, not by reading the SQL):* after the migration, `meals` has
@@ -4322,28 +4325,47 @@ with 8d's wrapper work, which does not touch the `<select>` itself. **It can run
 unchanged. Server validation, `localInputToUtcInTz`, exact-`consumed_at` grouping and the future-day cap cannot
 observe this change — the identical value/display boundary the zero-padded labels held.
 
+**Amended 2026-08-15 — the `<optgroup>` mechanism this phase was originally built around is gone, and Jeff has
+reviewed and accepted that.** Two later trivial-bugfix passes (2026-08-09: removed the `<optgroup>` label text;
+2026-08-10: removed the `<optgroup>` element itself, flattened via `.flatMap()`) each independently responded to
+real feedback from Jeff, but their combined effect quietly reversed this phase's own central, explicitly-reasoned
+decision — that a group **label is content**, portable to every platform including mobile, unlike `<option>`
+background/text CSS which the design doc predicted (and this project has independently confirmed elsewhere) macOS
+and every mobile browser's native picker ignores entirely. Neither pass went through an architect round or got a
+`DECISIONS.md`/design-doc update, so the doc kept describing a mechanism the shipped code no longer had — caught
+only by the 2026-08-15 qa-review backlog pass, as B-1. **Jeff's decision on being shown this: accept the shipped,
+`<optgroup>`-free state as-is.** Full reasoning is in `ai-context/DECISIONS.md`'s "Phase 8e's `<optgroup>` removal
+accepted as-is..." entry. What this section below now describes is the design as **originally conceived** (kept
+for history and because the pure-function/value-contract half is still exactly what shipped) — the **In**/**Out**/
+manual-check bullets below are corrected in place to describe current, accepted, shipped behavior rather than the
+original `<optgroup>`-based plan.
+
 - **In:** `quarterHourOptionGroups()` and `quarterHourGroupIndexFor()` in `lib/domain/datetime.ts` (pure,
-  unit-tested, §3.3); three `<optgroup>`s — **Early (12 AM – 6 AM) / Daytime (6 AM – 8 PM) / Late (8 PM – 12 AM)**
-  — rendered at all three call sites (`FoodEntryForm`, `LogMealDialog` in both modes, `CopyGroupDialog` with its
-  sentinel kept outside the groups); best-effort `text-stone-500` de-emphasis on the Early/Late options; the
-  **off-grid injected option routed into its correct group**; and the **direct-child option-locator sweep** in
-  `e2e/` in the same change.
-- **Out:** removing, reordering, disabling or re-valuing **any** option (Jeff's explicit constraint); changing
-  the 15-minute grid, the label format, the floor-of-now default, the smart same-sitting default, or grouping
-  semantics; a custom listbox/combobox; a background fill on options; encoding the shading into label text
-  (would regress the fixed-width labels); `MealItemForm` (it has no time field at all); and any promise that
-  option **colour** renders on macOS or mobile — it will not, and that is expected (§5).
+  unit-tested, §3.3, unchanged by the 2026-08-15 acceptance) — still the source of the group boundaries, now
+  **24 / 57 / 15** (`20:00` moved into Daytime at Jeff's 2026-08-10 request; Late now starts `20:15`), consumed
+  purely to pick a per-option CSS class. Rendered at all three call sites (`FoodEntryForm`, `LogMealDialog` in
+  both modes, `CopyGroupDialog` with its sentinel kept outside the groups) as a **flat run of 96 `<option>`s**,
+  no `<optgroup>` wrapper and no group label text — `bg-slate-100` de-emphasis on the Early/Late options; the
+  off-grid injected option still routed into its correct logical group (for the CSS class it receives, since
+  there is no DOM group to sit inside); the direct-child option-locator sweep in `e2e/` (moot now that there is
+  no `<optgroup>` to break such a selector, but left done).
+- **Out:** removing, reordering, disabling or re-valuing **any** option (Jeff's explicit constraint, still held);
+  changing the 15-minute grid, the label format, the floor-of-now default, the smart same-sitting default, or
+  grouping semantics; a custom listbox/combobox; encoding the shading into label text (would regress the
+  fixed-width labels); `MealItemForm` (it has no time field at all); and — now the **accepted, not merely
+  predicted** state — any group-label text or `<optgroup>` element anywhere, and any shading rendering on macOS
+  or mobile at all, not just color.
 - **§6 scope for qa-reviewer:** unit — `quarterHourOptionGroups`/`quarterHourGroupIndexFor`, with **the identity
   row as the one to hammer**: the groups' options concatenated must deep-equal `quarterHourOptions()`. Acceptance
-  — the *"Time-picker grouping"* block in §6, with two further rows to hammer: **96 options still present,
-  selectable and undisabled** across all three call sites, and **the off-grid edit invariant** (a legacy `09:07`
-  is still injected, still selected, now inside Daytime, and an unrelated save still doesn't rewrite it).
-  Carried-forward Phase 3/7/8b time rows must pass unchanged — a regression there means the change reached below
-  the label boundary.
-- **Manual check (the part CI cannot do):** open the picker on **desktop and a real phone** and record what each
-  platform actually renders — group labels expected everywhere, colour on Windows/Linux only. **"No colour on
-  iOS" is the documented expected result, not a bug**; "no group labels anywhere" would be the finding worth
-  reporting.
+  — the *"Time-picker grouping"* block in §6 (corrected in place, 2026-08-15), with two further rows to hammer:
+  **96 options still present, selectable and undisabled** across all three call sites, and **the off-grid edit
+  invariant** (a legacy `09:07` is still injected, still selected, and an unrelated save still doesn't rewrite
+  it). Carried-forward Phase 3/7/8b time rows must pass unchanged — a regression there means the change reached
+  below the label boundary.
+- **Manual check, now mostly moot:** the `bg-slate-100` de-emphasis can still be eyeballed on desktop; there is
+  nothing left to check on mobile, since nothing platform-portable remains to render there. If early/late shading
+  is ever wanted on mobile again, that is future scope — a real `<optgroup>` restoration or a different mechanism
+  — not a defect in what's shipped today.
 
 ### Phase 8f — Saved meals: pinning and duplicating (2026-08-05 addition)
 

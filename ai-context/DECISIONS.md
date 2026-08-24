@@ -2655,3 +2655,140 @@ already**: `/reset-password` renders two controls whose accessible names both co
 and `/signup` already do the same. Playwright's `getByLabel` is a case-insensitive **substring** match, so every
 new assertion on these pages needs `{ exact: true }` or a scoped locator. Existing suites are unaffected (they
 visit only `/login` and `/signup`); the *new* tests are the ones at risk.
+
+### Phase 8m's account-existence leak (B-1) is accepted as-is for now, not fixed — the design's own two requirements were mutually exclusive
+**Date**: 2026-08-15
+**Decision**: `requestPasswordReset`'s neutral confirmation message — designed to be identical whether or not the
+submitted address has an account, specifically to prevent account enumeration — is **not actually neutral** in one
+reachable state: a genuine send failure (locally, the per-user `max_frequency` throttle; in production, any
+transport error) surfaces a **distinct** message from the neutral one. Since Supabase can only throttle or fail a
+send for an address that **has** an account (there is nothing to throttle for one that doesn't), that distinct
+message is itself a tell — two ordinary HTTP requests (one for a known address, one for an unknown one, both
+during/after a send failure) distinguish which addresses have accounts. **Jeff reviewed this and decided: accept
+the risk as-is, document it, do not fix now.**
+**Why the design produced this**: §3.4's own requirement set asks for two things that cannot both hold at once —
+(a) an identical response regardless of account existence, and (b) a *distinct* generic message on a genuine send
+failure, reasoned there as "swallowing it would tell the user an email is coming when it is not." Both are
+individually reasonable; together they're a contradiction, because (b) can only ever fire for an address that (a)
+was trying to protect. This was not an implementation bug — qa-reviewer confirmed the code does exactly what the
+design asked for, and confirmed the leak directly at the GoTrue layer (10 consecutive unknown-address requests
+all returned HTTP 200 and consumed nothing, while a known address correctly triggered and then hit its own
+throttle).
+**Why accepting it is reasonable, not just expedient**: this leaks only *whether an address has an account* — no
+data, no session, no ability to take over or read anything — and plenty of production apps knowingly accept
+exactly this tradeoff on password-reset flows, since a determined attacker has other, easier ways to test account
+existence anyway (e.g. the signup form's own "email already in use" error, if this app has one, or simple timing
+differences that persist regardless of message wording). For a solo/small-scale health-tracking app, the actual
+exposure is negligible.
+**What "fixed" would look like, if this is ever revisited**: `requestPasswordReset` would render the neutral
+`info` message on **every** non-validation outcome, including a genuine send failure, and log the real failure
+server-side instead of surfacing it to the user. This was evaluated and explicitly **not** chosen now, because it
+trades away the complementary goal (telling a real, legitimate user that something went wrong rather than
+silently pretending an email is on its way) — that tradeoff is exactly what made the original requirement
+self-contradictory, so "fixing" it just chooses which of the two original goals to keep. Revisit if this app's
+threat model changes (e.g. multi-tenant/public deployment where account existence is more sensitive) or if Jeff
+simply changes his mind — no urgency either way.
+**Also worth noting for whoever revisits this**: even with the message unified, response **timing** would still
+differ between a real send and a no-op for an unknown address, so full non-enumeration was never fully achievable
+here without deliberately padding the response time — not attempted, not planned, noted only so a future "fix"
+isn't oversold as complete non-enumeration.
+
+### Phase 8e's `<optgroup>` removal accepted as-is — the design's own portable mechanism is gone, and that's fine
+**Date**: 2026-08-15
+**Decision**: Phase 8e's time-picker de-emphasis (early/late-hour shading in the 96-option quarter-hour
+`<select>`) shipped, and now stays shipped, **without** the `<optgroup>` element the design was originally built
+around. Only a flat `bg-slate-100` CSS class differentiates the de-emphasized options — the exact CSS-only
+mechanism the 2026-08-05 "Time-picker shading" entry explicitly rejected, on the explicit reasoning that
+`<option>` CSS is unreliable on macOS and every mobile native picker, while an `<optgroup>` **label** is real
+content that renders everywhere. **Jeff reviewed this finding (qa-reviewer's B-1, from the 2026-08-15 six-phase
+qa backlog pass) and decided: accept it as shipped, document it, do not restore `<optgroup>`.**
+**How this happened, since it matters for the "why accept" reasoning below.** Two independent, individually
+reasonable trivial-bugfix passes each responded to real, direct feedback from Jeff and neither went through an
+architect round (correctly, per this project's own trivial-vs-feature bar — each looked like a small polish fix
+in isolation):
+- **2026-08-09** ("Time-picker de-emphasis moves from option TEXT to option BACKGROUND...") removed the
+  `<optgroup>` **label text** (Jeff found it too subtle scanning past it) but explicitly kept the `<optgroup>`
+  element itself, confirmed at the time via an isolated HTML fixture check that omitting just the `label`
+  attribute leaves the element (and its portability) intact.
+- **2026-08-10** (an unrecorded trivial pass, discovered only by qa-reviewer reading the actual shipped source)
+  went further and removed the `<optgroup>` **element itself**, flattening the three groups into one array via
+  `.flatMap()`. This is the step that actually broke portability, and it was never written down anywhere — no
+  DECISIONS entry, no design-doc update, no PROGRESS note beyond a bare code comment recording the *boundary*
+  change (24/56/16 → 24/57/15) it was bundled with.
+Net effect: the design doc kept asserting a portability property ("group labels are content, and content renders
+everywhere") that the shipped code had quietly stopped having, for about a week, until the 2026-08-15 qa-review
+backlog pass caught the gap. This is the same undocumented-incremental-drift class this project has hit
+repeatedly (Phase 7b/7c's B-1s, the Phase 8e boundary-change paperwork gap logged alongside this same finding) —
+worth naming explicitly: **a change that reverses a *previously recorded, explicitly-reasoned* decision needs its
+own record, even when it looks like a one-line trivial fix in isolation**, because the thing being reversed is
+exactly what makes it non-trivial.
+**Why accepting it (rather than restoring `<optgroup>`, or dropping the feature) is the right call, not just the
+convenient one.** The three options qa-reviewer laid out were: (a) accept as-is and document; (b) restore
+`<optgroup>` with labels, bringing back the header rows Jeff disliked enough to remove twice; (c) drop the
+early/late shading entirely. Jeff picked (a). The practical stakes are low: this is a **de-emphasis** affordance,
+not a correctness feature — every option is still fully present, selectable, and correctly valued on every
+platform (verified exhaustively by qa-reviewer's identity-row test, `groups.flatMap(g => g.options)` deep-equals
+`quarterHourOptions()`), so nothing is lost functionally if the shading itself doesn't render on a phone; it
+degrades to exactly the pre-Phase-8e experience there, which was already acceptable. Restoring `<optgroup>` (b)
+would re-litigate a UI preference Jeff has now expressed twice (too-subtle text, then a disliked header row) —
+the honest reading of that history is that he doesn't want the visible chrome `<optgroup>` requires, not that he
+forgot the mobile tradeoff. Dropping the feature (c) throws away a working, tested, harmless-when-inert desktop
+enhancement to solve a mobile gap that was already known and accepted as a real possibility from the very
+original 2026-08-05 decision (*"'No colour on iOS' is the documented expected result, not a bug"* — the
+2026-08-09/10 passes just widened "no colour" to "no shading at all," which is a difference in degree Jeff has
+now also accepted, not a difference in kind from what was already knowingly shipped).
+**What actually changed in the record, so it doesn't drift again**: `docs/architecture/food-weight-tracker.md`'s
+Phase 8e section (§8) and its `§6` acceptance block are both corrected in place to describe the shipped,
+`<optgroup>`-free, 24/57/15 state as the accepted target — not as a regression to eventually fix. The "manual
+check" requirement is downgraded from "check desktop and phone" to "check desktop only, nothing meaningful to
+check on phone" for the same reason. `quarterHourOptionGroups()`/`quarterHourGroupIndexFor()` themselves are
+**unchanged** — the pure grouping logic is still correct and still exercised (it now drives a CSS class only,
+not a DOM structure), so no code change accompanies this decision, only documentation.
+**If this is ever revisited**: the trigger would be Jeff wanting real mobile-visible shading back, which would
+need either a restored `<optgroup>` (accepting the header-row chrome) or a genuinely different mechanism (e.g. a
+custom listbox — rejected repeatedly elsewhere in this project on convention-over-cleverness grounds, so not a
+free win). Not planned; no urgency.
+
+### Phase 9 icons: `next/og`-generated (no image tool available), with two extra Route Handlers for the manifest's own sized icons; `theme_color`/`background_color` chosen from Phase 8i's tokens
+**Date**: 2026-08-17
+**Decision**: `icon.png`/`apple-icon.png` (the design doc's own §8 Phase 9 wording) are implemented via Next.js's
+documented `icon`/`apple-icon` **code-generation** file convention — `src/app/icon.tsx` (32x32) and
+`src/app/apple-icon.tsx` (180x180), each a `next/og` `ImageResponse` rendering one shared glyph
+(`src/app/icon-mark.tsx`: a solid `--accent` (`#1d4ed8`) fill, bold white "H", no baked-in corner rounding) —
+rather than a hand-authored static PNG, since this sandbox has no image-editing tool. **Beyond what the design
+doc's literal two filenames cover**: the web app manifest's own `icons` array (used for PWA install/home-screen
+icons, a different mechanism from the `<link rel="icon">`/`<link rel="apple-touch-icon">` tags those two files
+already produce) needs its own explicitly-sized, explicitly-URLed entries, and Next's `icon`/`apple-icon`
+convention only ever generates **one** size per file — there is no single-file way to also emit a larger size
+for the manifest. Added two plain Route Handlers instead of reaching for `next/og`'s multi-size
+`generateImageMetadata` API: `src/app/icon-192/route.tsx` and `src/app/icon-512/route.tsx`, each a `GET`
+returning `new ImageResponse(...)` at a fixed size, served at the literal, predictable URLs `/icon-192` and
+`/icon-512` (both `export const dynamic = "force-static"`, so they're prerendered at build time like the
+convention files). `manifest.ts`'s `icons` array references those two URLs directly.
+**Why Route Handlers over `generateImageMetadata`**: `generateImageMetadata` (the documented way to emit
+multiple sizes from one `icon.tsx`) is real and would work, but its resulting per-size URL shape is not spelled
+out plainly enough in Next's own docs to hardcode into `manifest.ts` with confidence, and getting it wrong would
+silently 404 a manifest icon rather than fail loudly. Route Handlers are this codebase's own already-established,
+already-reviewed pattern (`/api/lookup/barcode`, `/api/lookup/search`) for "a server generates and returns a
+response at a URL I fully control" — reusing it here means the icon URLs are exactly what the code says they are,
+no internal-naming-convention risk, and it is the more conventional choice per this project's own
+prefer-the-pattern-already-proven-elsewhere bias. `ImageResponse extends Response`, so returning one directly
+from a Route Handler's `GET` needs no adapter.
+**Why no corner-rounding is baked into the glyph**: both Android's optional "maskable" icon handling and iOS's
+home-screen icon masking apply their own shape on top of a plain, edge-to-edge source image — pre-rounding it
+here would double up with or fight whichever mask the platform applies. Both manifest icon entries deliberately
+omit `purpose` (defaulting to `"any"`) rather than declaring `"maskable"`, since a true maskable icon needs a
+padded "safe zone" this simple single-glyph mark doesn't account for; `"any"` is the safer default absent that
+extra design work.
+**`theme_color`/`background_color` values**: `background_color: "#f1f5f9"` and `theme_color: "#0f172a"` are the
+literal hex values of Phase 8i's `--canvas`/`--ink` custom properties, copied by hand since `manifest.ts` runs
+server-side at build/request time with no DOM/CSSOM to read a live token value from. `background_color` matches
+the app's actual `body` background so the PWA splash screen doesn't flash an unrelated color before first paint;
+`theme_color` uses the darker `--ink` (not `--accent`/`--canvas`) for a distinctly-branded installed-app title
+bar — the same ink `Wordmark.tsx` already uses for "Health". This is a judgment call, not literally specified by
+the design doc beyond "theme" — a one-line, easily-reversible change in `manifest.ts` if a different pairing is
+wanted later; if either token's hex value changes in `globals.css`, these two literals need updating to match
+(both facts are recorded in `manifest.ts`'s own doc comment, not just here).
+**Explicitly unaffected**: no service worker, no offline caching, no push/sync, no new npm dependency — the
+2026-07-19 "Persistent login... and installable PWA-lite, online-only" decision's boundary is untouched, and
+Phase 9 adds nothing that crosses it.
