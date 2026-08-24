@@ -248,6 +248,18 @@ otp_expiry = 3600
 # admin_email = "admin@email.com"
 # sender_name = "Admin"
 
+# Branded confirmation/recovery templates (2026-08-24) -- the default Supabase-branded emails gave
+# no indication they were from Health Tracker, which read as suspicious/confusing to new users.
+# Only these two are branded: they're the only auth-email flows this app actually uses (signup
+# confirmation, password reset) -- invite/magic-link/email-change aren't built.
+[auth.email.template.confirmation]
+subject = "Confirm your Health Tracker account"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Reset your Health Tracker password"
+content_path = "./supabase/templates/recovery.html"
+
 # Uncomment to customize email template
 # [auth.email.template.invite]
 # subject = "You have been invited"
