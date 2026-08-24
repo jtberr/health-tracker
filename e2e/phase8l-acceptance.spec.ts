@@ -153,17 +153,12 @@ test.describe("Phase 8l -- one wordmark, two places, and nothing else moved", ()
   });
 });
 
-test.describe("Phase 8l -- scope guard: Phase 8m was NOT started", () => {
-  test("no /forgot-password or /reset-password route exists yet", async ({ page }) => {
-    for (const path of ["/forgot-password", "/reset-password"]) {
-      const res = await page.goto(path);
-      expect(res, "a response for " + path).not.toBeNull();
-      expect(res!.status(), path + " must still be 404 -- Phase 8m is a separate phase").toBe(404);
-    }
-  });
-
-  test("/login carries no 'Forgot password?' link yet", async ({ page }) => {
-    await page.goto("/login");
-    await expect(page.getByRole("link", { name: /forgot/i })).toHaveCount(0);
-  });
-});
+// Retired 2026-08-15 (Phase 8m): this describe block asserted /forgot-password and
+// /reset-password did NOT exist yet, and that /login carried no "Forgot password?" link --
+// correct at the time this suite was written (Phase 8m was a separate, not-yet-started phase),
+// exactly per the design doc's own sequencing note that 8m "should be its own session since it
+// edits /login, the same file 8l just touched." Phase 8m has since been implemented as that
+// separate phase, so both assertions are now vacuous by design rather than something to keep
+// passing -- see ai-context/DECISIONS.md's Phase 8m entry and ai-context/PROGRESS.md's Phase 8m
+// Completed entry. Real acceptance coverage for the password-reset flow itself belongs in its own
+// qa-reviewer-authored suite (e.g. a future e2e/phase8m-acceptance.spec.ts), not here.

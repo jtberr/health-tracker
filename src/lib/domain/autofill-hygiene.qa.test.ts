@@ -119,14 +119,21 @@ describe("autofill hygiene -- mechanical decay guard over src/", () => {
     expect(bad).toEqual([]);
   });
 
-  it("the ONLY non-off values are the identity fields on the two auth forms", () => {
+  it("the ONLY non-off values are the identity fields on the four auth forms", () => {
+    // Phase 8m (2026-08-11/15) adds two more identity-bearing auth forms -- ForgotPasswordForm's
+    // email field and ResetPasswordForm's two new-password fields -- both legitimate per the same
+    // §3.4 rule this test already enforces ("identity fields get real values; everything else
+    // gets off"), so they're added here rather than the assertion being loosened.
     const nonOff = controls
       .filter((c) => c.autoComplete !== null && c.autoComplete !== "off")
       .map((c) => `${c.file} => ${c.autoComplete}`)
       .sort();
     expect(nonOff).toEqual([
+      "app/(auth)/forgot-password/ForgotPasswordForm.tsx => email",
       "app/(auth)/login/LoginForm.tsx => current-password",
       "app/(auth)/login/LoginForm.tsx => email",
+      "app/(auth)/reset-password/ResetPasswordForm.tsx => new-password",
+      "app/(auth)/reset-password/ResetPasswordForm.tsx => new-password",
       "app/(auth)/signup/SignupForm.tsx => email",
       "app/(auth)/signup/SignupForm.tsx => new-password",
       "app/(auth)/signup/SignupForm.tsx => new-password",

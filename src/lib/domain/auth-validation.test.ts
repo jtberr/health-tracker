@@ -3,7 +3,9 @@ import {
   isValidEmail,
   isValidPassword,
   MIN_PASSWORD_LENGTH,
+  validateForgotPasswordInput,
   validateLoginInput,
+  validateNewPasswordInput,
   validateSignupInput,
 } from "./auth-validation";
 
@@ -136,5 +138,96 @@ describe("validateSignupInput", () => {
       const fields = result.errors.map((e) => e.field).sort();
       expect(fields).toEqual(["confirmPassword", "email", "password"]);
     }
+  });
+});
+
+// Phase 8m (2026-08-11/15): password reset.
+describe("validateForgotPasswordInput", () => {
+  it("accepts a valid email", () => {
+    expect(validateForgotPasswordInput({ email: "jeff@example.com" }).ok).toBe(true);
+  });
+
+  it("rejects an empty email, reporting on the `email` field", () => {
+    const result = validateForgotPasswordInput({ email: "" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].field).toBe("email");
+    }
+  });
+
+  it("rejects a whitespace-only email", () => {
+    const result = validateForgotPasswordInput({ email: "   " });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.errors.some((e) => e.field === "email")).toBe(true);
+  });
+
+  it("rejects a malformed email, reporting on the `email` field", () => {
+    const result = validateForgotPasswordInput({ email: "not-an-email" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].field).toBe("email");
+    }
+  });
+});
+
+describe("validateNewPasswordInput", () => {
+  it("accepts a valid, matching password pair", () => {
+    const result = validateNewPasswordInput({
+      password: "new-password-1",
+      confirmPassword: "new-password-1",
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it(`rejects a password shorter than ${MIN_PASSWORD_LENGTH} characters, reporting on the "password" field`, () => {
+    const short = "a".repeat(MIN_PASSWORD_LENGTH - 1);
+    const result = validateNewPasswordInput({ password: short, confirmPassword: short });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].field).toBe("password");
+    }
+  });
+
+  it('rejects a mismatched confirmation, reporting on the "confirmPassword" field', () => {
+    const result = validateNewPasswordInput({
+      password: "new-password-1",
+      confirmPassword: "different-password",
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].field).toBe("confirmPassword");
+    }
+  });
+
+  it("treats an empty confirmPassword as a mismatch, not a separate 'required' error", () => {
+    const result = validateNewPasswordInput({ password: "new-password-1", confirmPassword: "" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.filter((e) => e.field === "confirmPassword")).toHaveLength(1);
+    }
+  });
+
+  it("reports BOTH a too-short password AND a mismatched confirmation at once", () => {
+    // The row the design doc calls out explicitly: the form must not show one problem, get it
+    // fixed, and then reveal another.
+    const result = validateNewPasswordInput({ password: "ab", confirmPassword: "xy" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const fields = result.errors.map((e) => e.field).sort();
+      expect(fields).toEqual(["confirmPassword", "password"]);
+    }
+  });
+
+  it("reuses isValidPassword/MIN_PASSWORD_LENGTH rather than a second hardcoded rule", () => {
+    // A password exactly at the shared minimum, with a matching confirmation, must be accepted —
+    // pins the shared constant/function rather than a locally-restated `6`.
+    const atMinimum = "a".repeat(MIN_PASSWORD_LENGTH);
+    expect(isValidPassword(atMinimum)).toBe(true);
+    const result = validateNewPasswordInput({ password: atMinimum, confirmPassword: atMinimum });
+    expect(result.ok).toBe(true);
   });
 });

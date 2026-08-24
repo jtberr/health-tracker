@@ -68,3 +68,48 @@ export function validateSignupInput(input: {
 
   return errors.length > 0 ? { ok: false, errors } : { ok: true };
 }
+
+/**
+ * Phase 8m (2026-08-11/15): "forgot password" — reuses `isValidEmail` rather than restating the
+ * rule (design doc §3.3). Reports on the `email` field, part of the existing, unchanged
+ * `FieldError` union.
+ */
+export function validateForgotPasswordInput(input: { email: string }): ValidationResult {
+  const errors: FieldError[] = [];
+
+  if (!input.email.trim()) {
+    errors.push({ field: "email", message: "Email is required." });
+  } else if (!isValidEmail(input.email)) {
+    errors.push({ field: "email", message: "Enter a valid email address." });
+  }
+
+  return errors.length > 0 ? { ok: false, errors } : { ok: true };
+}
+
+/**
+ * Phase 8m (2026-08-11/15): "reset password" — reuses `isValidPassword`/`MIN_PASSWORD_LENGTH`
+ * rather than restating the rule. Deliberately reports BOTH a too-short password AND a mismatched
+ * confirmation in the same call (design doc §6: "the form can't show one problem, get it fixed,
+ * and then reveal another").
+ */
+export function validateNewPasswordInput(input: {
+  password: string;
+  confirmPassword: string;
+}): ValidationResult {
+  const errors: FieldError[] = [];
+
+  if (!input.password) {
+    errors.push({ field: "password", message: "Password is required." });
+  } else if (!isValidPassword(input.password)) {
+    errors.push({
+      field: "password",
+      message: `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
+    });
+  }
+
+  if (input.confirmPassword !== input.password) {
+    errors.push({ field: "confirmPassword", message: "Passwords do not match." });
+  }
+
+  return errors.length > 0 ? { ok: false, errors } : { ok: true };
+}

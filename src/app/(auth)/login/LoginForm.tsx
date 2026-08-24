@@ -55,6 +55,9 @@ export function LoginForm() {
         {state.fieldErrors?.password && (
           <p className={errorTextClass}>{state.fieldErrors.password}</p>
         )}
+        <Link href="/forgot-password" className="self-end text-xs font-medium text-accent underline">
+          Forgot password?
+        </Link>
       </div>
 
       {state.error && <p className={errorTextClass}>{state.error}</p>}
