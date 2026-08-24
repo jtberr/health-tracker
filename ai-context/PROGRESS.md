@@ -4783,6 +4783,26 @@ state, plus 630/630 unit tests. All three are ready for qa-reviewer.**
   - **Ready for Jeff's approval.**
 
 ## Up Next
+-3. **Set up custom SMTP via Resend to unblock branded confirmation/reset emails (Jeff, 2026-08-24:
+   defer for now, revisit later).** Branded HTML templates already exist —
+   `supabase/templates/{confirmation,recovery}.html`, wired into `supabase/config.toml`'s
+   `[auth.email.template.confirmation]`/`[auth.email.template.recovery]` — and work today for
+   local `supabase start`. They are **not live on the hosted project**: `supabase config push`
+   was rejected with *"Email template modification is not available for free tier projects using
+   the default email provider. Please upgrade your plan or configure a custom SMTP provider."*
+   Users currently get Supabase's stock, unbranded "Confirm your signup"/"Reset password" emails
+   with no mention of Health Tracker — confusing, but not blocking (the links work correctly).
+   **When picked up**: create a free Resend account (100 emails/day, no owned domain required to
+   start — can send from Resend's shared onboarding domain), get an API key, then either push
+   `[auth.email.smtp]` in `config.toml` via `supabase config push` or configure it directly in the
+   Supabase dashboard (Authentication → Emails → SMTP Settings) — **do the latter if `config push`
+   is used again**, since it was found to push the *entire* `[auth]` section as one atomic
+   diff-or-nothing operation, including unrelated settings (MFA enrollment, OTP length/frequency)
+   that already differ between local `config.toml` and the hosted project's real values — those
+   fields must be reconciled in `config.toml` first, or the dashboard should be used instead to
+   avoid silently changing something else. Once SMTP is configured, `supabase config push` (or the
+   dashboard's own template editor) should successfully accept the two templates that are already
+   written and committed.
 -1. **Phase 9 ("PWA-lite shell") is QA-REVIEWED (2026-08-17, qa-reviewer) — READY TO GATE, no
    blocking findings. Awaiting Jeff's final approval** — once given, the entire Phase 1–9
    architect-planned build-out is complete (anything raised after that is a new finding/request, not
