@@ -73,12 +73,15 @@ jobs:
         # maps them to the names the app (NEXT_PUBLIC_*) and the e2e admin client
         # (SUPABASE_SERVICE_ROLE_KEY) read. Appending to $GITHUB_ENV exposes them to later steps
         # (including the Next server Playwright launches). These are non-secret local demo keys.
+        # The CLI prints shell-style `NAME="value"`; $GITHUB_ENV takes everything after `=`
+        # literally, so the quotes must be stripped or the URL becomes `"http://…"` and
+        # supabase-js rejects it ("Invalid supabaseUrl").
         run: |
           supabase status -o env \
             --override-name api.url=NEXT_PUBLIC_SUPABASE_URL \
             --override-name auth.anon_key=NEXT_PUBLIC_SUPABASE_ANON_KEY \
             --override-name auth.service_role_key=SUPABASE_SERVICE_ROLE_KEY \
-            >> "$GITHUB_ENV"
+            | tr -d '"' >> "$GITHUB_ENV"
 
       - name: Build
         run: npm run build
