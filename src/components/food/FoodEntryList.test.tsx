@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { FoodEntryList } from "./FoodEntryList";
 import type { FoodEntry } from "@/lib/types";
 
@@ -92,6 +92,34 @@ describe("FoodEntryList -- row actions (2026-08-07, Phase 8g: icon-only, Delete 
     const row = screen.getByText(/Rice/).closest("li")!;
     expect(within(row).getByRole("button", { name: "Delete 2 cup — Rice" })).toBeInTheDocument();
     expect(within(row).getByRole("button", { name: "Edit 2 cup — Rice" })).toBeInTheDocument();
+  });
+
+  it("Log again swaps its glyph for a check only when onLogAgain resolves true, and stays icon-only", async () => {
+    const onLogAgain = vi.fn().mockResolvedValue(true);
+    render(<FoodEntryList {...baseProps()} onLogAgain={onLogAgain} />);
+    const row = screen.getByText("Toast").closest("li")!;
+    const button = within(row).getByRole("button", { name: /Log again/ });
+    const glyphBefore = button.querySelector("svg")!.innerHTML;
+
+    fireEvent.click(button);
+    await waitFor(() => expect(button.querySelector("svg")!.innerHTML).not.toBe(glyphBefore));
+    expect(button.querySelectorAll("svg")).toHaveLength(1);
+    expect(button.textContent?.trim()).toBe("");
+    expect(button).toHaveAttribute("aria-label", "Log again Toast");
+    expect(button).not.toBeDisabled();
+  });
+
+  it("Log again keeps its repeat glyph when onLogAgain fails (resolves false)", async () => {
+    const onLogAgain = vi.fn().mockResolvedValue(false);
+    render(<FoodEntryList {...baseProps()} onLogAgain={onLogAgain} />);
+    const row = screen.getByText("Toast").closest("li")!;
+    const button = within(row).getByRole("button", { name: /Log again/ });
+    const glyphBefore = button.querySelector("svg")!.innerHTML;
+
+    fireEvent.click(button);
+    await waitFor(() => expect(button).not.toBeDisabled());
+    expect(onLogAgain).toHaveBeenCalledTimes(1);
+    expect(button.querySelector("svg")!.innerHTML).toBe(glyphBefore);
   });
 
   it("clicking Delete calls onDelete with the entry -- this component never confirms or deletes itself", () => {

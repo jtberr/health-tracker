@@ -4782,6 +4782,19 @@ state, plus 630/630 unit tests. All three are ready for qa-reviewer.**
     worth a hard guard given how catastrophic the symptom looks.
   - **Ready for Jeff's approval.**
 
+- [x] **"Log again" feedback fix (2026-10-06, direct edit at Jeff's request — trivial bar, no design
+  doc).** Jeff reported "Log again" works but looks like nothing happened. Cause: the confirmation
+  banner rendered above `FoodEntryForm` while the button lives in the list below it, so it appeared
+  off-screen and auto-dismissed unseen. Two changes: (1) `FoodDayView`'s `savedMessage` banner is now
+  a `pointer-events-none` toast fixed to the bottom of the viewport — applies to every `/food`
+  confirmation, not just "Log again"; `StatusMessage` itself is unchanged. (2) The row's "Log again"
+  glyph swaps to a check (`CheckIcon`, new) for 1.5s after a successful copy; `onLogAgain` now
+  resolves `true` on success. See `ai-context/DECISIONS.md`'s 2026-10-06 entry (first fixed-position
+  element in the app; `actionError` deliberately left in the page flow). **Verified**: lint and
+  `tsc` clean, component unit tests 97/97 (2 new in `FoodEntryList.test.tsx`). **NOT verified**: no
+  e2e run and no browser check — Docker/local Supabase was not running this session. Not
+  qa-reviewed.
+
 ## Up Next
 -3. **Set up custom SMTP via Resend to unblock branded confirmation/reset emails (Jeff, 2026-08-24:
    defer for now, revisit later).** Branded HTML templates already exist —

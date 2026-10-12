@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { groupByConsumedAt } from "@/lib/domain/entry-grouping";
 import { proteinCaloriePct } from "@/lib/domain/nutrition";
 import { sumEntries } from "@/lib/domain/totals";
@@ -8,7 +8,7 @@ import { formatTimeLabel, utcToLocalTime } from "@/lib/domain/datetime";
 import { roundTo } from "@/lib/domain/units";
 import { ActionPanel } from "@/components/ui/ActionPanel";
 import { Button } from "@/components/ui/Button";
-import { PencilIcon, RepeatIcon, TrashIcon } from "@/components/ui/icons";
+import { CheckIcon, PencilIcon, RepeatIcon, TrashIcon } from "@/components/ui/icons";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { CopyGroupDialog } from "./CopyGroupDialog";
 import { SaveGroupAsMealDialog } from "./SaveGroupAsMealDialog";
@@ -16,6 +16,9 @@ import type { FoodEntry, Meal } from "@/lib/types";
 
 /** Which group action, if any, is currently open — mutually exclusive per group (see below). */
 type GroupAction = { key: string; kind: "save" | "copy" } | null;
+
+/** How long a row's "Log again" button shows its check after a successful copy. */
+const LOG_AGAIN_CHECK_MS = 1500;
 
 /** The rendered label for an entry row -- shared by the visible name/quantity text and every
  * per-row action's aria-label (the select-mode checkbox, and, since 2026-08-07/Phase 8g, the
@@ -127,8 +130,9 @@ export function FoodEntryList({
   today: string;
   tz: string;
   onEdit: (entry: FoodEntry) => void;
-  /** Fired when a single entry's "Log again" (`copyFoodEntries`) succeeds. */
-  onLogAgain: (entry: FoodEntry) => Promise<void> | void;
+  /** Re-logs a single entry (`copyFoodEntries`). Resolves `true` only when the copy succeeded —
+   * that is what swaps the row's repeat glyph for a brief check. */
+  onLogAgain: (entry: FoodEntry) => Promise<boolean | void> | boolean | void;
   /** Phase 8g: deletes this entry. Owns the `window.confirm` and the actual `deleteFoodEntry`
    * mutation itself — this component only ever calls it, never confirms or deletes on its own. */
   onDelete: (entry: FoodEntry) => void;
@@ -160,10 +164,29 @@ export function FoodEntryList({
     }
   }, [selectMode]);
 
+  // In-place confirmation at the spot the user tapped: the repeat glyph becomes a check for a
+  // moment after a successful "Log again". The toast in FoodDayView carries the words; this only
+  // answers "did my tap register?" without the user having to look away from the row.
+  const [logAgainDoneId, setLogAgainDoneId] = useState<string | null>(null);
+  const logAgainDoneTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (logAgainDoneTimer.current) clearTimeout(logAgainDoneTimer.current);
+    };
+  }, []);
+
   async function handleLogAgain(entry: FoodEntry) {
     setLogAgainPendingId(entry.id);
     try {
-      await onLogAgain(entry);
+      const ok = await onLogAgain(entry);
+      if (ok === true) {
+        if (logAgainDoneTimer.current) clearTimeout(logAgainDoneTimer.current);
+        setLogAgainDoneId(entry.id);
+        logAgainDoneTimer.current = setTimeout(
+          () => setLogAgainDoneId(null),
+          LOG_AGAIN_CHECK_MS,
+        );
+      }
     } finally {
       setLogAgainPendingId(null);
     }
@@ -363,7 +386,11 @@ export function FoodEntryList({
                             onClick={() => handleLogAgain(entry)}
                             aria-label={`Log again ${entryLabel}`}
                           >
-                            <RepeatIcon />
+                            {logAgainDoneId === entry.id ? (
+                              <CheckIcon className="h-4 w-4 text-accent" />
+                            ) : (
+                              <RepeatIcon />
+                            )}
                           </Button>
                         </Tooltip>
                         <Tooltip text="Edit this entry's name, amount or time.">

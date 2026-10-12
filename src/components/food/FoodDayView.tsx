@@ -433,7 +433,9 @@ function FoodDayViewContent({
   // rather than leaving the user with no indication of where the entry went. The view deliberately
   // STAYS on the browsed day (switching it was considered and rejected, §4) -- naming the
   // destination is the fix, navigating is not.
-  async function handleLogAgain(entry: FoodEntry) {
+  //
+  // Resolves `true` only on success, so FoodEntryList can show its in-place check on the row.
+  async function handleLogAgain(entry: FoodEntry): Promise<boolean> {
     setActionError(null);
     const floored = floorToQuarterHour(new Date());
     const toTime = `${String(floored.getHours()).padStart(2, "0")}:${String(floored.getMinutes()).padStart(2, "0")}`;
@@ -447,7 +449,7 @@ function FoodDayViewContent({
 
     if (!result.ok || !result.entries || result.entries.length === 0) {
       setActionError(friendlyCopyError(result.error));
-      return;
+      return false;
     }
 
     const destinationNote =
@@ -459,6 +461,7 @@ function FoodDayViewContent({
       setLastConsumedAt(result.entries[0].consumed_at);
       refresh(selectedDate);
     }
+    return true;
   }
 
   return (
@@ -515,13 +518,23 @@ function FoodDayViewContent({
         </>
       )}
 
+      {/* Pinned to the bottom of the viewport as a toast (2026-10-06; ai-context/DECISIONS.md,
+          "/food confirmations are a bottom-of-viewport toast..."): most of this screen's
+          confirmations are triggered from the entry list, far below where this used to render in
+          the page flow, so the banner appeared off-screen and dismissed itself unseen. The app's
+          one fixed-position element. `pointer-events-none`: it has nothing to interact with, so it
+          must never block a tap on whatever row it happens to overlap. */}
       {savedMessage && (
-        <StatusMessage
-          key={savedMessageNonce}
-          message={savedMessage}
-          autoDismissMs={SUCCESS_MESSAGE_MS}
-          onDismiss={() => setSavedMessage(null)}
-        />
+        <div className="pointer-events-none fixed inset-x-0 bottom-4 z-50 flex justify-center px-4">
+          <div className="w-full max-w-md rounded-lg shadow-lg">
+            <StatusMessage
+              key={savedMessageNonce}
+              message={savedMessage}
+              autoDismissMs={SUCCESS_MESSAGE_MS}
+              onDismiss={() => setSavedMessage(null)}
+            />
+          </div>
+        </div>
       )}
       {actionError && <p className={errorTextClass}>{actionError}</p>}
 

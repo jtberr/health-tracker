@@ -2792,3 +2792,44 @@ wanted later; if either token's hex value changes in `globals.css`, these two li
 **Explicitly unaffected**: no service worker, no offline caching, no push/sync, no new npm dependency — the
 2026-07-19 "Persistent login... and installable PWA-lite, online-only" decision's boundary is untouched, and
 Phase 9 adds nothing that crosses it.
+
+### `/food` confirmations are a bottom-of-viewport toast, and "Log again" confirms in place with a brief check — the app's first fixed-position element
+**Date**: 2026-10-06
+**Decision**: Two changes, both in response to Jeff's report that "Log again" works but "seems like you push it
+and nothing happens":
+1. **`FoodDayView`'s `savedMessage` banner is pinned to the bottom of the viewport** (`fixed inset-x-0 bottom-4
+   z-50`, centred, `max-w-md`, `shadow-lg`, `pointer-events-none`) instead of rendering in the page flow between
+   the day-action bar and `FoodEntryForm`. `StatusMessage` itself is unchanged — same left-accent look, same
+   `SUCCESS_MESSAGE_MS` auto-dismiss, same `role="status"`, same per-message `key` nonce; only the wrapper in
+   `FoodDayView` positions it. This applies to **every** message that goes through `showSavedMessage` on `/food`
+   ("Entry added.", "Logged … again.", "Copied N entries to …", "Saved as …"), not only "Log again".
+   `/metrics`, `/settings` and `/meals` keep their in-flow `StatusMessage` — their triggers sit next to where
+   the message renders, so they do not have this problem.
+2. **A row's "Log again" button swaps its repeat glyph for a check for 1.5s after a successful copy**
+   (`CheckIcon`, new in `ui/icons.tsx`; `LOG_AGAIN_CHECK_MS` in `FoodEntryList`). `onLogAgain` now resolves
+   `true` on success so the list knows; a failed copy keeps the repeat glyph and reports through the existing
+   `actionError` channel. The button was already disabled while the request is in flight (double-tap guard) —
+   unchanged. It stays icon-only with the same `aria-label`; the check is `aria-hidden` like every other glyph,
+   and the toast's `role="status"` is what announces the result to assistive tech.
+**Why**: The feedback already existed and was simply out of sight. The banner rendered above the entry form,
+while "Log again", "Copy this group" and "Save as meal" are all triggered from the entry list
+*below* the form — on a phone the message appeared off-screen and dismissed itself after 6 seconds, unseen. The
+N-4 fix (Phase 8b) had improved the message's *wording* for this exact action without anyone noticing its
+*position* made the wording moot. A viewport-anchored toast is the conventional answer and fixes every
+list-triggered action in one place. The in-place check answers the narrower "did my tap register?" at the spot
+the user is looking, which the toast alone (at the screen edge) does not.
+**This is a new precedent, recorded as such**: Phase 8b rejected a sticky/floating selection bar partly because
+"no sticky-positioning pattern exists anywhere in this codebase". That reasoning is not reversed for *controls*
+— a floating bar of buttons has overlap, focus-order and tap-target consequences a passive message does not.
+The rule this leaves: **a transient, non-interactive confirmation may be viewport-fixed; interactive controls
+stay in the page flow.** `pointer-events-none` is load-bearing for that distinction — the toast can overlap the
+last rows of the list for its 6 seconds and must never swallow a tap meant for them.
+**Rejected**: scrolling the page up to the in-flow banner (yanks the user off the list they are working in —
+the same "don't move the user" reasoning as N-4); flashing/highlighting the newly-created row (when browsing a
+past day the new row lands on *today* and there is nothing to flash, and even on today it can land in a
+different time group off-screen); a toast library (one positioned wrapper does not need a dependency); and
+moving `StatusMessage` app-wide to a toast (the other three screens do not have the problem, and a blanket
+change would touch four already-reviewed surfaces to fix one).
+**Not covered here**: `actionError` (a failed copy/delete) still renders in the page flow above the form and
+has the same out-of-view weakness, so a failed list-triggered action can still go unseen. Left alone
+deliberately — the report was about success feedback, and whether errors should also float is a separate call.

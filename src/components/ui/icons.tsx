@@ -45,6 +45,15 @@ export function RepeatIcon({ className = "h-4 w-4" }: IconProps) {
   );
 }
 
+/** Brief in-place "that worked" confirmation on a row's "Log again" button (check). */
+export function CheckIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg {...BASE_PROPS} className={className}>
+      <path d="M20 6 9 17l-5-5" />
+    </svg>
+  );
+}
+
 /** "Edit" (pencil). */
 export function PencilIcon({ className = "h-4 w-4" }: IconProps) {
   return (
